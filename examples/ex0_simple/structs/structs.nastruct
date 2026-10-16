@@ -1,0 +1,42 @@
+
+class Entity{
+    name: Str;
+    gender: Str = "?";
+    birthday: DateTime = DateTime();
+    birthplace: Str = "";
+
+    parents: Array[Entity] = [];
+    children: Array[Entity] = [];
+
+    @age(now: DateTime) -> Time {
+        now - birthday;
+    }
+}
+
+class Human(Entity){
+    size: Float;
+    weight: Float;
+
+    pets: Array[Animal] = [];
+    objects: Array[ObjectInstance] = [];
+}
+
+class Animal(Entity){}
+
+class Cat(Animal){
+    color: Color = Color(255, 255, 255);
+}
+
+class ObjectType{
+    name: Str;
+    description: Str = "";
+}
+
+class ObjectInstance{
+    object_type: ObjectType;
+    state: Float = 1.0;
+
+    @is_broken -> Bool {
+        state <= 0;
+    }
+}

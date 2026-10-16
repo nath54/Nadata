@@ -1,0 +1,40 @@
+
+# --- Humans ---
+
+tom = Human(
+    name="Tom",
+    gender="m",
+    birthday=DateTime(d=12, m=04, y=2003),
+    birthplace="Paris",
+    parents=[jean, louise],
+    objects=[
+        ObjectInstance(knife)
+    ]
+)
+
+jean = Human(
+    name="Jean",
+    gender="m",
+    birthday=DateTime(d=12, m=04, y=1972),
+    birthplace="Paris",
+    children=[tom],
+    pets=[white_cat]
+)
+
+louise = Human(
+    name="Louise",
+    gender="f",
+    birthday=DateTime(d=12, m=04, y=1972),
+    birthplace="Paris"
+)
+
+# --- Animals ---
+
+white_cat = Cat(
+    name="White cat",
+    color=Color(255, 255, 255)
+)
+
+# --- Objects ---
+
+knife = ObjectType(name="Knife", description="cut things")
