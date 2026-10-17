@@ -33,12 +33,24 @@ class BitValueType:
             ValueError: If endian is not 'big' or 'little'.
         """
 
-        # Check endian value
+        # Validate endianness
         if endian not in ("big", "little"):
             raise ValueError(f"Endian must be 'big' or 'little', got '{endian}'")
 
-        # Store endian value
         self.endian: str = endian
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value fits within this type specification.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
+
+        raise NotImplementedError("check_value must be implemented by subclasses.")
 
 
 class BitValueTypeInt(BitValueType):
@@ -72,10 +84,10 @@ class BitValueTypeInt(BitValueType):
             ValueError: If num_bits <= 0 or endian is invalid.
         """
 
-        # Parent init
+        # Initialize parent class
         super().__init__(endian=endian)
 
-        # Check number of bits
+        # Validate bit count
         if num_bits <= 0:
             raise ValueError(f"num_bits must be positive, got {num_bits}")
 
@@ -85,33 +97,33 @@ class BitValueTypeInt(BitValueType):
         # Number of value bits (excluding sign bit if signed)
         self.num_bits_val: int = num_bits - int(signed)
 
-        # Compute interval range
-        self.val_min: int = 0
-        self.val_max: int = (1 << num_bits) - 1
-
+        # Compute minimum and maximum interval bounds
         if signed:
             self.val_min: int = -(1 << (num_bits - 1))
             self.val_max: int = (1 << (num_bits - 1)) - 1
+        else:
+            self.val_min = 0
+            self.val_max = (1 << num_bits) - 1
 
-    def check_value(self, value: int) -> None:
+    def check_value(self, value: Any) -> None:
         """
         Validates that an integer fits within the bounds of this type.
 
         Args:
-            value (int): Integer value to validate.
+            value (Any): Integer value to validate.
 
         Raises:
             TypeError: If value is not an int or is a bool.
             ValueError: If value is strictly outside [val_min, val_max].
         """
 
-        # Check value type
+        # Verify type is strictly integer and not boolean
         if isinstance(value, bool) or not isinstance(value, int):
             raise TypeError(f"Expected int, got {type(value).__name__}")
 
-        # Check value interval
+        # Check bounds
         if value < self.val_min or value > self.val_max:
-            sign_str = "Int" if self.signed else "UInt"
+            sign_str: str = "Int" if self.signed else "UInt"
             raise ValueError(
                 f"Value {value} is out of bounds for {sign_str}{self.num_bits} "
                 f"[{self.val_min}, {self.val_max}]"
@@ -146,7 +158,7 @@ class BitValueTypeFloat(BitValueType):
 
         Args:
             num_bits (int, optional): Total bit width. Defaults to 32.
-            num_bits_exponent (int, optional): Number of bits reserved for exponent. Defaults to 8.
+            num_bits_exponent (int, optional): Number of bits for exponent. Defaults to 8.
             signed (bool, optional): Whether there is a sign bit. Defaults to True.
             endian (str, optional): Byte/bit order ('big' or 'little'). Defaults to 'big'.
 
@@ -154,10 +166,10 @@ class BitValueTypeFloat(BitValueType):
             ValueError: If num_bits_exponent < 1, mantissa bits < 0, or endian is invalid.
         """
 
-        # Parent init
+        # Initialize parent class
         super().__init__(endian=endian)
 
-        # Check number of exponent bits
+        # Validate exponent bit count
         if num_bits_exponent < 1:
             raise ValueError(f"num_bits_exponent must be at least 1, got {num_bits_exponent}")
 
@@ -166,7 +178,7 @@ class BitValueTypeFloat(BitValueType):
         self.signed: bool = signed
         self.num_bits_mantissa: int = num_bits - int(signed) - num_bits_exponent
 
-        # Check number of mantissa bits
+        # Validate that mantissa has non-negative bits
         if self.num_bits_mantissa < 0:
             raise ValueError(
                 f"Total bits ({num_bits}) is too small for signed={signed} "
@@ -177,32 +189,33 @@ class BitValueTypeFloat(BitValueType):
         self.bias: int = (1 << (num_bits_exponent - 1)) - 1
         self.max_exp: int = (1 << num_bits_exponent) - 1
 
-        # Max finite normal float
-        max_normal_exp = self.max_exp - 1
-        self.val_max: float = (2.0 - (2.0 ** -self.num_bits_mantissa)) * (2.0 ** (max_normal_exp - self.bias))
+        # Max finite normal float calculation
+        max_normal_exp: int = self.max_exp - 1
+        scale: float = 2.0 ** (max_normal_exp - self.bias)
+        self.val_max: float = (2.0 - (2.0 ** -self.num_bits_mantissa)) * scale
         self.val_min: float = -self.val_max if signed else 0.0
 
-    def check_value(self, value: float) -> None:
+    def check_value(self, value: Any) -> None:
         """
         Validates that a floating-point number is acceptable for this specification.
 
         Args:
-            value (float): Floating-point number to validate.
+            value (Any): Floating-point number to validate.
 
         Raises:
             TypeError: If value is not a float or int, or is a bool.
             ValueError: If an unsigned float receives a negative value.
         """
 
-        # Check value type
+        # Verify type is numerical and not boolean
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TypeError(f"Expected float or int, got {type(value).__name__}")
 
-        # Check value integrity
+        # Allow special IEEE values
         if math.isnan(value) or math.isinf(value):
             return
 
-        # Check value range
+        # Check sign constraint for unsigned floats
         if not self.signed and value < 0:
             raise ValueError(f"Value {value} cannot be negative for unsigned Float{self.num_bits}")
 
@@ -229,6 +242,7 @@ class BitArray:
             value_type (BitValueType): Associated bit specification.
         """
 
+        # Store converted boolean bits and value type
         self.bits: list[bool] = [bool(b) for b in bits]
         self.value_type: BitValueType = value_type
 
@@ -276,9 +290,11 @@ class BitArray:
             bool: True if equal, False otherwise.
         """
 
+        # Compare with another BitArray
         if isinstance(other, BitArray):
             return self.bits == other.bits and self.value_type.endian == other.value_type.endian
 
+        # Compare with raw boolean list
         if isinstance(other, list):
             return self.bits == other
 
@@ -295,10 +311,13 @@ class BitArray:
             str: Binary string (e.g. '01010101').
         """
 
+        # Generate characters for each bit
         chars: list[str] = ["1" if b else "0" for b in self.bits]
 
-        return delimiter.join(chars)
+        if delimiter:
+            return delimiter.join(chars)
 
+        return "".join(chars)
 
     def to_bytes(self) -> bytes:
         """
@@ -308,12 +327,12 @@ class BitArray:
             bytes: Byte sequence containing the packed bits.
         """
 
-        byte_list = bytearray()
+        # Pack chunks of 8 bits into bytearray
+        byte_list: bytearray = bytearray()
 
         for i in range(0, len(self.bits), 8):
-
-            chunk = self.bits[i:i + 8]
-            byte_val = 0
+            chunk: list[bool] = self.bits[i:i + 8]
+            byte_val: int = 0
 
             for b in chunk:
                 byte_val = (byte_val << 1) | int(b)
@@ -338,19 +357,21 @@ class BitArray:
         Args:
             data (bytes): Input bytes to unpack.
             value_type (BitValueType): Associated bit specification.
-            num_bits (int, optional): Target number of bits to extract. Defaults to None (all bits).
+            num_bits (int, optional): Target number of bits to extract. Defaults to None.
 
         Returns:
             BitArray: Constructed BitArray instance.
         """
 
+        # Extract bits from each byte
         bits: list[bool] = []
 
         for byte in data:
             for shift in range(7, -1, -1):
                 bits.append(bool((byte >> shift) & 1))
 
-        target_bits = num_bits if num_bits is not None else len(bits)
+        # Truncate to target bit count if specified
+        target_bits: int = num_bits if num_bits is not None else len(bits)
 
         return cls(bits=bits[:target_bits], value_type=value_type)
 
@@ -402,11 +423,11 @@ class Bits:
             ValueError: If value is out of bounds for the given bit specification.
         """
 
-        # Validate value
+        # Validate input integer value
         value_type.check_value(value=value)
 
         # Mask to bit width (two's complement for negatives)
-        raw_uint = value & ((1 << value_type.num_bits) - 1)
+        raw_uint: int = value & ((1 << value_type.num_bits) - 1)
 
         # Generate bits from MSB to LSB
         bits: list[bool] = [
@@ -439,11 +460,13 @@ class Bits:
             ValueError: If bit array length does not match expected num_bits.
         """
 
-        bits = list(bit_arr.bits)
+        # Copy bits and check length match
+        bits: list[bool] = list(bit_arr.bits)
 
         if len(bits) != value_type.num_bits:
             raise ValueError(
-                f"BitArray length ({len(bits)}) does not match expected num_bits ({value_type.num_bits})"
+                f"BitArray length ({len(bits)}) does not match expected num_bits "
+                f"({value_type.num_bits})"
             )
 
         # Restore MSB-first order if little-endian
@@ -451,7 +474,8 @@ class Bits:
             bits.reverse()
 
         # Reconstruct unsigned integer
-        raw_uint = 0
+        raw_uint: int = 0
+
         for b in bits:
             raw_uint = (raw_uint << 1) | int(b)
 
@@ -460,6 +484,60 @@ class Bits:
             return raw_uint - (1 << value_type.num_bits)
 
         return raw_uint
+
+    @staticmethod
+    def _encode_float_components(
+        value: float,
+        value_type: BitValueTypeFloat
+    ) -> tuple[int, int]:
+        """
+        Computes the biased exponent and mantissa integers for a non-zero, finite float.
+
+        Args:
+            value (float): Non-zero, finite float value.
+            value_type (BitValueTypeFloat): Float specification.
+
+        Returns:
+            tuple[int, int]: Biased exponent and integer mantissa.
+        """
+
+        abs_val: float = abs(value)
+        bias: int = value_type.bias
+        max_exp: int = value_type.max_exp
+        mant_bits: int = value_type.num_bits_mantissa
+
+        # Normalized exponent calculation
+        _, e_raw = math.frexp(abs_val)
+        e: int = e_raw - 1
+        biased_exp: int = e + bias
+
+        # Overflow check
+        if biased_exp >= max_exp:
+            return max_exp, 0
+
+        # Subnormal check
+        if biased_exp <= 0:
+            biased_exp = 0
+            f: float = abs_val / (2.0 ** (1 - bias))
+            mantissa: int = round(f * (2 ** mant_bits))
+
+            if mantissa >= (1 << mant_bits):
+                return 1, 0
+
+            return biased_exp, mantissa
+
+        # Normal number calculation
+        f_norm: float = (abs_val / (2.0 ** e)) - 1.0
+        mant_val: int = round(f_norm * (2 ** mant_bits))
+
+        if mant_val >= (1 << mant_bits):
+            biased_exp += 1
+            mant_val = 0
+
+            if biased_exp >= max_exp:
+                return max_exp, 0
+
+        return biased_exp, mant_val
 
     @staticmethod
     def float_val_to_bits(
@@ -483,93 +561,49 @@ class Bits:
             ValueError: If an unsigned float specification receives a negative value.
         """
 
+        # Validate input float value
         value_type.check_value(value=value)
 
-        exp_bits_len = value_type.num_bits_exponent
-        mant_bits_len = value_type.num_bits_mantissa
-        bias = value_type.bias
-        max_exp = value_type.max_exp
+        exp_bits_len: int = value_type.num_bits_exponent
+        mant_bits_len: int = value_type.num_bits_mantissa
+        max_exp: int = value_type.max_exp
+        sign_bit: bool = (math.copysign(1.0, value) < 0) if value_type.signed else False
 
-        sign_bit = (math.copysign(1.0, value) < 0) if value_type.signed else False
-
-        # Handle NaN
+        # Handle special cases (NaN, Inf, Zero)
         if math.isnan(value):
-            biased_exp = max_exp
-            mantissa = 1 << (mant_bits_len - 1) if mant_bits_len > 0 else 0
-
-        # Handle Infinity
+            biased_exp: int = max_exp
+            mantissa: int = 1 << (mant_bits_len - 1) if mant_bits_len > 0 else 0
         elif math.isinf(value):
             biased_exp = max_exp
             mantissa = 0
-
-        # Handle Zero
         elif value == 0.0:
             biased_exp = 0
             mantissa = 0
-
         else:
-
-            abs_val = abs(value)
-
-            # Use frexp: abs_val = m * 2^e_raw, where 0.5 <= m < 1.0
-            m, e_raw = math.frexp(abs_val)
-
-            # Normalized exponent for 1.f * 2^e is e_raw - 1
-            e = e_raw - 1
-            biased_exp = e + bias
-
-            if biased_exp >= max_exp:
-
-                # Overflow to infinity
-                biased_exp = max_exp
-                mantissa = 0
-
-            elif biased_exp <= 0:
-
-                # Subnormal number: exponent is 0, fraction relative to 2^(1 - bias)
-                biased_exp = 0
-                f = abs_val / (2.0 ** (1 - bias))
-                mantissa = round(f * (2 ** mant_bits_len))
-
-                if mantissa >= (1 << mant_bits_len):
-                    biased_exp = 1
-                    mantissa = 0
-
-            else:
-
-                # Normal number: fraction f in [0, 1)
-                f = (abs_val / (2.0 ** e)) - 1.0
-                mantissa = round(f * (2 ** mant_bits_len))
-
-                if mantissa >= (1 << mant_bits_len):
-
-                    biased_exp += 1
-                    mantissa = 0
-
-                    if biased_exp >= max_exp:
-                        biased_exp = max_exp
-                        mantissa = 0
+            biased_exp, mantissa = Bits._encode_float_components(value, value_type)
 
         # Construct exponent bits (MSB first)
-        exponent_bits = [
+        exponent_bits: list[bool] = [
             bool((biased_exp >> (exp_bits_len - 1 - i)) & 1)
             for i in range(exp_bits_len)
         ]
 
         # Construct mantissa bits (MSB first)
-        mantissa_bits = [
+        mantissa_bits: list[bool] = [
             bool((mantissa >> (mant_bits_len - 1 - i)) & 1)
             for i in range(mant_bits_len)
         ]
 
-        # Assemble layout
+        # Assemble bits
         res: list[bool] = []
+
         if value_type.signed:
             res.append(sign_bit)
+
         res.extend(exponent_bits)
         res.extend(mantissa_bits)
 
-        # Little endian reverses the bit order
+        # Reverse if little-endian
         if value_type.endian == "little":
             res.reverse()
 
@@ -594,44 +628,46 @@ class Bits:
             ValueError: If bit array length does not match expected num_bits.
         """
 
+        # Copy bits and check length match
         bits: list[bool] = list(bit_arr.bits)
 
         if len(bits) != value_type.num_bits:
             raise ValueError(
-                f"BitArray length ({len(bits)}) does not match expected num_bits ({value_type.num_bits})"
+                f"BitArray length ({len(bits)}) does not match expected num_bits "
+                f"({value_type.num_bits})"
             )
 
         # Restore MSB-first order if little-endian
         if value_type.endian == "little":
             bits.reverse()
 
-        idx = 0
-        sign_bit = False
+        idx: int = 0
+        sign_bit: bool = False
 
         if value_type.signed:
             sign_bit = bits[0]
             idx += 1
 
-        exp_bits_len = value_type.num_bits_exponent
-        mant_bits_len = value_type.num_bits_mantissa
-        bias = value_type.bias
-        max_exp = value_type.max_exp
+        exp_bits_len: int = value_type.num_bits_exponent
+        mant_bits_len: int = value_type.num_bits_mantissa
+        bias: int = value_type.bias
+        max_exp: int = value_type.max_exp
 
-        # Extract exponent
-        biased_exp = 0
+        # Extract exponent integer
+        biased_exp: int = 0
 
-        for b in bits[idx : idx + exp_bits_len]:
+        for b in bits[idx:idx + exp_bits_len]:
             biased_exp = (biased_exp << 1) | int(b)
 
         idx += exp_bits_len
 
-        # Extract mantissa
-        mantissa = 0
+        # Extract mantissa integer
+        mantissa: int = 0
 
-        for b in bits[idx : idx + mant_bits_len]:
+        for b in bits[idx:idx + mant_bits_len]:
             mantissa = (mantissa << 1) | int(b)
 
-        sign = -1.0 if (value_type.signed and sign_bit) else 1.0
+        sign: float = -1.0 if (value_type.signed and sign_bit) else 1.0
 
         # Special cases: Inf and NaN
         if biased_exp == max_exp:
@@ -643,6 +679,7 @@ class Bits:
         if biased_exp == 0:
             if mantissa == 0:
                 return sign * 0.0
+
             return sign * (mantissa / (2.0 ** mant_bits_len)) * (2.0 ** (1 - bias))
 
         # Normal float
