@@ -24,3 +24,21 @@ from src.core.expressions.expression import (
     IdentifierExpr,
     MemberAccessExpr,
 )
+
+__all__: list[str] = [
+    "ReturnSignal",
+    "ExecutionScope",
+    "Statement",
+    "VarDeclStmt",
+    "AssignStmt",
+    "IfStmt",
+    "ReturnStmt",
+    "BlockStmt",
+    "Expression",
+    "LiteralExpr",
+    "IdentifierExpr",
+    "UnaryOpExpr",
+    "BinaryOpExpr",
+    "MemberAccessExpr",
+    "CallExpr",
+]
