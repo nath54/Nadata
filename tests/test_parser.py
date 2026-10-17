@@ -38,8 +38,8 @@ def test_parser_block_extraction() -> None:
     def mock_parse_fn(name: str, content: str) -> None:
         recorded.append(("fn", name, content.strip()))
 
-    parser.parse_struct = mock_parse_struct  # type: ignore[assignment]
-    parser.parse_fn = mock_parse_fn          # type: ignore[assignment]
+    parser.parse_struct = mock_parse_struct  # type: ignore[method-assign]
+    parser.parse_fn = mock_parse_fn          # type: ignore[method-assign]
 
     parser.parse_file(content=content)
 

@@ -20,6 +20,7 @@ from src.core.database import (
     PrintFunction,
     StructInstance,
     NaDataDatabase,
+    NaDataDatabaseDumper,
     QueryOptimizer,
 )
 
@@ -286,3 +287,58 @@ def test_queryset_chaining_and_print() -> None:
     assert len(printer.captured_output) == 1
     assert "Results:" in printer.captured_output[0]
     assert "<Human id=1>" in printer.captured_output[0]
+
+
+def test_database_dumper_output() -> None:
+    """
+    Tests that the dumper renders structs, symbols, and instance diagnostics.
+    """
+
+    db: NaDataDatabase = NaDataDatabase()
+
+    # Define a schema with a required attribute and a defaulted attribute
+    entity_struct: Struct = Struct(name="Entity")
+    entity_struct.add_attribute(StructAttribute(name="name", attr_type=TypeStr()))
+    entity_struct.add_attribute(StructAttribute(name="origin", attr_type=TypeStr()))
+
+    db.register_struct(struct=entity_struct)
+
+    # Insert one complete instance with a symbol and one incomplete instance
+    db.create_instance(
+        struct=entity_struct,
+        attributes={"name": ValueStr(TypeStr(), "Tom")},
+        symbol="tom"
+    )
+    db.create_instance(
+        struct=entity_struct,
+        attributes={"name": ValueStr(TypeStr(), "Jean"), "origin": ValueStr(TypeStr(), "Paris")}
+    )
+
+    # Render the dump and to file
+    dumper: NaDataDatabaseDumper = NaDataDatabaseDumper(database=db)
+    dump_text: str = dumper.dump_to_string()
+
+    # Header statistics
+    assert "structs:   1" in dump_text
+    assert "instances: 2" in dump_text
+
+    # Struct section content
+    assert "Struct Entity [type_id=0]" in dump_text
+    assert "name: Str" in dump_text
+
+    # Symbols section content
+    assert "tom -> EntityId" in dump_text
+
+    # Instance diagnostics: missing required attribute and defaulted value
+    assert 'name = Str("Tom")' in dump_text
+    assert "origin = !! MISSING (required, no default)" in dump_text
+
+    # Dump to file round trip
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        dump_path: str = os.path.join(tmp_dir, "dump.txt")
+        dumper.dump_to_file(file_path=dump_path)
+
+        with open(dump_path, "r", encoding="utf-8") as file:
+            file_text: str = file.read()
+
+        assert file_text == dump_text

@@ -7,6 +7,7 @@ PageManager, StructTable, QueryOptimizer, QueryExecutor, and NaDataDatabase.
 
 # Import Modules
 from src.core.database.builtins import PrintFunction
+from src.core.database.dumper import NaDataDatabaseDumper
 from src.core.database.queryset import QuerySet
 from src.core.database.instance import StructInstance
 from src.core.database.entity_id import EntityId
@@ -23,6 +24,7 @@ from src.core.database.query_engine import (
 )
 
 __all__: list[str] = [
+    "NaDataDatabaseDumper",
     "EntityId",
     "QuerySet",
     "SlottedPage",
