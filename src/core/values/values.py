@@ -7,7 +7,7 @@ including integers, floats, strings, booleans, arrays, and dictionaries.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 from src.core.types.bits.bits import (
     Bits,
@@ -306,14 +306,14 @@ class ValueArray(Value):
     def __init__(
         self,
         value_type: TypeArray,
-        elements: list[Any] | None = None
+        elements: Optional[list[Any]] = None
     ) -> None:
         """
         Initializes the ValueArray instance.
 
         Args:
             value_type (TypeArray): Array type specification.
-            elements (list[Any] | None, optional): Initial elements. Defaults to None.
+            elements (Optional[list[Any]], optional): Initial elements. Defaults to None.
 
         Raises:
             TypeError: If elements violate the array value_type.
@@ -373,14 +373,14 @@ class ValueDict(Value):
     def __init__(
         self,
         value_type: TypeDict,
-        entries: dict[Any, Any] | None = None
+        entries: Optional[dict[Any, Any]] = None
     ) -> None:
         """
         Initializes the ValueDict instance.
 
         Args:
             value_type (TypeDict): Dictionary type specification.
-            entries (dict[Any, Any] | None, optional): Initial dictionary. Defaults to None.
+            entries (Optional[dict[Any, Any]], optional): Initial dictionary. Defaults to None.
 
         Raises:
             TypeError: If entries violate the dictionary key_type or value_type.

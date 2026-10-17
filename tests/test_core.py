@@ -4,7 +4,7 @@ Unit tests for Nadata core types, values, and struct schema models.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 
@@ -166,7 +166,7 @@ def test_struct_method_registration() -> None:
     )
     entity.add_method(method=method)
 
-    resolved: StructMethod | None = entity.get_method(name="is_alive")
+    resolved: Optional[StructMethod] = entity.get_method(name="is_alive")
 
     assert resolved is not None
     assert resolved.name == "is_alive"

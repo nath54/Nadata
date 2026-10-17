@@ -6,7 +6,7 @@ Supports arbitrary-width signed/unsigned integers and custom floating-point spec
 
 # Import Modules
 from __future__ import annotations
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 import math
 
@@ -349,7 +349,7 @@ class BitArray:
         cls,
         data: bytes,
         value_type: BitValueType,
-        num_bits: int | None = None
+        num_bits: Optional[int] = None
     ) -> BitArray:
         """
         Creates a BitArray from raw bytes.
@@ -357,7 +357,7 @@ class BitArray:
         Args:
             data (bytes): Input bytes to unpack.
             value_type (BitValueType): Associated bit specification.
-            num_bits (int, optional): Target number of bits to extract. Defaults to None.
+            num_bits (Optional[int], optional): Target number of bits to extract. Defaults to None.
 
         Returns:
             BitArray: Constructed BitArray instance.

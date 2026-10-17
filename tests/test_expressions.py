@@ -4,6 +4,7 @@ Unit tests for AST expression and statement execution engine.
 
 # Import Modules
 from __future__ import annotations
+from typing import Optional
 
 from src.core.struct.struct import Struct
 from src.core.types.types import (
@@ -139,7 +140,7 @@ def test_is_broken_method_logic() -> None:
         struct=struct_obj,
         attributes={"state": ValueFloat(value_type=Float32, value=1.0)}
     )
-    result_intact: Value | None = method_is_broken.execute(self_instance=mock_intact)
+    result_intact: Optional[Value] = method_is_broken.execute(self_instance=mock_intact)
 
     assert result_intact is not None
     assert isinstance(result_intact, ValueBool)
@@ -150,7 +151,7 @@ def test_is_broken_method_logic() -> None:
         struct=struct_obj,
         attributes={"state": ValueFloat(value_type=Float32, value=-0.5)}
     )
-    result_broken: Value | None = method_is_broken.execute(self_instance=mock_broken)
+    result_broken: Optional[Value] = method_is_broken.execute(self_instance=mock_broken)
 
     assert result_broken is not None
     assert isinstance(result_broken, ValueBool)
@@ -246,7 +247,7 @@ def test_member_call_and_older_logic() -> None:
     struct_entity.add_method(method=method_older)
 
     # tom (age 23) is NOT older than jean (age 54) -> False
-    res_older: Value | None = method_older.execute(
+    res_older: Optional[Value] = method_older.execute(
         self_instance=tom,
         args=[jean]  # type: ignore[list-item]
     )
@@ -256,7 +257,7 @@ def test_member_call_and_older_logic() -> None:
     assert res_older.get() is False
 
     # jean (age 54) IS older than tom (age 23) -> True
-    res_jean_older: Value | None = method_older.execute(
+    res_jean_older: Optional[Value] = method_older.execute(
         self_instance=jean,
         args=[tom]  # type: ignore[list-item]
     )

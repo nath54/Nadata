@@ -7,7 +7,7 @@ declared attributes, and declared methods.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 from src.core.struct.struct_method import StructMethod
 from src.core.struct.struct_attribute import StructAttribute
@@ -19,7 +19,7 @@ class Struct:
 
     Attributes:
         name (str): Identifier name of the struct (e.g. 'Human', 'Entity').
-        parent (Struct | None): Optional base struct this struct inherits from.
+        parent (Optional[Struct]): Optional base struct this struct inherits from.
         attributes (dict[str, StructAttribute]): Attributes defined in this struct.
         methods (dict[str, StructMethod]): Methods defined in this struct.
     """
@@ -27,18 +27,18 @@ class Struct:
     def __init__(
         self,
         name: str,
-        parent: Struct | None = None
+        parent: Optional[Struct] = None
     ) -> None:
         """
         Initializes the Struct instance.
 
         Args:
             name (str): Name of the struct.
-            parent (Struct | None, optional): Parent struct for inheritance. Defaults to None.
+            parent (Optional[Struct], optional): Parent struct. Defaults to None.
         """
 
         self.name: str = name
-        self.parent: Struct | None = parent
+        self.parent: Optional[Struct] = parent
         self.attributes: dict[str, StructAttribute] = {}
         self.methods: dict[str, StructMethod] = {}
 
@@ -80,7 +80,7 @@ class Struct:
 
         self.methods[method.name] = method
 
-    def get_attribute(self, name: str) -> StructAttribute | None:
+    def get_attribute(self, name: str) -> Optional[StructAttribute]:
         """
         Resolves an attribute by name, looking in this struct and its parents.
 
@@ -88,7 +88,7 @@ class Struct:
             name (str): Name of the attribute.
 
         Returns:
-            StructAttribute | None: Attribute definition if found, None otherwise.
+            Optional[StructAttribute]: Attribute definition if found, None otherwise.
         """
 
         # Check local attributes first
@@ -120,7 +120,7 @@ class Struct:
 
         return combined
 
-    def get_method(self, name: str) -> StructMethod | None:
+    def get_method(self, name: str) -> Optional[StructMethod]:
         """
         Resolves a method by name, looking in this struct and its parents.
 
@@ -128,7 +128,7 @@ class Struct:
             name (str): Name of the method.
 
         Returns:
-            StructMethod | None: Method definition if found, None otherwise.
+            Optional[StructMethod]: Method definition if found, None otherwise.
         """
 
         # Check local methods first

@@ -7,7 +7,7 @@ strings, booleans, arrays, and dictionaries.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 from src.core.types.bits.bits import (
     BitValueTypeInt,
@@ -357,14 +357,14 @@ class TypeDict(Type):
     def __init__(
         self,
         value_type: Type,
-        key_type: Type | None = None
+        key_type: Optional[Type] = None
     ) -> None:
         """
         Initializes the TypeDict instance.
 
         Args:
             value_type (Type): Type of values allowed in this dictionary.
-            key_type (Type | None, optional): Type of keys. Defaults to TypeStr().
+            key_type (Optional[Type], optional): Type of keys. Defaults to TypeStr().
         """
 
         # Initialize parent class

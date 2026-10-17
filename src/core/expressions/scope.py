@@ -7,7 +7,7 @@ self-instance bindings, and return flow signals.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 from src.core.values.values import Value
 
@@ -17,21 +17,21 @@ class ReturnSignal(Exception):
     Control flow signal raised by a return statement to unwind execution.
 
     Attributes:
-        value (Value | None): The typed Value returned by the statement.
+        value (Optional[Value]): The typed Value returned by the statement.
     """
 
-    def __init__(self, value: Value | None = None) -> None:
+    def __init__(self, value: Optional[Value] = None) -> None:
         """
         Initializes the ReturnSignal instance.
 
         Args:
-            value (Value | None, optional): Typed Value to propagate. Defaults to None.
+            value (Optional[Value], optional): Typed Value to propagate. Defaults to None.
         """
 
         # Initialize parent exception
         super().__init__()
 
-        self.value: Value | None = value
+        self.value: Optional[Value] = value
 
 
 class ExecutionScope:
@@ -39,8 +39,8 @@ class ExecutionScope:
     Hierarchical execution environment storing typed Value variables, parameters, and self.
 
     Attributes:
-        parent (ExecutionScope | None): Enclosing parent scope for lexical scoping.
-        self_instance (Any | None): Reference to the current struct instance receiver.
+        parent (Optional[ExecutionScope]): Enclosing parent scope for lexical scoping.
+        self_instance (Optional[Any]): Reference to the current struct instance receiver.
         variables (dict[str, Value]): Locally declared Value variables in this scope.
         parameters (dict[str, Value]): Bound method Value parameters.
         globals_dict (dict[str, Any]): Global functions, constructors, and types.
@@ -48,23 +48,23 @@ class ExecutionScope:
 
     def __init__(
         self,
-        parent: ExecutionScope | None = None,
-        self_instance: Any | None = None,
-        parameters: dict[str, Value] | None = None,
-        globals_dict: dict[str, Any] | None = None
+        parent: Optional[ExecutionScope] = None,
+        self_instance: Optional[Any] = None,
+        parameters: Optional[dict[str, Value]] = None,
+        globals_dict: Optional[dict[str, Any]] = None
     ) -> None:
         """
         Initializes the ExecutionScope instance.
 
         Args:
-            parent (ExecutionScope | None, optional): Parent scope. Defaults to None.
-            self_instance (Any | None, optional): Receiver instance. Defaults to None.
-            parameters (dict[str, Value] | None, optional): Method parameters. Defaults to None.
-            globals_dict (dict[str, Any] | None, optional): Global symbols. Defaults to None.
+            parent (Optional[ExecutionScope], optional): Parent scope. Defaults to None.
+            self_instance (Optional[Any], optional): Receiver instance. Defaults to None.
+            parameters (Optional[dict[str, Value]], optional): Method parameters. Defaults to None.
+            globals_dict (Optional[dict[str, Any]], optional): Global symbols. Defaults to None.
         """
 
-        self.parent: ExecutionScope | None = parent
-        self.self_instance: Any | None = (
+        self.parent: Optional[ExecutionScope] = parent
+        self.self_instance: Optional[Any] = (
             self_instance if self_instance is not None
             else (parent.self_instance if parent is not None else None)
         )

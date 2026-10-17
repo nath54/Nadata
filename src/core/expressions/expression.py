@@ -7,7 +7,7 @@ binary operations, member accesses, and function/method calls operating on Value
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 from src.core.types.types import (
     Int32,
@@ -259,7 +259,7 @@ class BinaryOpExpr(Expression):
         self.right: Expression = right
 
     @staticmethod
-    def _eval_int_arithmetic(left: ValueInt, op: str, right: ValueInt) -> Value | None:
+    def _eval_int_arithmetic(left: ValueInt, op: str, right: ValueInt) -> Optional[Value]:
         """
         Evaluates integer arithmetic operations.
 
@@ -269,7 +269,7 @@ class BinaryOpExpr(Expression):
             right (ValueInt): Right integer operand.
 
         Returns:
-            Value | None: Resulting typed Value, or None if unknown op.
+            Optional[Value]: Resulting typed Value, or None if unknown op.
         """
 
         raw_left: int = left.get()
@@ -289,7 +289,7 @@ class BinaryOpExpr(Expression):
         return None
 
     @staticmethod
-    def _eval_float_arithmetic(left: Value, op: str, right: Value) -> Value | None:
+    def _eval_float_arithmetic(left: Value, op: str, right: Value) -> Optional[Value]:
         """
         Evaluates floating point arithmetic operations.
 
@@ -299,7 +299,7 @@ class BinaryOpExpr(Expression):
             right (Value): Right numeric operand.
 
         Returns:
-            Value | None: Resulting typed ValueFloat, or None if unknown op.
+            Optional[Value]: Resulting typed ValueFloat, or None if unknown op.
         """
 
         raw_left: float = float(left.get())
@@ -321,7 +321,7 @@ class BinaryOpExpr(Expression):
         return None
 
     @staticmethod
-    def _eval_arithmetic(left: Value, op: str, right: Value) -> Value | None:
+    def _eval_arithmetic(left: Value, op: str, right: Value) -> Optional[Value]:
         """
         Evaluates arithmetic binary operations between two Value instances.
 
@@ -331,7 +331,7 @@ class BinaryOpExpr(Expression):
             right (Value): Right operand Value.
 
         Returns:
-            Value | None: Resulting typed Value, or None if not an arithmetic op.
+            Optional[Value]: Resulting typed Value, or None if not an arithmetic op.
         """
 
         if op not in ("+", "-", "*", "/", "%"):
@@ -358,7 +358,7 @@ class BinaryOpExpr(Expression):
         return None
 
     @staticmethod
-    def _eval_comparison(left: Value, op: str, right: Value) -> ValueBool | None:
+    def _eval_comparison(left: Value, op: str, right: Value) -> Optional[ValueBool]:
         """
         Evaluates comparison binary operations between two Value instances.
 
@@ -368,7 +368,7 @@ class BinaryOpExpr(Expression):
             right (Value): Right operand Value.
 
         Returns:
-            ValueBool | None: ValueBool comparison result, or None if not a comparison op.
+            Optional[ValueBool]: ValueBool comparison result, or None if not a comparison op.
         """
 
         if op not in ("==", "!=", "<=", "<", ">=", ">"):
@@ -406,13 +406,13 @@ class BinaryOpExpr(Expression):
         right_val: Value = self.right.evaluate(scope=scope)
 
         # 1. Attempt arithmetic evaluation
-        arith_res: Value | None = self._eval_arithmetic(left_val, self.op, right_val)
+        arith_res: Optional[Value] = self._eval_arithmetic(left_val, self.op, right_val)
 
         if arith_res is not None:
             return arith_res
 
         # 2. Attempt comparison evaluation
-        comp_res: ValueBool | None = self._eval_comparison(left_val, self.op, right_val)
+        comp_res: Optional[ValueBool] = self._eval_comparison(left_val, self.op, right_val)
 
         if comp_res is not None:
             return comp_res
@@ -575,16 +575,16 @@ class CallExpr(Expression):
     def __init__(
         self,
         callee: Expression,
-        args: list[Expression] | None = None,
-        kwargs: dict[str, Expression] | None = None
+        args: Optional[list[Expression]] = None,
+        kwargs: Optional[dict[str, Expression]] = None
     ) -> None:
         """
         Initializes the CallExpr instance.
 
         Args:
             callee (Expression): Callee expression.
-            args (list[Expression] | None, optional): Positional args. Defaults to None.
-            kwargs (dict[str, Expression] | None, optional): Keyword args. Defaults to None.
+            args (Optional[list[Expression]], optional): Positional args. Defaults to None.
+            kwargs (Optional[dict[str, Expression]], optional): Keyword args. Defaults to None.
         """
 
         self.callee: Expression = callee

@@ -7,6 +7,7 @@ conditional if blocks, return statements, and statement blocks managing typed Va
 
 # Import Modules
 from __future__ import annotations
+from typing import Optional
 
 from src.core.types.types import Type
 from src.core.values.values import Value
@@ -43,14 +44,14 @@ class VarDeclStmt(Statement):
     Attributes:
         name (str): Variable identifier.
         init_expr (Expression): Initializer expression returning a Value.
-        var_type (Type | None): Expected schema type for the variable.
+        var_type (Optional[Type]): Expected schema type for the variable.
     """
 
     def __init__(
         self,
         name: str,
         init_expr: Expression,
-        var_type: Type | None = None
+        var_type: Optional[Type] = None
     ) -> None:
         """
         Initializes the VarDeclStmt instance.
@@ -58,12 +59,12 @@ class VarDeclStmt(Statement):
         Args:
             name (str): Variable identifier.
             init_expr (Expression): Initializer expression.
-            var_type (Type | None, optional): Optional type annotation. Defaults to None.
+            var_type (Optional[Type], optional): Optional type annotation. Defaults to None.
         """
 
         self.name: str = name
         self.init_expr: Expression = init_expr
-        self.var_type: Type | None = var_type
+        self.var_type: Optional[Type] = var_type
 
     def execute(self, scope: ExecutionScope) -> None:
         """
@@ -149,18 +150,18 @@ class ReturnStmt(Statement):
     AST statement returning a typed Value from a method.
 
     Attributes:
-        value_expr (Expression | None): Expression producing the return Value.
+        value_expr (Optional[Expression]): Expression producing the return Value.
     """
 
-    def __init__(self, value_expr: Expression | None = None) -> None:
+    def __init__(self, value_expr: Optional[Expression] = None) -> None:
         """
         Initializes the ReturnStmt instance.
 
         Args:
-            value_expr (Expression | None, optional): Return value expression. Defaults to None.
+            value_expr (Optional[Expression], optional): Return value expression. Defaults to None.
         """
 
-        self.value_expr: Expression | None = value_expr
+        self.value_expr: Optional[Expression] = value_expr
 
     def execute(self, scope: ExecutionScope) -> None:
         """
@@ -173,7 +174,7 @@ class ReturnStmt(Statement):
             ReturnSignal: Propagates the return Value.
         """
 
-        ret_val: Value | None = (
+        ret_val: Optional[Value] = (
             self.value_expr.evaluate(scope=scope)
             if self.value_expr is not None
             else None
@@ -203,12 +204,12 @@ class BlockStmt(Statement):
         statements (list[Statement]): List of statements contained in the block.
     """
 
-    def __init__(self, statements: list[Statement] | None = None) -> None:
+    def __init__(self, statements: Optional[list[Statement]] = None) -> None:
         """
         Initializes the BlockStmt instance.
 
         Args:
-            statements (list[Statement] | None, optional): Initial statements. Defaults to None.
+            statements (Optional[list[Statement]], optional): Initial statements. Defaults to None.
         """
 
         self.statements: list[Statement] = statements if statements is not None else []
@@ -234,7 +235,7 @@ class BlockStmt(Statement):
         for stmt in self.statements:
             stmt.execute(scope=scope)
 
-    def execute_as_function(self, scope: ExecutionScope) -> Value | None:
+    def execute_as_function(self, scope: ExecutionScope) -> Optional[Value]:
         """
         Executes the block as a complete function body, intercepting ReturnSignal.
 
@@ -242,7 +243,7 @@ class BlockStmt(Statement):
             scope (ExecutionScope): Current execution scope.
 
         Returns:
-            Value | None: Value returned by ReturnStmt, or None if flow falls through.
+            Optional[Value]: Value returned by ReturnStmt, or None if flow falls through.
         """
 
         try:
@@ -270,14 +271,14 @@ class IfStmt(Statement):
     Attributes:
         condition (Expression): Boolean condition expression evaluating to a Value.
         then_block (BlockStmt): Block executed when condition is truthy.
-        else_block (BlockStmt | None): Optional block executed when condition is falsy.
+        else_block (Optional[BlockStmt]): Optional block executed when condition is falsy.
     """
 
     def __init__(
         self,
         condition: Expression,
         then_block: BlockStmt,
-        else_block: BlockStmt | None = None
+        else_block: Optional[BlockStmt] = None
     ) -> None:
         """
         Initializes the IfStmt instance.
@@ -285,12 +286,12 @@ class IfStmt(Statement):
         Args:
             condition (Expression): Condition expression.
             then_block (BlockStmt): Statements executed if condition is true.
-            else_block (BlockStmt | None, optional): Optional else branch. Defaults to None.
+            else_block (Optional[BlockStmt], optional): Optional else branch. Defaults to None.
         """
 
         self.condition: Expression = condition
         self.then_block: BlockStmt = then_block
-        self.else_block: BlockStmt | None = else_block
+        self.else_block: Optional[BlockStmt] = else_block
 
     def execute(self, scope: ExecutionScope) -> None:
         """

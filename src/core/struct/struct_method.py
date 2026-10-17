@@ -8,7 +8,7 @@ return type, body expression, and parsed AST body block.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
 from src.core.types.types import Type
 from src.core.values.values import Value
@@ -27,7 +27,7 @@ class StructMethod:
         default_param_exprs (dict[str, Expression]): Optional default expressions for parameters.
         return_type (Type): Expected return type of the method.
         body_expression (str): Raw expression string executed by the method.
-        body_block (BlockStmt | None): Parsed AST statement block.
+        body_block (Optional[BlockStmt]): Parsed AST statement block.
     """
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -37,8 +37,8 @@ class StructMethod:
         params: dict[str, Type],
         return_type: Type,
         body_expression: str = "",
-        default_param_exprs: dict[str, Expression] | None = None,
-        body_block: BlockStmt | None = None
+        default_param_exprs: Optional[dict[str, Expression]] = None,
+        body_block: Optional[BlockStmt] = None
     ) -> None:
         """
         Initializes the StructMethod instance.
@@ -48,8 +48,8 @@ class StructMethod:
             params (dict[str, Type]): Parameters and their types.
             return_type (Type): Return type specification.
             body_expression (str, optional): Raw body expression. Defaults to "".
-            default_param_exprs (dict[str, Expression] | None, optional): Defaults.
-            body_block (BlockStmt | None, optional): Parsed block. Defaults to None.
+            default_param_exprs (Optional[dict[str, Expression]], optional): Defaults.
+            body_block (Optional[BlockStmt], optional): Parsed block. Defaults to None.
         """
 
         self.name: str = name
@@ -59,7 +59,7 @@ class StructMethod:
         )
         self.return_type: Type = return_type
         self.body_expression: str = body_expression.strip()
-        self.body_block: BlockStmt | None = body_block
+        self.body_block: Optional[BlockStmt] = body_block
 
     def _bind_parameters(
         self,
@@ -126,21 +126,21 @@ class StructMethod:
     def execute(
         self,
         self_instance: Any,
-        args: list[Value] | None = None,
-        kwargs: dict[str, Value] | None = None,
-        globals_dict: dict[str, Any] | None = None
-    ) -> Value | None:
+        args: Optional[list[Value]] = None,
+        kwargs: Optional[dict[str, Value]] = None,
+        globals_dict: Optional[dict[str, Any]] = None
+    ) -> Optional[Value]:
         """
         Executes the method body on the given struct instance.
 
         Args:
             self_instance (Any): Receiver struct instance.
-            args (list[Value] | None, optional): Positional arguments. Defaults to None.
-            kwargs (dict[str, Value] | None, optional): Keyword arguments. Defaults to None.
-            globals_dict (dict[str, Any] | None, optional): Global symbols. Defaults to None.
+            args (Optional[list[Value]], optional): Positional arguments. Defaults to None.
+            kwargs (Optional[dict[str, Value]], optional): Keyword arguments. Defaults to None.
+            globals_dict (Optional[dict[str, Any]], optional): Global symbols. Defaults to None.
 
         Returns:
-            Value | None: Typed Value returned by the method.
+            Optional[Value]: Typed Value returned by the method.
 
         Raises:
             RuntimeError: If method has no parsed body block to execute.
@@ -173,7 +173,7 @@ class StructMethod:
         )
 
         # Execute statement block as function
-        result: Value | None = self.body_block.execute_as_function(scope=method_scope)
+        result: Optional[Value] = self.body_block.execute_as_function(scope=method_scope)
 
         # Check return type if return value is produced
         if result is not None:

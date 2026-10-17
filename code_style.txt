@@ -1,6 +1,6 @@
 Full type hinting for every variable declaration, every function argument / output.
 Use of list[...], tuple[...], dict[...], set[...] instead of List, Tuple, Dict, Set
-Use of | instead of Union
+Use of | instead of Union (e.g. int | float). Use Optional[...] instead of | None (no | None).
 Use of NDArray[np.XXX], no np.ndarray
 Use of typing.Any instead of any or object.
 
