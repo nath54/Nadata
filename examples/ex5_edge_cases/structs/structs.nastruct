@@ -1,0 +1,40 @@
+# ==============================================================================
+# Example 5: Parser Edge Cases & Extreme Formatting Schema
+# Tests comments, trailing commas, single-line declarations, unusual spacing.
+# ==============================================================================
+
+# Comment immediately before class
+class EdgeCaseItem {
+    # Inline comment and single-character identifiers
+    x: Int32 = 0;
+    y: Int32; # Trailing comment after semicolon
+
+    # Multiple empty lines follow
+
+    str_with_symbols: Str = "Hello, world! Special chars: ; { } ( ) -> = @ # //";
+    empty_str: Str = "";
+
+    # Trailing semicolon and unusual spacing around colon
+    spaced_field   :   UFloat64   =   3.14159   ;
+
+
+    # Empty array with explicit type
+    tags: Array[Str] = [];
+
+    # Method with no arguments and empty return
+    @noop -> Bool {
+        return true;
+    }
+
+    # Method with argument having same name as an attribute
+    @update_coords(x: Int32, y: Int32) -> Int32 {
+        Int32 sum = x + y;
+        return sum;
+    }
+}
+
+# Empty class declaration without whitespace inside braces
+class EmptyClass{}
+
+# Class with inheritance on same line
+class ChildOfEmpty(EmptyClass){}

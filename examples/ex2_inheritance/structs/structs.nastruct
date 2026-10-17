@@ -1,0 +1,48 @@
+# ==============================================================================
+# Example 2: Deep Inheritance & Polymorphic Graph Schema
+# Tests deep inheritance trees, empty structs, overrides, and cross-references.
+# ==============================================================================
+
+class Node {
+    uid: Str;
+    creation_time: DateTime = DateTime.now();
+
+    @describe -> Str {
+        return uid;
+    }
+}
+
+class NetworkNode(Node) {
+    ip_address: Str = "127.0.0.1";
+    ping_ms: UFloat32 = 1.5;
+    connected_peers: Array[NetworkNode] = [];
+}
+
+class Router(NetworkNode) {
+    max_throughput_gbps: UFloat32 = 10.0;
+    routing_table: Dict[Str, Str] = {};
+}
+
+# Empty struct leaf testing edge parser behavior
+class WirelessRouter(Router) {}
+
+class Server(NetworkNode) {
+    cpu_cores: Int32 = 8;
+    ram_gb: UFloat32 = 32.0;
+    installed_services: Array[Str] = [];
+
+    @is_overloaded(current_load: UFloat32) -> Bool {
+        if (current_load >= 0.90) {
+            return true;
+        }
+
+        return false;
+    }
+}
+
+
+class DatabaseServer(Server) {
+    db_engine: Str = "NadataDB";
+    replica_nodes: Array[DatabaseServer] = [];
+    is_primary: Bool = true;
+}

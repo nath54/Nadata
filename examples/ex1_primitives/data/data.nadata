@@ -1,0 +1,70 @@
+# ==============================================================================
+# Example 1: Primitives Data & Query Script
+# Tests negative values, boundary integers, float notations, and chained queries.
+# ==============================================================================
+
+# Sensor 1: Extreme boundary values
+s1 = NumericSensors(
+    is_active=true,
+    label="Main_Thermal",
+    notes="Primary thermal unit in rack 0",
+    tiny_val=-128,
+    short_val=32767,
+    normal_val=-2147483648,
+    large_val=9223372036854775807,
+    quantum_flag=3,
+    nibble=15,
+    byte_val=255,
+    port=8080,
+    counter=4294967295,
+    temp_standard=-40.0,
+    temp_precise=-40.000000000004
+)
+
+# Sensor 2: Idle nominal values
+s2 = NumericSensors(
+    is_active=false,
+    label="Auxiliary_Pressure",
+    notes="Standby sensor",
+    tiny_val=0,
+    short_val=0,
+    normal_val=100,
+    large_val=5000000000,
+    quantum_flag=0,
+    nibble=7,
+    byte_val=128,
+    port=9000,
+    counter=1024,
+    temp_standard=25.0,
+    temp_precise=25.000000000000
+)
+
+# Sensor 3: Edge test with zero and empty notes
+s3 = NumericSensors(
+    is_active=true,
+    label="Coolant_Flow",
+    notes="",
+    byte_val=255,
+    port=8080,
+    temp_standard=95.5
+)
+
+# --- Scripts & Queries ---
+
+# Print sensor states
+print("Sensor 1 is saturated:", s1.is_saturated())
+print("Sensor 2 is saturated:", s2.is_saturated())
+print("Sensor 1 adjusted temp:", s1.compute_offset(5.5))
+
+# Filter active sensors with port 8080
+Array[NumericSensors] active_sensors = NumericSensors.where(
+    (s: NumericSensors) -> s.is_active == true and s.port == 8080
+);
+
+# Chain a second query on active_sensors: temperature > 0.0
+Array[NumericSensors] hot_active = active_sensors.where(
+    (s: NumericSensors) -> s.temp_standard > 0.0
+);
+
+print("Hot active sensors count:", hot_active.count())
+print("Hot active sensors:", hot_active)

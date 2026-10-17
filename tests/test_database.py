@@ -29,10 +29,11 @@ from src.core.values.values import (
     ValueDateTime,
 )
 from src.core.types.types import (
+    Float32,
     TypeStr,
-    TypeFloat,
     TypeDateTime,
 )
+
 from src.core.expressions import (
     LiteralExpr,
     BinaryOpExpr,
@@ -130,7 +131,7 @@ def test_database_table_and_instance_queries() -> None:
     )
 
     human_struct: Struct = Struct(name="Human", parent=entity_struct)
-    human_struct.add_attribute(StructAttribute(name="weight", attr_type=TypeFloat()))
+    human_struct.add_attribute(StructAttribute(name="weight", attr_type=Float32))
 
     # Register in DB
     db.register_struct(struct=entity_struct)
@@ -141,7 +142,7 @@ def test_database_table_and_instance_queries() -> None:
         struct=human_struct,
         attributes={
             "name": ValueStr(TypeStr(), "Tom"),
-            "weight": ValueFloat(TypeFloat(), 72.5),
+            "weight": ValueFloat(Float32, 72.5),
             "birthday": ValueDateTime(value=DateTime(y=2003, m=4, d=12)),
         },
         symbol="tom"
@@ -151,7 +152,7 @@ def test_database_table_and_instance_queries() -> None:
         struct=human_struct,
         attributes={
             "name": ValueStr(TypeStr(), "Jean"),
-            "weight": ValueFloat(TypeFloat(), 80.0),
+            "weight": ValueFloat(Float32, 80.0),
             "birthday": ValueDateTime(value=DateTime(y=1972, m=4, d=12)),
         },
         symbol="jean"
@@ -191,7 +192,7 @@ def test_query_invariant_hoisting() -> None:
     tom_instance: StructInstance = StructInstance(
         struct=Struct(name="Human"),
         entity_id=EntityId.from_parts(1, 1),
-        attributes={"size": ValueFloat(TypeFloat(), 1.80)}
+        attributes={"size": ValueFloat(Float32, 1.80)}
     )
 
     scope: ExecutionScope = ExecutionScope(globals_dict={"tom": tom_instance})
@@ -229,7 +230,7 @@ def test_queryset_chaining_and_print() -> None:
 
     human_struct: Struct = Struct(name="Human")
     human_struct.add_attribute(StructAttribute(name="name", attr_type=TypeStr()))
-    human_struct.add_attribute(StructAttribute(name="weight", attr_type=TypeFloat()))
+    human_struct.add_attribute(StructAttribute(name="weight", attr_type=Float32))
     human_struct.add_attribute(StructAttribute(name="birthplace", attr_type=TypeStr()))
 
     db.register_struct(struct=human_struct)
@@ -239,7 +240,7 @@ def test_queryset_chaining_and_print() -> None:
         struct=human_struct,
         attributes={
             "name": ValueStr(TypeStr(), "Tom"),
-            "weight": ValueFloat(TypeFloat(), 70.0),
+            "weight": ValueFloat(Float32, 70.0),
             "birthplace": ValueStr(TypeStr(), "Paris"),
         }
     )
@@ -247,7 +248,7 @@ def test_queryset_chaining_and_print() -> None:
         struct=human_struct,
         attributes={
             "name": ValueStr(TypeStr(), "Jean"),
-            "weight": ValueFloat(TypeFloat(), 80.0),
+            "weight": ValueFloat(Float32, 80.0),
             "birthplace": ValueStr(TypeStr(), "Paris"),
         }
     )
@@ -255,7 +256,7 @@ def test_queryset_chaining_and_print() -> None:
         struct=human_struct,
         attributes={
             "name": ValueStr(TypeStr(), "Louise"),
-            "weight": ValueFloat(TypeFloat(), 65.0),
+            "weight": ValueFloat(Float32, 65.0),
             "birthplace": ValueStr(TypeStr(), "Lyon"),
         }
     )

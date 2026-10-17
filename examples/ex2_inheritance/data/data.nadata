@@ -1,0 +1,65 @@
+# ==============================================================================
+# Example 2: Forward References & Polymorphic Graph Query Script
+# Tests cyclic graph references, forward declaration, polymorphic queries.
+# ==============================================================================
+
+# db_primary references replica_backup and edge_router BEFORE they are declared!
+db_primary = DatabaseServer(
+    uid="srv-db-01",
+    ip_address="192.168.1.10",
+    ping_ms=0.4,
+    cpu_cores=64,
+    ram_gb=256.0,
+    installed_services=["nadata-engine", "replication-service"],
+    db_engine="NadataEngine",
+    is_primary=true,
+    connected_peers=[edge_router, replica_backup],
+    replica_nodes=[replica_backup]
+)
+
+# Circular link: replica_backup references db_primary back!
+replica_backup = DatabaseServer(
+    uid="srv-db-02",
+    ip_address="192.168.1.11",
+    ping_ms=0.6,
+    cpu_cores=32,
+    ram_gb=128.0,
+    installed_services=["nadata-engine"],
+    db_engine="NadataEngine",
+    is_primary=false,
+    connected_peers=[db_primary, edge_router]
+)
+
+edge_router = WirelessRouter(
+    uid="router-edge-gw",
+    ip_address="192.168.1.1",
+    ping_ms=2.1,
+    max_throughput_gbps=40.0,
+    routing_table={
+        "subnet_lan": "192.168.1.0/24",
+        "subnet_dmz": "10.0.0.0/16"
+    },
+    connected_peers=[db_primary, replica_backup]
+)
+
+# --- Script & Queries ---
+
+print("Primary DB Description:", db_primary.describe())
+print("Is DB Overloaded at 92%:", db_primary.is_overloaded(0.92))
+
+# Polymorphic query: Querying Node should return Servers AND Routers!
+Array[Node] all_nodes = Node.where((n: Node) -> n.uid != "");
+print("Total polymorphic nodes count:", all_nodes.count())
+
+# Querying DatabaseServer specifically
+Array[DatabaseServer] primaries = DatabaseServer.where(
+    (ds: DatabaseServer) -> ds.is_primary == true
+);
+print("Primary database servers:", primaries)
+
+# Chained query: fast ping and heavy RAM
+Array[DatabaseServer] fast_heavy_dbs = DatabaseServer
+    .where((ds: DatabaseServer) -> ds.ping_ms < 1.0)
+    .where((ds: DatabaseServer) -> ds.ram_gb >= 128.0);
+
+print("Fast heavy DBs count:", fast_heavy_dbs.count())

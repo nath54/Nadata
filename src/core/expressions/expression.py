@@ -629,8 +629,8 @@ class CallExpr(Expression):
         if isinstance(self.callee, IdentifierExpr):
             symbol: Any = self.callee.evaluate_symbol(scope=scope)
 
-            # Check if symbol is a StructMethod (implicit self method call)
-            if hasattr(symbol, "execute") and scope.self_instance is not None:
+            # Check if symbol is a StructMethod or standalone Function
+            if hasattr(symbol, "execute"):
                 return lambda *args, **kwargs: symbol.execute(
                     self_instance=scope.self_instance,
                     args=list(args),
@@ -641,6 +641,7 @@ class CallExpr(Expression):
             return symbol
 
         return self.callee.evaluate(scope=scope)
+
 
     def evaluate(self, scope: ExecutionScope) -> Value:
         """

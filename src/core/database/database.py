@@ -15,8 +15,10 @@ from src.core.struct.struct import Struct
 from src.core.database.instance import StructInstance
 from src.core.database.entity_id import EntityId
 from src.core.database.queryset import QuerySet
+from src.core.struct.struct_method import StructMethod
 from src.core.database.page_manager import PageManager
 from src.core.database.query_engine import QueryExecutor
+
 
 
 
@@ -129,10 +131,22 @@ class NaDataDatabase:
         self.tables_by_type_id: dict[int, StructTable] = {}
         self.tables_by_struct_name: dict[str, StructTable] = {}
         self.symbols: dict[str, EntityId] = {}
+        self.functions: dict[str, StructMethod] = {}
         self.query_executor: QueryExecutor = QueryExecutor()
         self.next_type_id: int = 0
 
+    def register_function(self, function: StructMethod) -> None:
+        """
+        Registers a top-level schema function.
+
+        Args:
+            function (StructMethod): Function to register.
+        """
+
+        self.functions[function.name] = function
+
     def register_struct(self, struct: Struct) -> StructTable:
+
         """
         Registers a Struct schema into the database, allocating a 16-bit TypeId.
 

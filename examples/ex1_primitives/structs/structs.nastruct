@@ -1,0 +1,46 @@
+# ==============================================================================
+# Example 1: Comprehensive Primitive & Precision Types Schema
+# Tests bit-exact integers, unsigned types, custom floats, boolean, and strings.
+# ==============================================================================
+
+class NumericSensors {
+    # Basic primitives
+    is_active: Bool = true;
+    label: Str = "Sensor_A";
+    notes: Str = "";
+
+    # Bit-exact signed integers
+    tiny_val: Int8 = -128;
+    short_val: Int16 = 32767;
+    normal_val: Int32 = 0;
+    large_val: Int64 = -9223372036854775807;
+
+    # Bit-exact unsigned integers
+    quantum_flag: UInt2 = 3;
+    nibble: UInt4 = 15;
+    byte_val: UInt8 = 255;
+    port: UInt16 = 8080;
+    counter: UInt32 = 4294967295;
+    hash_id: UInt64 = 18446744073709551615;
+
+    # Standard and micro-precision floats
+    temp_standard: Float32 = 21.5;
+    temp_precise: Float64 = 21.500000000001;
+    micro_float_a: Float8_E4M3 = 1.75;
+    micro_float_b: Float8_E5M2 = 0.5;
+    bfloat_val: BFloat16 = 3.140625;
+
+    # Method testing arithmetic and edge bounds
+    @is_saturated -> Bool {
+        if (byte_val >= 255 and port == 8080) {
+            return true;
+        }
+
+        return false;
+    }
+
+    @compute_offset(delta: Float32) -> Float32 {
+        Float32 adjusted = temp_standard + delta;
+        return adjusted;
+    }
+}

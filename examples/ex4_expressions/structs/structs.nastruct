@@ -1,0 +1,47 @@
+# ==============================================================================
+# Example 4: Advanced Method Expressions & Control Flow Schema
+# Tests unary ops, nested if/else logic, local variable declarations, and returns.
+# ==============================================================================
+
+class MathPipeline {
+    name: Str;
+    scale_factor: Float32 = 2.0;
+    bias: Float32 = 0.5;
+    enabled: Bool = true;
+
+    @apply_transform(x: Float32) -> Float32 {
+        if (not enabled) {
+            return x;
+        }
+
+        Float32 scaled = x * scale_factor;
+        Float32 result = scaled + bias;
+        return result;
+    }
+
+    @classify_metric(value: Float32) -> Str {
+
+        if (value < 0.0) {
+            return "NEGATIVE";
+        }
+
+        if (value == 0.0) {
+            return "ZERO";
+        }
+
+        if (value > 100.0) {
+            return "HIGH";
+        }
+
+        return "NORMAL";
+    }
+
+    @evaluate_boolean_logic(flag_a: Bool, flag_b: Bool, flag_c: Bool) -> Bool {
+        # Complex boolean with and, or, not
+        if ((flag_a and not flag_b) or flag_c) {
+            return true;
+        }
+
+        return false;
+    }
+}

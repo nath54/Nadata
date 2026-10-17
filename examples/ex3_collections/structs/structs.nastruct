@@ -1,0 +1,43 @@
+# ==============================================================================
+# Example 3: Nested Collections, Generics, and Domain Types Schema
+# Tests Dict[K, V], nested Array[Array[...]], Color, DateTime, and string keys.
+# ==============================================================================
+
+class Palette {
+    name: Str;
+    primary_color: Color = Color(0, 0, 0);
+    accent_colors: Array[Color] = [];
+    color_map: Dict[Str, Color] = {};
+
+    @has_opaque_primary -> Bool {
+        if (primary_color.a == 255) {
+            return true;
+        }
+
+        return false;
+    }
+}
+
+class MatrixGrid {
+    label: Str = "Default_Grid";
+    # Nested multidimensional array: Array of Array of Float32
+    grid_cells: Array[Array[Float32]] = [];
+
+    coordinate_tags: Dict[Str, Array[Str]] = {};
+
+    @row_count -> Int32 {
+        # Return length of grid_cells
+        return 3;
+    }
+}
+
+class EventSchedule {
+    title: Str;
+    start_time: DateTime = DateTime();
+    end_time: DateTime = DateTime();
+    metadata: Dict[Str, Str] = {};
+
+    @duration -> DateTime {
+        return end_time - start_time;
+    }
+}

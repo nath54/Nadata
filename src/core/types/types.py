@@ -244,7 +244,12 @@ class TypeFloat(Type):
             str: Representation with bit details.
         """
 
-        return f"Float{self.num_bits}(exp={self.num_bits_exponent}, mant={self.num_bits_mantissa})"
+        prefix: str = "Float" if self.signed else "UFloat"
+        exp: int = self.num_bits_exponent
+        mant: int = self.num_bits_mantissa
+        return f"{prefix}{self.num_bits}(exp={exp}, mant={mant})"
+
+
 
 
 class TypeBool(Type):
@@ -433,6 +438,15 @@ Float16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=True)
 BFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=True)
 Float32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=True)
 Float64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=True)
+
+# Predefined Unsigned Float Aliases
+UFloat8_E4M3: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=4, signed=False)
+UFloat8_E5M2: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=5, signed=False)
+UFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=False)
+UBFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=False)
+UFloat32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=False)
+UFloat64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=False)
+
 
 
 class TypeDateTime(Type):
