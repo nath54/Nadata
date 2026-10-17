@@ -101,57 +101,51 @@ class NaStructParser:
         # Remove all the comments present in the file to avoid issues with the rest of the parsing
         content = CommentsRemover.remove_all_comments(content=content)
 
-        # Find all the brackets and strings couples
-        brackets_couples: dict[int, int]
+        # Find all the brackets and string couples
         bracket_trees: list[BracketTree]
-        bracket_trees, strings_couples = BracketsAndStrings.process(content=content)
+        bracket_trees, _strings_couples = BracketsAndStrings.process(content=content)
 
-        i: int = 0
+        # Cursor tracking the end of the last processed block
+        cursor: int = 0
+
         bt: BracketTree
 
-        # For each bracket tree
+        # For each top-level bracket tree, in file order
         for bt in bracket_trees:
 
-            # Get the text before the opening bracket
-            txt_before: str = content[bt.start:bt.end]
+            # Get the text between the previous block and this opening bracket
+            header_text: str = content[cursor:bt.start].strip()
 
-            # Split the text before the brackets to detect its class
-            txtlst: list[str] = txt_before.strip().split(" ")
+            # Extract the block keyword (first token of the header)
+            keyword: str = header_text.split(maxsplit=1)[0] if header_text else ""
 
             # First case: class
-            if len(txtlst) == 2:
+            if keyword == "class":
+                self.parse_struct(
+                    name=header_text,
+                    start=bt.start + 1,
+                    end=bt.end,
+                    brackets_inside=bt.inside
+                )
 
-                # Check if keyword class is present
-                if txtlst[0] == "class":
-                    self.parse_struct(
-                        name=txtlst[1],
-                        start=bt.start,
-                        end=bt.end,
-                        brackets_inside=bt.inside
-                    )
-
-                # Check if keyword fn is present
-                elif txtlst[0] == "fn":
-                    self.parse_fn(
-                        name=txtlst[1],
-                        start=bt.start,
-                        end=bt.end,
-                        brackets_inside=bt.inside
-                    )
-
-                # Syntax error
-                else:
-                    return SyntaxError("TODO")
+            # Second case: fn
+            elif keyword == "fn":
+                self.parse_fn(
+                    name=header_text,
+                    start=bt.start + 1,
+                    end=bt.end,
+                    brackets_inside=bt.inside
+                )
 
             # Syntax error
             else:
-                return SyntaxError("TODO")
+                raise SyntaxError(
+                    f"Expected 'class' or 'fn' block before index {bt.start}, "
+                    f"found: '{header_text[:40]}'"
+                )
 
-
-            # Continue after for the next block
-            i = bt.end + 1
-
-        pass
+            # Continue after the closing bracket for the next block
+            cursor = bt.end + 1
 
 
     def parse_struct(
@@ -159,36 +153,154 @@ class NaStructParser:
         name: str,
         start: int,
         end: int,
-        brackets_inside: list[BracketTree]
+        brackets_inside: list[BracketTree],
+        content: str
     ) -> None:
         """
         Parses a struct definition block.
 
         Args:
-            name (str): Name of the struct.
-            start (int): index of the content start
-            end (int): index of the content end
-            brackets_inside (list[BracketTree]): brackets inside the struct
+            name (str): Full header text of the struct (e.g. 'class Human(Entity)').
+            start (int): Index of the first content character inside the braces.
+            end (int): Index of the closing brace of the block.
+            brackets_inside (list[BracketTree]): Nested bracket trees inside the block.
+            content (str): text of the file
+        """
+
+        cursor: int = start
+
+        next_bracket: Optional[BracketTree] = (
+            brackets_inside.pop(0) if len(brackets_inside) > 0 else None
+        )
+
+        while cursor < end:
+
+            # Manage white spaces
+            if content[cursor] == " ":
+                cursor += 1
+                continue
+
+            # Class method
+            if content[cursor] == "@":
+
+                # Check bracket
+                if next_bracket is None:
+                    raise SyntaxError("TODO")
+
+                # Get text before
+                txt_before: str = content[cursor+1:next_bracket.start].strip()
+
+                # Check the text
+                txtlst: list[str] = txt_before.split()
+
+                if len(txtlst) != 1:
+                    raise SyntaxError("TODO")
+
+                # Get the struct method name
+                method_name: str = txtlst[0]
+
+                # Parse the struct method
+                self.parse_struct_method(
+                    struct_name=name,
+                    struct_method_name=method_name,
+                    start=next_bracket.start,
+                    end=next_bracket.end,
+                    content=content,
+                    brackets_inside=next_bracket.inside
+                )
+
+                # Advance the cursor
+                cursor = next_bracket.end + 1
+
+                # Advance the next bracket
+                next_bracket = (
+                    brackets_inside.pop(0) if len(brackets_inside) > 0 else None
+                )
+
+            # Else, it is an attribut definition
+            else:
+
+                # Find the closing ;
+                i: int = content.find(";", cursor)
+
+                # Check closing ;
+                if i == -1:
+                    raise SyntaxError("TODO")
+
+                bracket_inside: Optional[BracketTree] = None
+
+                # Check next bracket
+                if next_bracket.start < i:
+
+                    # Mark the bracket as inside the attribute declaration
+                    bracket_inside = next_bracket
+
+                    # Advance the next bracket
+                    next_bracket = (
+                        brackets_inside.pop(0) if len(brackets_inside) > 0 else None
+                    )
+
+                # Process the attribute
+                self.parse_struct_attribute(
+                    struct_name=name,
+                    start = cursor,
+                    end = i,
+                    content=content,
+                    bracket_inside=bracket_inside
+                )
+
+                # Advance the cursor
+                cursor = i + 1
+
+
+    def parse_struct_attribute(
+        self,
+        struct_name: str,
+        start: int,
+        end: int,
+        content: str,
+        bracket_inside: Optional[BracketTree]
+    ) -> None:
+        """
+        TODO
         """
 
         pass
 
+
+    def parse_struct_method(
+        self,
+        struct_name: str,
+        struct_method_name: str,
+        start: int,
+        end: int,
+        content: str,
+        brackets_inside: list[BracketTree]
+    ) -> None:
+        """
+        TODO
+        """
+
+        pass
 
     def parse_fn(
         self,
         name: str,
         start: int,
         end: int,
-        brackets_inside: list[BracketTree]
+        brackets_inside: list[BracketTree],
+        content: str
     ) -> None:
         """
         Parses a standalone function definition block.
 
         Args:
-            name (str): Name of the function.
-            start (int): index of the content start
-            end (int): index of the content end
-            brackets_inside (list[BracketTree]): brackets inside the fn
+            name (str): Full header text of the function
+                (e.g. 'fn is_adult(h: Human) -> Bool').
+            start (int): Index of the first content character inside the braces.
+            end (int): Index of the closing brace of the block.
+            brackets_inside (list[BracketTree]): Nested bracket trees inside the block.
+            content (str): text of the file
         """
 
         pass

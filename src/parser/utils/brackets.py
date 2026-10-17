@@ -1,14 +1,24 @@
 """
-TODO
+Bracket tree extraction for Nadata source files.
+
+Provides the BracketTree structure and the BracketsAndStrings scanner which
+locate '{' / '}' bracket couples and string literal spans in a single pass.
 """
 
-# Import Methods
+# Import Modules
+from __future__ import annotations
 from typing import Optional
+import re
 
 
 class BracketTree:
     """
-    TODO
+    Represents a '{' / '}' couple with its nested children bracket trees.
+
+    Attributes:
+        start (int): Index of the opening bracket '{' in the content.
+        end (int): Index of the matching closing bracket '}' (-1 if unclosed).
+        inside (list[BracketTree]): Nested bracket trees contained in this one.
     """
 
     def __init__(
@@ -17,6 +27,14 @@ class BracketTree:
         end: int = -1,
         inside: Optional[list[BracketTree]] = None
     ) -> None:
+        """
+        Initializes the BracketTree instance.
+
+        Args:
+            start (int): Index of the opening bracket.
+            end (int, optional): Index of the closing bracket. Defaults to -1.
+            inside (Optional[list[BracketTree]], optional): Nested trees. Defaults to None.
+        """
 
         self.start: int = start
         self.end: int = end
@@ -25,94 +43,139 @@ class BracketTree:
 
 class BracketsAndStrings:
     """
-    TODO
+    Extracts '{' / '}' bracket trees and string literal spans from source content.
+
+    Brackets appearing inside string literals are ignored. Escaped quotes
+    ('\\\"') inside strings are honored. Comments are expected to have been
+    removed beforehand (see CommentsRemover).
     """
+
+    # Characters relevant to the scan: brace and quote delimiters
+    RELEVANT_CHARS: str = "{}\""
+
+    # Escape character used inside string literals
+    ESCAPE_CHAR: str = "\\"
+
+    # Pre-compiled scanner pattern for maximum speed
+    _PATTERN: re.Pattern[str] = re.compile("[{}\"]")
 
     @staticmethod
     def process(content: str) -> tuple[list[BracketTree], dict[int, int]]:
         """
-        TODO
+        Scans the content and extracts top-level bracket trees and string couples.
+
+        Args:
+            content (str): Comment-free source content to scan.
+
+        Returns:
+            tuple[list[BracketTree], dict[int, int]]:
+                - List of top-level (non-nested) BracketTree instances.
+                - Dictionary mapping each opening quote index to its closing quote index.
+
+        Raises:
+            SyntaxError: If a closing bracket has no opener, a bracket is
+                unclosed, or a string literal is unterminated.
         """
 
-        # Strings
+        # String couples registry: opening quote index -> closing quote index
         string_couples: dict[int, int] = {}
 
-        # Waiting queue
+        # Waiting stack of currently open bracket trees
         waiting_queue: list[BracketTree] = []
 
-        # Larger Trees
+        # Completed top-level bracket trees
         larger_trees: list[BracketTree] = []
 
-        # List of chars to find
-        chars: list[str] = ["{", "}", "\""]
-
-        # Pre-compile the regex pattern for maximum speed
-        pattern = re.compile(f"[{''.join(chars)}]")
-
-        # Extract starting indices efficiently using finditer
-        indices: list[int] = [match.start() for match in pattern.finditer(text)]
+        # Extract relevant character indices efficiently using finditer
+        indices: list[int] = [
+            match.start() for match in BracketsAndStrings._PATTERN.finditer(content)
+        ]
 
         # Indicate if we are inside a string or not
         in_string: bool = False
         last_string: int = -1
 
-        # For all the characters found
+        # Scan all relevant characters in a single pass
         for i in indices:
+            char: str = content[i]
 
-            # If it is an opening bracket
-            if content[i] == "{":
+            # String delimiter: toggle the string state unless escaped
+            if char == "\"":
 
-                # Ignore if we are inside a string
-                if in_string:
+                # Skip escaped quotes inside strings (odd backslash count before)
+                if in_string and BracketsAndStrings._is_escaped(content=content, index=i):
                     continue
-
-                # Else, append to the queue
-                waiting_queue.append( BracketTree(start=i) )
-
-            # If it is a closing bracket
-            elif content[i] == "}":
-
-                # Ignore if we are inside a string
-                if in_string:
-                    continue
-
-                # There are too much closing brackets
-                if not waiting_queue:
-                    raise SyntaxError("TODO")
-
-                # Get the corresponding opening bracket
-                bt: BracketTree = waiting_queue.pop(-1)
-
-                bt.end = i
-
-                # This is a larger bracket, no one is parenting it
-                if not waiting_queue:
-                    larger_trees.append(bt)
-
-                # Else, adding this tree to the parent tree
-                else:
-                    waiting_queue[-1].inside.append(bt)
-
-                # Add the connexion to the registry
-                brackets_couples[j] = i
-
-            # If it is a string
-            elif content[i] == "\n":
 
                 # Here, we start the string
                 if not in_string:
+                    in_string = True
                     last_string = i
 
                 # Here, we close the string
                 else:
+                    in_string = False
                     string_couples[last_string] = i
 
-                # Toggle in string status
-                in_string = not in_string
+                continue
 
-        # Check if unclosed brackets
-        if len(waiting) > 1:
-            raise SyntaxError("TODO")
+            # Brackets inside strings are plain characters, not block delimiters
+            if in_string:
+                continue
 
-        # Return the final results
+            # Opening bracket: push on the waiting stack
+            if char == "{":
+                waiting_queue.append(BracketTree(start=i))
+                continue
+
+            # Closing bracket: pop the matching opener
+            if not waiting_queue:
+                raise SyntaxError(f"Unexpected closing bracket '}}' at index {i}")
+
+            bracket_tree: BracketTree = waiting_queue.pop()
+            bracket_tree.end = i
+
+            # This is a top-level bracket, no one is parenting it
+            if not waiting_queue:
+                larger_trees.append(bracket_tree)
+
+            # Else, adding this tree to its parent tree children
+            else:
+                waiting_queue[-1].inside.append(bracket_tree)
+
+        # Check for unterminated string literal
+        if in_string:
+            raise SyntaxError(
+                f"Unterminated string literal starting at index {last_string}"
+            )
+
+        # Check for unclosed brackets
+        if waiting_queue:
+            raise SyntaxError(
+                f"Missing closing bracket '}}' for bracket at index {waiting_queue[0].start}"
+            )
+
         return larger_trees, string_couples
+
+    @staticmethod
+    def _is_escaped(content: str, index: int) -> bool:
+        """
+        Determines if the quote at the given index is escaped by backslashes.
+
+        Args:
+            content (str): Full source content.
+            index (int): Index of the quote character.
+
+        Returns:
+            bool: True if the quote is preceded by an odd number of backslashes.
+        """
+
+        # Count consecutive backslashes immediately before the quote
+        backslash_count: int = 0
+        cursor: int = index - 1
+
+        while cursor >= 0 and content[cursor] == BracketsAndStrings.ESCAPE_CHAR:
+            backslash_count += 1
+            cursor -= 1
+
+        # Odd count means the quote is escaped
+        return backslash_count % 2 == 1
