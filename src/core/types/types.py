@@ -42,7 +42,11 @@ class TypeInt(Type):
     TODO
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        num_bits: int = 32,
+        signed: bool = True
+    ) -> None:
         """
         Init function
         """
@@ -50,9 +54,45 @@ class TypeInt(Type):
         # Init parent function
         super().__init__()
 
+        # Number of bits
+        self.num_bits: int = num_bits
+
+        # Is signed
+        self.signed: bool = signed
+
         # Default value of the type
         self.default_value: int = 0
 
+
+class TypeFloat(Type):
+    """
+    TODO
+    """
+
+    def __init__(
+        self,
+        num_bits: int = 32,
+        num_bits_exponent: int = 8,
+        num_bits_mantissa: int = 23,
+        signed: bool = True
+    ) -> None:
+        """
+        Init function
+        """
+
+        # Init parent function
+        super().__init__()
+
+        # Number of bits
+        self.num_bits: int = num_bits
+        self.num_bits_exponent: int = num_bits_exponent
+        self.num_bits_mantissa: int = num_bits_mantissa
+
+        # Is signed
+        self.signed: bool = signed
+
+        # Default value of the type
+        self.default_value: float = 0
 
 
 class TypeBool(Type):
@@ -70,7 +110,6 @@ class TypeBool(Type):
 
         # Default value of the type
         self.default_value: bool = False
-
 
 
 class TypeArray(Type):
