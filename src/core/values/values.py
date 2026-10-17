@@ -19,9 +19,14 @@ from src.core.types.types import (
     TypeInt,
     TypeBool,
     TypeDict,
+    TypeColor,
     TypeArray,
     TypeFloat,
+    TypeDateTime,
 )
+from src.core.types.home_types.color import Color
+from src.core.types.home_types.datetime import DateTime
+
 
 
 class Value:
@@ -426,3 +431,117 @@ class ValueDict(Value):
         """
 
         return f"{repr(self.value_type)}({self.entries})"
+
+
+class ValueDateTime(Value):
+    """
+    Runtime representation of a DateTime value.
+
+    Attributes:
+        value_type (TypeDateTime): Associated DateTime schema type.
+        value (DateTime): Native DateTime instance stored in memory.
+    """
+
+    def __init__(
+        self,
+        value_type: Optional[TypeDateTime] = None,
+        value: Optional[DateTime] = None
+    ) -> None:
+        """
+        Initializes the ValueDateTime instance.
+
+        Args:
+            value_type (Optional[TypeDateTime], optional): DateTime type spec. Defaults to None.
+            value (Optional[DateTime], optional): Initial DateTime value. Defaults to None.
+
+        Raises:
+            TypeError: If value is not a DateTime.
+        """
+
+        resolved_type: TypeDateTime = value_type if value_type is not None else TypeDateTime()
+        resolved_value: DateTime = value if value is not None else DateTime()
+
+        # Initialize parent class
+        super().__init__(value_type=resolved_type)
+
+        resolved_type.check_value(value=resolved_value)
+
+        self.value_type: TypeDateTime = resolved_type
+        self.value: DateTime = resolved_value
+
+    def get(self) -> DateTime:
+        """
+        Returns the raw DateTime instance.
+
+        Returns:
+            DateTime: Underlying DateTime.
+        """
+
+        return self.value
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueDateTime.
+
+        Returns:
+            str: Representation showing the DateTime value.
+        """
+
+        return repr(self.value)
+
+
+class ValueColor(Value):
+    """
+    Runtime representation of an RGBA Color value.
+
+    Attributes:
+        value_type (TypeColor): Associated Color schema type.
+        value (Color): Native Color instance stored in memory.
+    """
+
+    def __init__(
+        self,
+        value_type: Optional[TypeColor] = None,
+        value: Optional[Color] = None
+    ) -> None:
+        """
+        Initializes the ValueColor instance.
+
+        Args:
+            value_type (Optional[TypeColor], optional): Color type spec. Defaults to None.
+            value (Optional[Color], optional): Initial Color value. Defaults to None.
+
+        Raises:
+            TypeError: If value is not a Color.
+        """
+
+        resolved_type: TypeColor = value_type if value_type is not None else TypeColor()
+        resolved_value: Color = value if value is not None else Color(0, 0, 0, 255)
+
+        # Initialize parent class
+        super().__init__(value_type=resolved_type)
+
+        resolved_type.check_value(value=resolved_value)
+
+        self.value_type: TypeColor = resolved_type
+        self.value: Color = resolved_value
+
+    def get(self) -> Color:
+        """
+        Returns the raw Color instance.
+
+        Returns:
+            Color: Underlying Color.
+        """
+
+        return self.value
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueColor.
+
+        Returns:
+            str: Representation showing the Color value.
+        """
+
+        return repr(self.value)

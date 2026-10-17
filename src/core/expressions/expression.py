@@ -21,9 +21,14 @@ from src.core.values.values import (
     ValueStr,
     ValueInt,
     ValueBool,
+    ValueColor,
     ValueFloat,
+    ValueDateTime,
 )
+from src.core.types.home_types.color import Color
+from src.core.types.home_types.datetime import DateTime
 from src.core.expressions.scope import ExecutionScope
+
 
 
 class Expression:
@@ -74,6 +79,10 @@ class LiteralExpr(Expression):
             self.value = ValueFloat(value_type=Float32, value=value)
         elif isinstance(value, str):
             self.value = ValueStr(value_type=TypeStr(), value=value)
+        elif isinstance(value, DateTime):
+            self.value = ValueDateTime(value=value)
+        elif isinstance(value, Color):
+            self.value = ValueColor(value=value)
         else:
             raise TypeError(f"Cannot construct literal from type '{type(value).__name__}'")
 
@@ -346,6 +355,18 @@ class BinaryOpExpr(Expression):
 
             if isinstance(custom_diff, Value):
                 return custom_diff
+
+            if isinstance(custom_diff, DateTime):
+                return ValueDateTime(value=custom_diff)
+
+        if hasattr(raw_left, "__add__") and op == "+":
+            custom_sum: Any = raw_left + raw_right
+
+            if isinstance(custom_sum, Value):
+                return custom_sum
+
+            if isinstance(custom_sum, DateTime):
+                return ValueDateTime(value=custom_sum)
 
         # Integer arithmetic
         if isinstance(left, ValueInt) and isinstance(right, ValueInt):
@@ -645,10 +666,28 @@ class CallExpr(Expression):
 
         # Invoke callable
         if callable(callable_obj):
-            res: Any = callable_obj(*eval_args, **eval_kwargs)
+            # Check if callable is a native Python class or function (e.g. DateTime)
+            is_type: bool = isinstance(callable_obj, type)
+            is_home_type: bool = getattr(callable_obj, "__module__", "").startswith(
+                "src.core.types.home_types"
+            )
+
+            if is_type or is_home_type:
+                raw_args: list[Any] = [a.get() for a in eval_args]
+                raw_kwargs: dict[str, Any] = {k: v.get() for k, v in eval_kwargs.items()}
+                res: Any = callable_obj(*raw_args, **raw_kwargs)
+            else:
+                res = callable_obj(*eval_args, **eval_kwargs)
+
 
             if isinstance(res, Value):
                 return res
+
+            if isinstance(res, DateTime):
+                return ValueDateTime(value=res)
+
+            if isinstance(res, Color):
+                return ValueColor(value=res)
 
             raise TypeError(
                 f"Call to '{repr(self.callee)}' returned '{type(res).__name__}' "
@@ -656,6 +695,7 @@ class CallExpr(Expression):
             )
 
         raise TypeError(f"Target '{callable_obj}' is not callable")
+
 
     def __repr__(self) -> str:
         """

@@ -13,6 +13,9 @@ from src.core.types.bits.bits import (
     BitValueTypeInt,
     BitValueTypeFloat,
 )
+from src.core.types.home_types.color import Color
+from src.core.types.home_types.datetime import DateTime
+
 
 
 class Type:
@@ -430,3 +433,85 @@ Float16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=True)
 BFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=True)
 Float32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=True)
 Float64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=True)
+
+
+class TypeDateTime(Type):
+    """
+    Schema type representing a date and time.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initializes the TypeDateTime instance.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Default value is a default DateTime instance
+        self.default_value: DateTime = DateTime()
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a DateTime instance.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            TypeError: If value is not a DateTime.
+        """
+
+        if not isinstance(value, DateTime):
+            raise TypeError(f"Expected DateTime, got {type(value).__name__}")
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of TypeDateTime.
+
+        Returns:
+            str: "DateTime".
+        """
+
+        return "DateTime"
+
+
+class TypeColor(Type):
+    """
+    Schema type representing an RGBA color.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initializes the TypeColor instance.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Default value is black
+        self.default_value: Color = Color(0, 0, 0, 255)
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a Color instance.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            TypeError: If value is not a Color.
+        """
+
+        if not isinstance(value, Color):
+            raise TypeError(f"Expected Color, got {type(value).__name__}")
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of TypeColor.
+
+        Returns:
+            str: "Color".
+        """
+
+        return "Color"
