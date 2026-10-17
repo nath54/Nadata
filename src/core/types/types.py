@@ -25,7 +25,7 @@ class TypeStr(Type):
     TODO
     """
 
-    def __init_(self) -> None:
+    def __init__(self) -> None:
         """
         Init function
         """
