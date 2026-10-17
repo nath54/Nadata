@@ -415,40 +415,6 @@ class TypeDict(Type):
         return f"Dict[{repr(self.key_type)}, {repr(self.value_type)}]"
 
 
-# Predefined Sized Integer and Float Aliases
-# pylint: disable=invalid-name
-Int2: TypeInt = TypeInt(num_bits=2, signed=True)
-Int4: TypeInt = TypeInt(num_bits=4, signed=True)
-Int8: TypeInt = TypeInt(num_bits=8, signed=True)
-Int16: TypeInt = TypeInt(num_bits=16, signed=True)
-Int32: TypeInt = TypeInt(num_bits=32, signed=True)
-Int64: TypeInt = TypeInt(num_bits=64, signed=True)
-
-UInt2: TypeInt = TypeInt(num_bits=2, signed=False)
-UInt4: TypeInt = TypeInt(num_bits=4, signed=False)
-UInt8: TypeInt = TypeInt(num_bits=8, signed=False)
-UInt16: TypeInt = TypeInt(num_bits=16, signed=False)
-UInt32: TypeInt = TypeInt(num_bits=32, signed=False)
-UInt64: TypeInt = TypeInt(num_bits=64, signed=False)
-
-# Predefined Sized Float Aliases
-Float8_E4M3: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=4, signed=True)
-Float8_E5M2: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=5, signed=True)
-Float16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=True)
-BFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=True)
-Float32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=True)
-Float64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=True)
-
-# Predefined Unsigned Float Aliases
-UFloat8_E4M3: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=4, signed=False)
-UFloat8_E5M2: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=5, signed=False)
-UFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=False)
-UBFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=False)
-UFloat32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=False)
-UFloat64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=False)
-
-
-
 class TypeDateTime(Type):
     """
     Schema type representing a date and time.
@@ -529,3 +495,36 @@ class TypeColor(Type):
         """
 
         return "Color"
+
+
+# Predefined Sized Integer and Float Aliases
+# pylint: disable=invalid-name
+Int2: TypeInt = TypeInt(num_bits=2, signed=True)
+Int4: TypeInt = TypeInt(num_bits=4, signed=True)
+Int8: TypeInt = TypeInt(num_bits=8, signed=True)
+Int16: TypeInt = TypeInt(num_bits=16, signed=True)
+Int32: TypeInt = TypeInt(num_bits=32, signed=True)
+Int64: TypeInt = TypeInt(num_bits=64, signed=True)
+
+UInt2: TypeInt = TypeInt(num_bits=2, signed=False)
+UInt4: TypeInt = TypeInt(num_bits=4, signed=False)
+UInt8: TypeInt = TypeInt(num_bits=8, signed=False)
+UInt16: TypeInt = TypeInt(num_bits=16, signed=False)
+UInt32: TypeInt = TypeInt(num_bits=32, signed=False)
+UInt64: TypeInt = TypeInt(num_bits=64, signed=False)
+
+# Predefined Sized Float Aliases
+Float8_E4M3: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=4, signed=True)
+Float8_E5M2: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=5, signed=True)
+Float16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=True)
+BFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=True)
+Float32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=True)
+Float64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=True)
+
+# Predefined Unsigned Float Aliases
+UFloat8_E4M3: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=4, signed=False)
+UFloat8_E5M2: TypeFloat = TypeFloat(num_bits=8, num_bits_exponent=5, signed=False)
+UFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=5, signed=False)
+UBFloat16: TypeFloat = TypeFloat(num_bits=16, num_bits_exponent=8, signed=False)
+UFloat32: TypeFloat = TypeFloat(num_bits=32, num_bits_exponent=8, signed=False)
+UFloat64: TypeFloat = TypeFloat(num_bits=64, num_bits_exponent=11, signed=False)
