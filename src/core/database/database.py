@@ -14,8 +14,10 @@ from src.core.values.values import Value
 from src.core.struct.struct import Struct
 from src.core.database.instance import StructInstance
 from src.core.database.entity_id import EntityId
+from src.core.database.queryset import QuerySet
 from src.core.database.page_manager import PageManager
 from src.core.database.query_engine import QueryExecutor
+
 
 
 
@@ -224,7 +226,7 @@ class NaDataDatabase:
         struct: Struct,
         predicate: Optional[Callable[[StructInstance], bool]] = None,
         include_subtypes: bool = True
-    ) -> list[StructInstance]:
+    ) -> QuerySet:
         """
         Queries instances of a Struct with optional parallel predicate filtering.
 
@@ -234,9 +236,8 @@ class NaDataDatabase:
                 Defaults to None.
             include_subtypes (bool, optional): Include derived structs. Defaults to True.
 
-
         Returns:
-            list[StructInstance]: Matching instances.
+            QuerySet: Matching instances in a chained QuerySet.
         """
 
         candidates: list[StructInstance] = []
@@ -248,9 +249,14 @@ class NaDataDatabase:
             elif include_subtypes and table.struct.is_subclass_of(other=struct):
                 candidates.extend(table.all())
 
-        # If no predicate given, return all candidate instances
-        if predicate is None:
-            return candidates
+        queryset: QuerySet = QuerySet(
+            struct=struct,
+            instances=candidates,
+            database=self,
+            query_executor=self.query_executor
+        )
 
-        # Run parallelized query executor
-        return self.query_executor.filter(candidates=candidates, predicate=predicate)
+        if predicate is not None:
+            return queryset.where(predicate=predicate)
+
+        return queryset

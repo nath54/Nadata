@@ -14,12 +14,15 @@ from src.core.struct import (
 )
 from src.core.database import (
     EntityId,
+    QuerySet,
     SlottedPage,
     PageManager,
+    PrintFunction,
     StructInstance,
     NaDataDatabase,
     QueryOptimizer,
 )
+
 from src.core.values.values import (
     ValueStr,
     ValueFloat,
@@ -174,7 +177,10 @@ def test_database_table_and_instance_queries() -> None:
         predicate=lambda h: h.attributes["weight"].get() > 75.0
     )
     assert len(heavy_humans) == 1
-    assert heavy_humans[0].attributes["name"].get() == "Jean"
+    first_heavy = heavy_humans.first()
+    assert first_heavy is not None
+    assert first_heavy.attributes["name"].get() == "Jean"
+
 
 
 def test_query_invariant_hoisting() -> None:
@@ -212,3 +218,70 @@ def test_query_invariant_hoisting() -> None:
     # The right operand should now be pre-evaluated into a LiteralExpr
     assert isinstance(optimized.right, LiteralExpr)
     assert optimized.right.value.get() == 1.80
+
+
+def test_queryset_chaining_and_print() -> None:
+    """
+    Tests fluent QuerySet chaining with .where() and PrintFunction formatting.
+    """
+
+    db: NaDataDatabase = NaDataDatabase()
+
+    human_struct: Struct = Struct(name="Human")
+    human_struct.add_attribute(StructAttribute(name="name", attr_type=TypeStr()))
+    human_struct.add_attribute(StructAttribute(name="weight", attr_type=TypeFloat()))
+    human_struct.add_attribute(StructAttribute(name="birthplace", attr_type=TypeStr()))
+
+    db.register_struct(struct=human_struct)
+
+    # Insert 3 humans
+    db.create_instance(
+        struct=human_struct,
+        attributes={
+            "name": ValueStr(TypeStr(), "Tom"),
+            "weight": ValueFloat(TypeFloat(), 70.0),
+            "birthplace": ValueStr(TypeStr(), "Paris"),
+        }
+    )
+    db.create_instance(
+        struct=human_struct,
+        attributes={
+            "name": ValueStr(TypeStr(), "Jean"),
+            "weight": ValueFloat(TypeFloat(), 80.0),
+            "birthplace": ValueStr(TypeStr(), "Paris"),
+        }
+    )
+    db.create_instance(
+        struct=human_struct,
+        attributes={
+            "name": ValueStr(TypeStr(), "Louise"),
+            "weight": ValueFloat(TypeFloat(), 65.0),
+            "birthplace": ValueStr(TypeStr(), "Lyon"),
+        }
+    )
+
+    # Initial query
+    all_humans: QuerySet = db.query(struct=human_struct)
+    assert all_humans.count() == 3
+
+    # First filter: birthplace == "Paris"
+    parisians: QuerySet = all_humans.where(
+        predicate=lambda h: h.attributes["birthplace"].get() == "Paris"
+    )
+    assert parisians.count() == 2
+
+    # Chained filter: weight >= 75.0 on the parisians result!
+    heavy_parisians: QuerySet = parisians.where(
+        predicate=lambda h: h.attributes["weight"].get() >= 75.0
+    )
+    assert heavy_parisians.count() == 1
+    assert heavy_parisians.first() is not None
+    assert heavy_parisians.first().attributes["name"].get() == "Jean" # type: ignore
+
+    # Test PrintFunction
+    printer: PrintFunction = PrintFunction(capture=True)
+    printer("Results:", heavy_parisians)
+
+    assert len(printer.captured_output) == 1
+    assert "Results:" in printer.captured_output[0]
+    assert "<Human id=1>" in printer.captured_output[0]
