@@ -181,10 +181,10 @@ name: Type = default;           // attribute with default value
 
 ### 6.4 Computed properties
 
-A method with **no parentheses** in its declaration is a computed property:
+A method with an **empty parameter list** is a computed property:
 
 ```text
-@is_broken -> Bool {
+@is_broken() -> Bool {
     broken: Bool = false;
     if (state <= 0) {
         broken = true;
@@ -193,7 +193,16 @@ A method with **no parentheses** in its declaration is a computed property:
 }
 ```
 
-It is called without parentheses: `item.is_broken`.
+It is called exactly like any method, **with parentheses**: `item.is_broken()`.
+
+Rules:
+
+- The parameter list `(...)` is **mandatory** in every `@` declaration, even when
+  empty: `@name -> Type { ... }` without parentheses is a syntax error.
+- The parentheses are **mandatory at every call site**, even for zero-argument
+  methods and computed properties: `item.is_broken()`, never `item.is_broken`.
+- There is no syntactic distinction at call time between methods and computed
+  properties — both are `name(...)`.
 
 ### 6.5 Standalone functions
 
@@ -301,7 +310,7 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 | `:` | Type annotations, dict key/value separation |
 | `=` | Assignments, default values, keyword arguments |
 | `->` | Return types (methods, functions, query lambdas) |
-| `@` | Method and computed property declarations |
+| `@` | Method and computed property declarations (parameter list `()` mandatory) |
 | `.` | Member access and method calls |
 
 ---

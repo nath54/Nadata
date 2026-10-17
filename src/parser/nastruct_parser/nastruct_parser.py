@@ -125,7 +125,8 @@ class NaStructParser:
                     name=header_text,
                     start=bt.start + 1,
                     end=bt.end,
-                    brackets_inside=bt.inside
+                    brackets_inside=bt.inside,
+                    content=content
                 )
 
             # Second case: fn
@@ -134,7 +135,8 @@ class NaStructParser:
                     name=header_text,
                     start=bt.start + 1,
                     end=bt.end,
-                    brackets_inside=bt.inside
+                    brackets_inside=bt.inside,
+                    content=content
                 )
 
             # Syntax error
@@ -175,8 +177,8 @@ class NaStructParser:
 
         while cursor < end:
 
-            # Manage white spaces
-            if content[cursor] == " ":
+            # Manage white spaces (spaces, tabs, newlines, and blanked comments)
+            if content[cursor].isspace():
                 cursor += 1
                 continue
 
@@ -185,24 +187,38 @@ class NaStructParser:
 
                 # Check bracket
                 if next_bracket is None:
-                    raise SyntaxError("TODO")
+                    raise SyntaxError(
+                        f"Method declaration at index {cursor} has no body '{{...}}'"
+                    )
 
-                # Get text before
-                txt_before: str = content[cursor+1:next_bracket.start].strip()
+                # Get text before (the full method header: name, params, return type)
+                method_header: str = content[cursor + 1:next_bracket.start].strip()
 
-                # Check the text
-                txtlst: list[str] = txt_before.split()
+                # Check the text is present
+                if not method_header:
+                    raise SyntaxError(f"Empty method declaration at index {cursor}")
 
-                if len(txtlst) != 1:
-                    raise SyntaxError("TODO")
+                # A method declaration requires a parameter list '(...)'
+                paren_index: int = method_header.find("(")
 
-                # Get the struct method name
-                method_name: str = txtlst[0]
+                if paren_index == -1:
+                    raise SyntaxError(
+                        f"Method declaration at index {cursor} is missing its "
+                        f"parameter list '(...)': '@{method_header[:20]}...'"
+                    )
+
+                # The method name is the text before the parameter list
+                method_name: str = method_header[:paren_index].strip()
+
+                # Check the method name is present
+                if not method_name:
+                    raise SyntaxError(f"Missing method name at index {cursor}")
 
                 # Parse the struct method
                 self.parse_struct_method(
                     struct_name=name,
                     struct_method_name=method_name,
+                    header=method_header,
                     start=next_bracket.start,
                     end=next_bracket.end,
                     content=content,
@@ -220,17 +236,19 @@ class NaStructParser:
             # Else, it is an attribut definition
             else:
 
-                # Find the closing ;
-                i: int = content.find(";", cursor)
+                # Find the closing ; within the struct body only
+                i: int = content.find(";", cursor, end)
 
                 # Check closing ;
                 if i == -1:
-                    raise SyntaxError("TODO")
+                    raise SyntaxError(
+                        f"Missing closing ';' for attribute starting at index {cursor}"
+                    )
 
                 bracket_inside: Optional[BracketTree] = None
 
                 # Check next bracket
-                if next_bracket.start < i:
+                if next_bracket is not None and next_bracket.start < i:
 
                     # Mark the bracket as inside the attribute declaration
                     bracket_inside = next_bracket
@@ -243,8 +261,8 @@ class NaStructParser:
                 # Process the attribute
                 self.parse_struct_attribute(
                     struct_name=name,
-                    start = cursor,
-                    end = i,
+                    start=cursor,
+                    end=i,
                     content=content,
                     bracket_inside=bracket_inside
                 )
@@ -262,7 +280,15 @@ class NaStructParser:
         bracket_inside: Optional[BracketTree]
     ) -> None:
         """
-        TODO
+        Parses a single struct attribute declaration.
+
+        Args:
+            struct_name (str): Name of the struct owning the attribute.
+            start (int): Index of the first character of the declaration.
+            end (int): Index of the closing ';' of the declaration.
+            content (str): Text of the file.
+            bracket_inside (Optional[BracketTree]): Bracket tree contained in the
+                declaration (e.g. '{} ' or '[]' default value), None if none.
         """
 
         pass
@@ -272,13 +298,24 @@ class NaStructParser:
         self,
         struct_name: str,
         struct_method_name: str,
+        header: str,
         start: int,
         end: int,
         content: str,
         brackets_inside: list[BracketTree]
     ) -> None:
         """
-        TODO
+        Parses a struct method definition block.
+
+        Args:
+            struct_name (str): Name of the struct owning the method.
+            struct_method_name (str): Name of the method (without '@').
+            header (str): Full header text between '@' and the opening brace
+                (e.g. 'age(now: DateTime) -> DateTime').
+            start (int): Index of the first content character inside the braces.
+            end (int): Index of the closing brace of the method body.
+            content (str): Text of the file.
+            brackets_inside (list[BracketTree]): Nested bracket trees in the body.
         """
 
         pass

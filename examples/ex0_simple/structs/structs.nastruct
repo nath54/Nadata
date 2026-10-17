@@ -47,7 +47,7 @@ class ObjectInstance{
     object_type: ObjectType;
     state: UFloat16 = 1.0;
 
-    @is_broken -> Bool {
+    @is_broken() -> Bool {
 
         broken: Bool = false;
 

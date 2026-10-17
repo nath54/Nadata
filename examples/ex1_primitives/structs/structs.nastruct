@@ -31,7 +31,7 @@ class NumericSensors {
     bfloat_val: BFloat16 = 3.140625;
 
     # Method testing arithmetic and edge bounds
-    @is_saturated -> Bool {
+    @is_saturated() -> Bool {
         if (byte_val >= 255 and port == 8080) {
             return true;
         }

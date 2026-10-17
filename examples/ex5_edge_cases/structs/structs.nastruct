@@ -22,7 +22,7 @@ class EdgeCaseItem {
     tags: Array[Str] = [];
 
     # Method with no arguments and empty return
-    @noop -> Bool {
+    @noop() -> Bool {
         return true;
     }
 

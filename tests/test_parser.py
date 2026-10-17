@@ -175,7 +175,8 @@ class TestNaStructParser:
             name: str,
             start: int,
             end: int,
-            brackets_inside: list[BracketTree]
+            brackets_inside: list[BracketTree],
+            content: str
         ) -> None:
             recorded.append(("struct", name, start, end))
 
@@ -183,7 +184,8 @@ class TestNaStructParser:
             name: str,
             start: int,
             end: int,
-            brackets_inside: list[BracketTree]
+            brackets_inside: list[BracketTree],
+            content: str
         ) -> None:
             recorded.append(("fn", name, start, end))
 
