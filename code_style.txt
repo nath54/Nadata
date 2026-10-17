@@ -1,0 +1,42 @@
+Full type hinting for every variable declaration, every function argument / output.
+Use of list[...], tuple[...], dict[...], set[...] instead of List, Tuple, Dict, Set
+Use of | instead of Union
+Use of NDArray[np.XXX], no np.ndarray
+Use of typing.Any instead of any or object.
+
+A `# Import Modules` comment before each Import block
+The import section is segmented depending the type of the imports
+There are the very low low level python import `typing, path, ABC, dataclass, ...`
+Then the base python imports `os, sys, json, math, random, ...`
+Then the lib python imports `numpy, kivy, ...`
+Then the own project import `from src.XXX.XXX import XXX`
+Each import segment is separated by an empty line.
+Within an import segment, we sort the imports by module name length, and only secondly by alphabetical order.
+The multiline imports are last and if there are multiple, the most line last.
+
+No import outside of top level imports
+Clean project structure so no sys tinkering.
+No nested function or class declaration inside another function or class method.
+
+Full docstring for python files, classes, class methods, functions.
+Docstring follow the google style, but with types indications.
+Docstring content must begin on the line following the opening triple quotes (i.e., a newline immediately after the opening triple quotes).
+
+No trailing spaces in the code.
+
+The code is very modular.
+Each complex algorithm / function is decomposed into multiple subparts, with each subpart its function.
+Each little complex thing is explained via a comment.
+
+Each instructions group is preceded by a `# Comment explaining the instruction group`.
+
+There is an empty line after all functions / class methods docstring and before code start of the method.
+Each comment `# Like that` have a blank empty line before it for space.
+
+If a function / class method has more than 2 arguments, all the methods arguments are multiline.
+
+Code readability is priority. There are empty lines used everywhere to space things out (by semantical meaning).
+
+The code should respect all the pylint and mypy strict verifications without any Warning.
+
+No lines with more than 100 characters.
