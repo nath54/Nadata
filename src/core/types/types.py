@@ -154,3 +154,5 @@ class TypeDict(Type):
         # Default value of the type
         self.default_value: dict[Any, Any] = {}
 
+
+# TODO: implement all the other class types. Maybe put each type in its own python file ?
