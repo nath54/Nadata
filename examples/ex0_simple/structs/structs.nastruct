@@ -8,8 +8,19 @@ class Entity{
     parents: Array[Entity] = [];
     children: Array[Entity] = [];
 
-    @age(now: DateTime) -> Time {
-        now - birthday;
+    @age(now: DateTime = DateTime.now()) -> DateTime {
+        return now - birthday;
+    }
+
+    @older(other_entity: Entity, now: DateTime = DateTime.now()) -> Bool {
+        other_entity_age: DateTime = other_entity.age(now);
+        self_age: DateTime = age(now);
+
+        if(other_entity_age >= self_age){
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -37,6 +48,13 @@ class ObjectInstance{
     state: Float = 1.0;
 
     @is_broken -> Bool {
-        state <= 0;
+
+        broken: Bool = false;
+
+        if (state <= 0){
+            broken = true;
+        }
+
+        return broken;
     }
 }

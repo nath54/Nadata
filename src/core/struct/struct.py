@@ -7,6 +7,7 @@ declared attributes, and declared methods.
 
 # Import Modules
 from __future__ import annotations
+from typing import Any
 
 from src.core.struct.struct_method import StructMethod
 from src.core.struct.struct_attribute import StructAttribute
@@ -160,6 +161,29 @@ class Struct:
             return self.parent.is_subclass_of(other=other)
 
         return False
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a given value is an instance conforming to this struct.
+
+        Args:
+            value (Any): Instance object to validate.
+
+        Raises:
+            TypeError: If value is not an instance conforming to this struct.
+        """
+
+        # Check struct attribute on candidate instance
+        if hasattr(value, "struct"):
+            candidate_struct: Any = getattr(value, "struct")
+
+            if hasattr(candidate_struct, "is_subclass_of"):
+                if candidate_struct.is_subclass_of(other=self):
+                    return
+
+        raise TypeError(
+            f"Expected instance of Struct '{self.name}', got '{type(value).__name__}'"
+        )
 
     def __repr__(self) -> str:
         """
