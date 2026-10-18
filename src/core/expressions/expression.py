@@ -15,6 +15,8 @@ from src.core.types.types import (
     Float32,
     TypeBool,
     TypeFloat,
+    TypeArray,
+    TypeDict,
 )
 from src.core.values.values import (
     Value,
@@ -23,6 +25,8 @@ from src.core.values.values import (
     ValueBool,
     ValueColor,
     ValueFloat,
+    ValueArray,
+    ValueDict,
     ValueDateTime,
 )
 from src.core.types.home_types.color import Color
@@ -721,3 +725,160 @@ class CallExpr(Expression):
         combined_args: str = ", ".join(arg_strs + kw_strs)
 
         return f"{repr(self.callee)}({combined_args})"
+
+
+class ArrayLiteralExpr(Expression):
+    """
+    AST node representing an array literal (e.g. ['a', 'b']).
+
+    Attributes:
+        elements (list[Expression]): Element expressions in declaration order.
+        declared_type (Optional[TypeArray]): Declared element type, when known
+            from the surrounding declaration. Required for empty literals.
+    """
+
+    def __init__(
+        self,
+        elements: Optional[list[Expression]] = None,
+        declared_type: Optional[TypeArray] = None
+    ) -> None:
+        """
+        Initializes the ArrayLiteralExpr instance.
+
+        Args:
+            elements (Optional[list[Expression]], optional): Element expressions.
+                Defaults to None (empty array).
+            declared_type (Optional[TypeArray], optional): Declared array type.
+                Defaults to None (type inferred from elements).
+        """
+
+        self.elements: list[Expression] = elements if elements is not None else []
+        self.declared_type: Optional[TypeArray] = declared_type
+
+    def evaluate(self, scope: ExecutionScope) -> Value:
+        """
+        Evaluates all elements and builds the typed array Value.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            Value: Typed ValueArray result.
+
+        Raises:
+            ValueError: If the element type cannot be determined.
+        """
+
+        evaluated: list[Value] = [
+            element.evaluate(scope=scope) for element in self.elements
+        ]
+
+        # Resolve the array type: declared type first, else infer from elements
+        if self.declared_type is not None:
+            array_type: TypeArray = self.declared_type
+
+        elif evaluated:
+            array_type = TypeArray(value_type=evaluated[0].value_type)
+
+        else:
+            raise ValueError("Cannot infer the type of an empty array literal")
+
+        raw_elements: list[Any] = [element.get() for element in evaluated]
+
+        return ValueArray(value_type=array_type, elements=raw_elements)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ArrayLiteralExpr.
+
+        Returns:
+            str: Bracketed comma separated element representation.
+        """
+
+        element_strs: list[str] = [repr(element) for element in self.elements]
+
+        return f"[{', '.join(element_strs)}]"
+
+
+class DictLiteralExpr(Expression):
+    """
+    AST node representing a dictionary literal (e.g. {'key': 'value'}).
+
+    Attributes:
+        entries (list[tuple[Expression, Expression]]): Key / value expression
+            pairs in declaration order.
+        declared_type (Optional[TypeDict]): Declared key / value types, when
+            known from the surrounding declaration (empty literals require it).
+    """
+
+    def __init__(
+        self,
+        entries: Optional[list[tuple[Expression, Expression]]] = None,
+        declared_type: Optional[TypeDict] = None
+    ) -> None:
+        """
+        Initializes the DictLiteralExpr instance.
+
+        Args:
+            entries (Optional[list[tuple[Expression, Expression]]], optional):
+                Key / value expression pairs. Defaults to None (empty dict).
+            declared_type (Optional[TypeDict], optional): Declared dict type.
+                Defaults to None (types inferred from entries).
+        """
+
+        self.entries: list[tuple[Expression, Expression]] = (
+            entries if entries is not None else []
+        )
+        self.declared_type: Optional[TypeDict] = declared_type
+
+    def evaluate(self, scope: ExecutionScope) -> Value:
+        """
+        Evaluates all entries and builds the typed dictionary Value.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            Value: Typed ValueDict result.
+
+        Raises:
+            ValueError: If the key / value types cannot be determined.
+        """
+
+        evaluated_entries: list[tuple[Value, Value]] = [
+            (key.evaluate(scope=scope), value.evaluate(scope=scope))
+            for key, value in self.entries
+        ]
+
+        # Resolve the dict type: declared type first, else infer from entries
+        if self.declared_type is not None:
+            dict_type: TypeDict = self.declared_type
+
+        elif evaluated_entries:
+            dict_type = TypeDict(
+                key_type=evaluated_entries[0][0].value_type,
+                value_type=evaluated_entries[0][1].value_type
+            )
+
+        else:
+            raise ValueError("Cannot infer the type of an empty dict literal")
+
+        raw_entries: dict[Any, Any] = {
+            key.get(): value.get() for key, value in evaluated_entries
+        }
+
+        return ValueDict(value_type=dict_type, entries=raw_entries)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the DictLiteralExpr.
+
+        Returns:
+            str: Braced comma separated key / value representation.
+        """
+
+        entry_strs: list[str] = [
+            f"{repr(key)}: {repr(value)}" for key, value in self.entries
+        ]
+
+        return f"{{{', '.join(entry_strs)}}}"
