@@ -103,8 +103,8 @@ class TestBracketsAndStrings:
         trees, _ = BracketsAndStrings.process(content=content)
 
         assert len(trees) == 1
-        assert content[trees[0].start] == "{"
-        assert content[trees[0].end] == "}"
+        assert content[trees[0].open_index] == "{"
+        assert content[trees[0].close_index] == "}"
         assert len(trees[0].inside) == 1
 
     def test_brackets_inside_strings_ignored(self) -> None:
@@ -172,22 +172,22 @@ class TestNaStructParser:
 
         # Monkeypatch dispatch to capture parsed blocks
         def mock_parse_struct(
-            name: str,
-            start: int,
-            end: int,
+            struct_name: str,
+            struct_start: int,
+            struct_end: int,
             brackets_inside: list[BracketTree],
             content: str
         ) -> None:
-            recorded.append(("struct", name, start, end))
+            recorded.append(("struct", struct_name, struct_start, struct_end))
 
         def mock_parse_fn(
             name: str,
-            start: int,
-            end: int,
+            fn_start: int,
+            fn_end: int,
             brackets_inside: list[BracketTree],
             content: str
         ) -> None:
-            recorded.append(("fn", name, start, end))
+            recorded.append(("fn", name, fn_start, fn_end))
 
         parser.parse_struct = mock_parse_struct  # type: ignore[method-assign]
         parser.parse_fn = mock_parse_fn          # type: ignore[method-assign]

@@ -16,28 +16,28 @@ class BracketTree:
     Represents a '{' / '}' couple with its nested children bracket trees.
 
     Attributes:
-        start (int): Index of the opening bracket '{' in the content.
-        end (int): Index of the matching closing bracket '}' (-1 if unclosed).
+        open_index (int): Index of the opening bracket '{' in the content.
+        close_index (int): Index of the matching closing bracket '}' (-1 if unclosed).
         inside (list[BracketTree]): Nested bracket trees contained in this one.
     """
 
     def __init__(
         self,
-        start: int,
-        end: int = -1,
+        open_index: int,
+        close_index: int = -1,
         inside: Optional[list[BracketTree]] = None
     ) -> None:
         """
         Initializes the BracketTree instance.
 
         Args:
-            start (int): Index of the opening bracket.
-            end (int, optional): Index of the closing bracket. Defaults to -1.
+            open_index (int): Index of the opening bracket.
+            close_index (int, optional): Index of the closing bracket. Defaults to -1.
             inside (Optional[list[BracketTree]], optional): Nested trees. Defaults to None.
         """
 
-        self.start: int = start
-        self.end: int = end
+        self.open_index: int = open_index
+        self.close_index: int = close_index
         self.inside: list[BracketTree] = [] if inside is None else inside
 
 
@@ -124,7 +124,7 @@ class BracketsAndStrings:
 
             # Opening bracket: push on the waiting stack
             if char == "{":
-                waiting_queue.append(BracketTree(start=i))
+                waiting_queue.append(BracketTree(open_index=i))
                 continue
 
             # Closing bracket: pop the matching opener
@@ -132,7 +132,7 @@ class BracketsAndStrings:
                 raise SyntaxError(f"Unexpected closing bracket '}}' at index {i}")
 
             bracket_tree: BracketTree = waiting_queue.pop()
-            bracket_tree.end = i
+            bracket_tree.close_index = i
 
             # This is a top-level bracket, no one is parenting it
             if not waiting_queue:
@@ -151,7 +151,7 @@ class BracketsAndStrings:
         # Check for unclosed brackets
         if waiting_queue:
             raise SyntaxError(
-                f"Missing closing bracket '}}' for bracket at index {waiting_queue[0].start}"
+                f"Missing closing bracket '}}' for bracket at index {waiting_queue[0].open_index}"
             )
 
         return larger_trees, string_couples
