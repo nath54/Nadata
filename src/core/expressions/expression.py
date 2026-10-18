@@ -514,9 +514,13 @@ class MemberAccessExpr(Expression):
 
         target_obj: Any = self._resolve_target(scope=scope)
 
+        # Unwrap Value containers to their raw object for member access
+        # (e.g. a ValueDateTime wrapping a DateTime exposes 'year')
+        raw_target: Any = target_obj.get() if isinstance(target_obj, Value) else target_obj
+
         # Check dictionary-backed attributes on struct instances
-        if hasattr(target_obj, "attributes"):
-            attrs: dict[str, Any] = getattr(target_obj, "attributes")
+        if hasattr(raw_target, "attributes"):
+            attrs: dict[str, Any] = getattr(raw_target, "attributes")
 
             if self.member in attrs:
                 attr_val: Any = attrs[self.member]
@@ -525,11 +529,14 @@ class MemberAccessExpr(Expression):
                     return attr_val
 
         # Check native Python object attributes
-        if hasattr(target_obj, self.member):
-            native_val: Any = getattr(target_obj, self.member)
+        if hasattr(raw_target, self.member):
+            native_val: Any = getattr(raw_target, self.member)
 
             if isinstance(native_val, Value):
                 return native_val
+
+            # Wrap raw native members (e.g. DateTime.year) into typed Values
+            return LiteralExpr(value=native_val).evaluate(scope=scope)
 
         raise AttributeError(f"Target '{target_obj}' has no Value member '{self.member}'")
 

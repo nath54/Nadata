@@ -9,7 +9,7 @@ a globally unique EntityId, and bound method execution.
 from __future__ import annotations
 from typing import Any, Optional
 
-from src.core.values.values import Value
+from src.core.values.values import Value, make_value
 from src.core.struct.struct import Struct
 from src.core.database.entity_id import EntityId
 
@@ -63,11 +63,11 @@ class StructInstance:
         # Check default value in struct schema definition
         attr_def = self.struct.get_attribute(name=name)
 
-        if attr_def is not None and attr_def.default_value is not None:
-            val = attr_def.default_value
-
-            if isinstance(val, Value):
-                return val
+        if attr_def is not None and attr_def.has_default:
+            return make_value(
+                value_type=attr_def.attr_type,
+                raw=attr_def.default_value
+            )
 
         raise AttributeError(f"Instance of '{self.struct.name}' has no attribute '{name}'")
 
@@ -168,8 +168,11 @@ class StructInstance:
         # Check default attribute value
         attr_def = self.struct.get_attribute(name=name)
 
-        if attr_def is not None and attr_def.default_value is not None:
-            return attr_def.default_value
+        if attr_def is not None and attr_def.has_default:
+            return make_value(
+                value_type=attr_def.attr_type,
+                raw=attr_def.default_value
+            )
 
         raise AttributeError(f"'{self.struct.name}' instance has no member '{name}'")
 

@@ -11,6 +11,7 @@ from src.core.database.database import NaDataDatabase
 from src.parser.utils.comments_remove import CommentsRemover
 from src.parser.utils.brackets import BracketsAndStrings, BracketTree
 from src.parser.nastruct_parser.parser_state import NaStructParserState
+from src.parser.nastruct_parser.resolver import resolve_parser_state
 from src.parser.nastruct_parser.parse_structs import parse_struct, parse_struct_header
 from src.parser.nastruct_parser.parse_callables import parse_fn
 
@@ -32,6 +33,19 @@ class NaStructParser:
         )
 
 
+    def resolve(self) -> NaDataDatabase:
+        """
+        Resolves the intermediate representation into the database.
+
+        Converts every tmp struct and function into core objects: types are
+        resolved, defaults evaluated, and everything registered.
+
+        Returns:
+            NaDataDatabase: The populated database.
+        """
+
+        return resolve_parser_state(parser_state=self.parser_state)
+
     def parse_folder(self, folder_path: str) -> NaDataDatabase:
         """
         Parses all .nastruct files found in the specified folder into the database.
@@ -52,6 +66,9 @@ class NaStructParser:
         for file_path in all_structs_files:
             with open(file_path, "r", encoding="utf-8") as file:
                 self.parse_file(content=file.read())
+
+        # Resolve the intermediate representation into the database
+        self.resolve()
 
         return self.parser_state.database
 

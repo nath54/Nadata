@@ -545,3 +545,47 @@ class ValueColor(Value):
         """
 
         return repr(self.value)
+
+
+def make_value(value_type: Type, raw: Any) -> Value:
+    """
+    Wraps a raw value into the typed Value matching its schema type.
+
+    Args:
+        value_type (Type): Schema type of the raw value.
+        raw (Any): Raw value to wrap.
+
+    Returns:
+        Value: The typed Value wrapper.
+
+    Raises:
+        TypeError: If the schema type has no matching Value class.
+    """
+
+    # Collections and home types have dedicated constructor signatures
+    if isinstance(value_type, TypeArray):
+        return ValueArray(value_type=value_type, elements=raw)
+
+    if isinstance(value_type, TypeDict):
+        return ValueDict(value_type=value_type, entries=raw)
+
+    if isinstance(value_type, TypeDateTime):
+        return ValueDateTime(value=raw)
+
+    if isinstance(value_type, TypeColor):
+        return ValueColor(value=raw)
+
+    # Primitives share the (value_type, value) signature
+    if isinstance(value_type, TypeBool):
+        return ValueBool(value_type=value_type, value=raw)
+
+    if isinstance(value_type, TypeInt):
+        return ValueInt(value_type=value_type, value=raw)
+
+    if isinstance(value_type, TypeFloat):
+        return ValueFloat(value_type=value_type, value=raw)
+
+    if isinstance(value_type, TypeStr):
+        return ValueStr(value_type=value_type, value=raw)
+
+    raise TypeError(f"Cannot wrap raw value into '{repr(value_type)}'")

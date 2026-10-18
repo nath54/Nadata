@@ -151,8 +151,8 @@ def main() -> None:
     print(
         f"Parsed {len(state.tmp_structs)} struct(s) and "
         f"{len(state.tmp_functions)} function(s). "
-        f"Database tables: {len(state.database.tables_by_struct_name)} "
-        f"(empty until the resolution phase is implemented)."
+        f"Resolved database tables: {len(state.database.tables_by_struct_name)}, "
+        f"functions: {len(state.database.functions)}."
     )
     print()
 
