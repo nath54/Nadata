@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from src.core.expressions.expression import Expression
+from src.core.expressions.statement import Statement
+
 
 @dataclass
 class TmpAttribute:
@@ -25,13 +28,13 @@ class TmpAttribute:
     Attributes:
         attribute_name (str): Name of the attribute or parameter.
         attribute_type (str): Raw type annotation string (e.g. 'Array[Entity]').
-        attribute_default_value (Optional[str]): Raw default value expression
-            string, or None if the attribute has no default.
+        attribute_default_value (Optional[Expression]): Parsed default value
+            expression AST, or None if the attribute has no default.
     """
 
     attribute_name: str
     attribute_type: str
-    attribute_default_value: Optional[str] = None
+    attribute_default_value: Optional[Expression] = None
 
     dependencies: set[str] = field(default_factory=set)
 
@@ -47,7 +50,11 @@ class TmpAttribute:
         return {
             "attribute_name": self.attribute_name,
             "attribute_type": self.attribute_type,
-            "attribute_default_value": self.attribute_default_value,
+            "attribute_default_value": (
+                repr(self.attribute_default_value)
+                if self.attribute_default_value is not None
+                else None
+            ),
             "dependencies": sorted(self.dependencies),
         }
 
@@ -65,13 +72,13 @@ class TmpFunction:
         fn_name (str): Name of the function or method.
         fn_output_type (str): Raw return type annotation string.
         fn_argument (dict[str, TmpAttribute]): Parameters by name.
-        fn_body (str): Raw body text between the braces.
+        fn_body (list[Statement]): Parsed body statements in source order.
     """
 
     fn_name: str
     fn_output_type: str
     fn_argument: dict[str, TmpAttribute] = field(default_factory=dict)
-    fn_body: str = ""
+    fn_body: list[Statement] = field(default_factory=list)
 
     dependencies: set[str] = field(default_factory=set)
 
@@ -91,7 +98,7 @@ class TmpFunction:
                 name: argument.to_dict()
                 for name, argument in self.fn_argument.items()
             },
-            "fn_body": self.fn_body,
+            "fn_body": [repr(statement) for statement in self.fn_body],
             "dependencies": sorted(self.dependencies),
         }
 

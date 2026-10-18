@@ -69,9 +69,9 @@ def format_callable(fn: TmpFunction) -> list[str]:
     if fn.dependencies:
         signature += f"    # deps: {', '.join(sorted(fn.dependencies))}"
 
-    # Indent the raw body for readability (uniform, structure-preserving)
+    # Indent the statement reprs for readability
     body_lines: list[str] = [
-        f"        {line.strip()}" for line in fn.fn_body.splitlines() if line.strip()
+        f"        {repr(statement)}" for statement in fn.fn_body
     ]
 
     return [signature] + body_lines

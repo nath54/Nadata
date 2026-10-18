@@ -80,6 +80,29 @@ class ExpressionParser:
 
         return expression
 
+    def parse_expression_at(self, cursor: int) -> tuple[Expression, int]:
+        """
+        Parses a single expression starting at the given token cursor.
+
+        Does not check for end of stream: the returned cursor points just
+        after the expression, for the caller to continue scanning.
+
+        Args:
+            cursor (int): Token index to start parsing from.
+
+        Returns:
+            tuple[Expression, int]: The parsed expression and the new cursor.
+
+        Raises:
+            SyntaxError: On malformed expressions.
+        """
+
+        self.cursor = cursor
+
+        expression: Expression = self._parse_or()
+
+        return expression, self.cursor
+
     # --- Precedence levels (loosest first) ---
 
     def _parse_or(self) -> Expression:

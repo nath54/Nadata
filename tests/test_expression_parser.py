@@ -17,7 +17,16 @@ from src.core.expressions.expression import (
     MemberAccessExpr,
     UnaryOpExpr,
 )
+from src.core.expressions.statement import (
+    AssignStmt,
+    ExprStmt,
+    IfStmt,
+    ReturnStmt,
+    Statement,
+    VarDeclStmt,
+)
 from src.parser.expressions.expression_parser import ExpressionParser
+from src.parser.expressions.statement_parser import StatementParser
 from src.parser.expressions.splitter import find_top_level, split_top_level
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
 from src.parser.nastruct_parser.declaration import parse_declaration_text
@@ -339,7 +348,9 @@ class TestParseCallables:
         assert method.fn_output_type == "Bool"
         assert "current_load" in method.fn_argument
         assert method.fn_argument["current_load"].attribute_type == "UFloat32"
-        assert "return" in method.fn_body
+
+        # Body is parsed into statement AST nodes
+        assert any(isinstance(stmt, ReturnStmt) for stmt in method.fn_body)
 
     def test_inherited_method_parsed(self) -> None:
         """
@@ -372,7 +383,10 @@ class TestParseCallables:
 
         method = parser.parser_state.tmp_structs["A"].methods["m"]
 
-        assert method.fn_argument["x"].attribute_default_value == "3"
+        default_value = method.fn_argument["x"].attribute_default_value
+
+        assert isinstance(default_value, LiteralExpr)
+        assert default_value.value.get() == 3
 
     def test_standalone_function_parsed(self) -> None:
         """
@@ -397,7 +411,7 @@ class TestParseCallables:
 
         assert fn.fn_output_type == "Bool"
         assert fn.fn_argument["h"].attribute_type == "Human"
-        assert "return" in fn.fn_body
+        assert any(isinstance(stmt, ReturnStmt) for stmt in fn.fn_body)
 
     def test_duplicate_method_rejected(self) -> None:
         """
@@ -490,3 +504,132 @@ class TestDependencyCollection:
         attribute = parser.parser_state.tmp_structs["A"].attributes["x"]
 
         assert attribute.dependencies == {"Int32", "obj"}
+
+class TestStatementParser:
+    """
+    Tests for the statement parser on realistic method bodies.
+    """
+
+    def test_colon_form_typed_declaration(self) -> None:
+        """
+        Tests 'name: Type = expression;' local declarations.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text="other_entity_age: DateTime = other_entity.age(now);"
+        )
+
+        assert len(statements) == 1
+        assert isinstance(statements[0], VarDeclStmt)
+        assert statements[0].name == "other_entity_age"
+        assert statements[0].var_type_name == "DateTime"
+        assert isinstance(statements[0].init_expr, CallExpr)
+
+    def test_space_form_typed_declaration(self) -> None:
+        """
+        Tests 'Type name = expression;' local declarations.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text="DateTime age1 = h1.age(now);"
+        )
+
+        assert len(statements) == 1
+        assert isinstance(statements[0], VarDeclStmt)
+        assert statements[0].name == "age1"
+        assert statements[0].var_type_name == "DateTime"
+
+    def test_generic_typed_declaration(self) -> None:
+        """
+        Tests 'Array[Str] name = expression;' declarations.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text='Array[Str] names = ["a", "b"];'
+        )
+
+        assert isinstance(statements[0], VarDeclStmt)
+        assert statements[0].var_type_name == "Array[Str]"
+
+    def test_assignment(self) -> None:
+        """
+        Tests plain 'name = expression;' assignments.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text="broken = true;"
+        )
+
+        assert isinstance(statements[0], AssignStmt)
+        assert statements[0].target_name == "broken"
+
+    def test_if_else_block(self) -> None:
+        """
+        Tests if / else blocks with nested statements.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text=(
+                "if (state <= 0) {\n"
+                "    broken = true;\n"
+                "} else {\n"
+                "    broken = false;\n"
+                "}"
+            )
+        )
+
+        assert len(statements) == 1
+        assert isinstance(statements[0], IfStmt)
+        assert isinstance(statements[0].condition, BinaryOpExpr)
+        assert len(statements[0].then_block.statements) == 1
+        assert statements[0].else_block is not None
+        assert len(statements[0].else_block.statements) == 1
+
+    def test_expression_statement(self) -> None:
+        """
+        Tests bare expression statements (method calls).
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text='print("hello"); obj.describe();'
+        )
+
+        assert len(statements) == 2
+        assert isinstance(statements[0], ExprStmt)
+        assert isinstance(statements[1], ExprStmt)
+
+    def test_semicolon_optional_before_closing_brace(self) -> None:
+        """
+        Tests that the last statement may omit its semicolon.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text="if (a) {\n    return true\n}"
+        )
+
+        assert isinstance(statements[0], IfStmt)
+        assert isinstance(statements[0].then_block.statements[0], ReturnStmt)
+
+    def test_full_body_mixed_statements(self) -> None:
+        """
+        Tests a complete realistic body with mixed statement kinds.
+        """
+
+        statements: list[Statement] = StatementParser.parse_body(
+            text=(
+                "other_entity_age: DateTime = other_entity.age(now);\n"
+                "self_age: DateTime = age(now);\n"
+                "\n"
+                "if(other_entity_age >= self_age){\n"
+                "    return false;\n"
+                "}\n"
+                "\n"
+                "return true;"
+            )
+        )
+
+        assert isinstance(statements[0], VarDeclStmt)
+        assert isinstance(statements[1], VarDeclStmt)
+        assert isinstance(statements[2], IfStmt)
+        assert isinstance(statements[3], ReturnStmt)
+        assert isinstance(statements[3].value_expr, LiteralExpr)

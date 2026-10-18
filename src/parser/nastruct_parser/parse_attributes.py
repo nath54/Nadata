@@ -119,12 +119,14 @@ def parse_struct_attribute(
         )
 
     # Collect the dependencies from the type annotation and the default value
-    # (types are plain text; defaults are parsed to collect only free
-    # identifiers, excluding member names like 'now' in 'DateTime.now()')
+    # (types are plain text; defaults are parsed once and stored as AST in
+    # the tmp attribute, collecting only free identifiers)
     dependencies: set[str] = IdentifierExtractor.extract_identifiers(text=attr_type)
 
+    default_expression: Optional[Expression] = None
+
     if attr_default is not None:
-        default_expression: Expression = ExpressionParser.parse_text(text=attr_default)
+        default_expression = ExpressionParser.parse_text(text=attr_default)
 
         dependencies |= collect_dependencies(expression=default_expression)
 
@@ -132,6 +134,6 @@ def parse_struct_attribute(
     tmp_struct.attributes[attr_name] = TmpAttribute(
         attribute_name=attr_name,
         attribute_type=attr_type,
-        attribute_default_value=attr_default,
+        attribute_default_value=default_expression,
         dependencies=dependencies
     )

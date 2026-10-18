@@ -59,7 +59,7 @@ MULTI_CHAR_OPERATORS: tuple[str, ...] = ("==", "!=", "<=", ">=", "->")
 SINGLE_CHAR_OPERATORS: str = "+-*/%<>=!"
 
 # Punctuation characters
-PUNCTUATION_CHARS: str = ".,:()[]{}"
+PUNCTUATION_CHARS: str = ".,:;()[]{}"
 
 # Escape character used inside string literals
 ESCAPE_CHAR: str = "\\"

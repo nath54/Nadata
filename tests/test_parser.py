@@ -10,6 +10,7 @@ from typing import Optional
 import pytest
 
 import src.parser.nastruct_parser.nastruct_parser as nastruct_parser_module
+from src.core.expressions.expression import CallExpr, LiteralExpr
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
 from src.parser.nastruct_parser.parser_state import NaStructParserState
 from src.parser.nastruct_parser.tmp_structs import TmpStruct
@@ -307,8 +308,17 @@ class TestParseStructAttribute:
         assert list(tmp_human.attributes.keys()) == ["name", "gender", "size"]
         assert tmp_human.attributes["name"].attribute_type == "Str"
         assert tmp_human.attributes["name"].attribute_default_value is None
-        assert tmp_human.attributes["gender"].attribute_default_value == "\"?\""
-        assert tmp_human.attributes["size"].attribute_default_value == "1.75"
+
+        # Defaults are stored as parsed Expression AST nodes
+        gender_default = tmp_human.attributes["gender"].attribute_default_value
+
+        assert isinstance(gender_default, LiteralExpr)
+        assert gender_default.value.get() == "?"
+
+        size_default = tmp_human.attributes["size"].attribute_default_value
+
+        assert isinstance(size_default, LiteralExpr)
+        assert size_default.value.get() == 1.75
 
         # Dependencies extracted from types and defaults
         assert tmp_human.attributes["name"].dependencies == {"Str"}
@@ -331,16 +341,21 @@ class TestParseStructAttribute:
 
         tmp_human: TmpStruct = parser.parser_state.tmp_structs["Human"]
 
-        assert tmp_human.attributes["birthday"].attribute_default_value == (
-            "DateTime(d=12, m=04, y=2003)"
-        )
+        # Defaults are stored as parsed Expression AST nodes
+        birthday_default = tmp_human.attributes["birthday"].attribute_default_value
+
+        assert isinstance(birthday_default, CallExpr)
+        assert birthday_default.kwargs.keys() == {"d", "m", "y"}
 
         # Dependencies come from the parsed default expression AST: keyword
         # argument names ('d', 'm', 'y') are NOT symbol references.
         assert tmp_human.attributes["birthday"].dependencies == {"DateTime"}
-        assert tmp_human.attributes["notes"].attribute_default_value == (
-            "\"end; not yet = true: ok\""
-        )
+
+        notes_default = tmp_human.attributes["notes"].attribute_default_value
+
+        assert isinstance(notes_default, LiteralExpr)
+        assert notes_default.value.get() == "end; not yet = true: ok"
+
         assert tmp_human.attributes["notes"].dependencies == {"Str"}
         assert tmp_human.attributes["tags"].attribute_type == "Array[Str]"
 

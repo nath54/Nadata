@@ -12,9 +12,15 @@ from __future__ import annotations
 from typing import Optional
 
 from src.core.expressions.expression import Expression
-from src.parser.expressions.dependencies import collect_dependencies
+from src.core.expressions.statement import Statement
+from src.parser.expressions.dependencies import (
+    collect_declared_names,
+    collect_dependencies,
+    collect_statement_dependencies,
+)
 from src.parser.expressions.expression_parser import ExpressionParser
 from src.parser.expressions.splitter import split_top_level
+from src.parser.expressions.statement_parser import StatementParser
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
 from src.parser.utils.brackets import BracketTree
 from src.parser.utils.identifiers import IdentifierExtractor
@@ -53,8 +59,10 @@ def parse_struct_method(
     fn_output_type: str
     fn_arguments, fn_output_type = _parse_callable_header(header_text=header)
 
-    # Extract the raw body text between the braces
-    fn_body: str = content[method_start:method_end].strip()
+    # Parse the raw body text into statement AST nodes
+    fn_body: list[Statement] = StatementParser.parse_body(
+        text=content[method_start:method_end]
+    )
 
     # Check the owning struct exists in the intermediate representation
     tmp_struct: Optional[TmpStruct] = parser_state.tmp_structs.get(struct_name)
@@ -76,7 +84,8 @@ def parse_struct_method(
         fn_body=fn_body,
         dependencies=_collect_callable_dependencies(
             fn_arguments=fn_arguments,
-            fn_output_type=fn_output_type
+            fn_output_type=fn_output_type,
+            fn_body=fn_body
         )
     )
 
@@ -111,8 +120,10 @@ def parse_fn(
     fn_output_type: str
     fn_name, fn_arguments, fn_output_type = _parse_fn_header(header_text=header_body)
 
-    # Extract the raw body text between the braces
-    fn_body: str = content[fn_start:fn_end].strip()
+    # Parse the raw body text into statement AST nodes
+    fn_body: list[Statement] = StatementParser.parse_body(
+        text=content[fn_start:fn_end]
+    )
 
     # Check the function is not already defined
     if fn_name in parser_state.tmp_functions:
@@ -126,7 +137,8 @@ def parse_fn(
         fn_body=fn_body,
         dependencies=_collect_callable_dependencies(
             fn_arguments=fn_arguments,
-            fn_output_type=fn_output_type
+            fn_output_type=fn_output_type,
+            fn_body=fn_body
         )
     )
 
@@ -324,21 +336,21 @@ def _parse_parameter_tokens(
             )
 
         # Collect dependencies from the type annotation and the default value
-        # (defaults are parsed so only free identifiers are collected,
-        # excluding member names like 'now' in 'DateTime.now()')
+        # (defaults are parsed once and stored as AST in the tmp attribute,
+        # collecting only free identifiers)
         dependencies: set[str] = IdentifierExtractor.extract_identifiers(text=param_type)
 
+        default_expression: Optional[Expression] = None
+
         if param_default is not None:
-            default_expression: Expression = ExpressionParser.parse_text(
-                text=param_default
-            )
+            default_expression = ExpressionParser.parse_text(text=param_default)
 
             dependencies |= collect_dependencies(expression=default_expression)
 
         fn_arguments[param_name] = TmpAttribute(
             attribute_name=param_name,
             attribute_type=param_type,
-            attribute_default_value=param_default,
+            attribute_default_value=default_expression,
             dependencies=dependencies
         )
 
@@ -386,7 +398,8 @@ def _parse_return_type(
 
 def _collect_callable_dependencies(
     fn_arguments: dict[str, TmpAttribute],
-    fn_output_type: str
+    fn_output_type: str,
+    fn_body: list[Statement]
 ) -> set[str]:
     """
     Collects the dependency identifiers of a callable declaration.
@@ -394,9 +407,11 @@ def _collect_callable_dependencies(
     Args:
         fn_arguments (dict[str, TmpAttribute]): Parameters by name.
         fn_output_type (str): Raw return type annotation.
+        fn_body (list[Statement]): Parsed body statements.
 
     Returns:
-        set[str]: Union of the parameter and return type dependencies.
+        set[str]: Union of the parameter, return type, and free body
+            dependencies (parameters and local variables excluded).
     """
 
     dependencies: set[str] = set()
@@ -408,5 +423,13 @@ def _collect_callable_dependencies(
     # Add the return type dependencies
     if fn_output_type:
         dependencies |= IdentifierExtractor.extract_identifiers(text=fn_output_type)
+
+    # Add the free body dependencies (subtract parameters and locals)
+    body_dependencies: set[str] = collect_statement_dependencies(statements=fn_body)
+    bound_names: set[str] = set(fn_arguments.keys()) | collect_declared_names(
+        statements=fn_body
+    )
+
+    dependencies |= body_dependencies - bound_names
 
     return dependencies

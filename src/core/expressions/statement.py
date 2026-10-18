@@ -45,13 +45,16 @@ class VarDeclStmt(Statement):
         name (str): Variable identifier.
         init_expr (Expression): Initializer expression returning a Value.
         var_type (Optional[Type]): Expected schema type for the variable.
+        var_type_name (Optional[str]): Raw type annotation name, awaiting
+            resolution into var_type by the resolution phase.
     """
 
     def __init__(
         self,
         name: str,
         init_expr: Expression,
-        var_type: Optional[Type] = None
+        var_type: Optional[Type] = None,
+        var_type_name: Optional[str] = None
     ) -> None:
         """
         Initializes the VarDeclStmt instance.
@@ -60,11 +63,13 @@ class VarDeclStmt(Statement):
             name (str): Variable identifier.
             init_expr (Expression): Initializer expression.
             var_type (Optional[Type], optional): Optional type annotation. Defaults to None.
+            var_type_name (Optional[str], optional): Raw type annotation name. Defaults to None.
         """
 
         self.name: str = name
         self.init_expr: Expression = init_expr
         self.var_type: Optional[Type] = var_type
+        self.var_type_name: Optional[str] = var_type_name
 
     def execute(self, scope: ExecutionScope) -> None:
         """
@@ -96,6 +101,9 @@ class VarDeclStmt(Statement):
 
         if self.var_type is not None:
             return f"{self.name}: {repr(self.var_type)} = {repr(self.init_expr)};"
+
+        if self.var_type_name is not None:
+            return f"{self.name}: {self.var_type_name} = {repr(self.init_expr)};"
 
         return f"{self.name} = {repr(self.init_expr)};"
 
@@ -326,3 +334,42 @@ class IfStmt(Statement):
             return f"if ({repr(self.condition)}) {{ ... }} else {{ ... }}"
 
         return f"if ({repr(self.condition)}) {{ ... }}"
+
+
+class ExprStmt(Statement):
+    """
+    AST statement evaluating an expression for its side effects.
+
+    Attributes:
+        expression (Expression): Expression to evaluate (e.g. a method call).
+    """
+
+    def __init__(self, expression: Expression) -> None:
+        """
+        Initializes the ExprStmt instance.
+
+        Args:
+            expression (Expression): Expression to evaluate.
+        """
+
+        self.expression: Expression = expression
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Evaluates the expression and discards the resulting Value.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+        """
+
+        self.expression.evaluate(scope=scope)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ExprStmt.
+
+        Returns:
+            str: Expression statement string.
+        """
+
+        return f"{repr(self.expression)};"
