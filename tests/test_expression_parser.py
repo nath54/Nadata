@@ -27,8 +27,10 @@ from src.core.expressions.statement import (
 )
 from src.parser.expressions.expression_parser import ExpressionParser
 from src.parser.expressions.statement_parser import StatementParser
+from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.expressions.splitter import find_top_level, split_top_level
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
+from src.parser.expressions.type_parser import TmpType
 from src.parser.nastruct_parser.declaration import parse_declaration_text
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
 
@@ -269,12 +271,12 @@ class TestParseDeclarationText:
         """
 
         name: str
-        attr_type: str
-        default: str | None
+        attr_type: TmpType
+        default: Expression | None
         name, attr_type, default = parse_declaration_text(declaration_text="age: UInt8")
 
         assert name == "age"
-        assert attr_type == "UInt8"
+        assert attr_type.to_dict() == {"name": "UInt8", "children": []}
         assert default is None
 
     def test_default_value(self) -> None:
@@ -283,15 +285,17 @@ class TestParseDeclarationText:
         """
 
         name: str
-        attr_type: str
-        default: str | None
+        attr_type: TmpType
+        default: Expression | None
         name, attr_type, default = parse_declaration_text(
             declaration_text='ip_address: Str = "127.0.0.1"'
         )
 
         assert name == "ip_address"
-        assert attr_type == "Str"
-        assert default == '"127.0.0.1"'
+        assert attr_type.name == "Str"
+
+        assert isinstance(default, LiteralExpr)
+        assert default.value.get() == "127.0.0.1"
 
     def test_comparison_default(self) -> None:
         """
@@ -299,15 +303,17 @@ class TestParseDeclarationText:
         """
 
         name: str
-        attr_type: str
-        default: str | None
+        attr_type: TmpType
+        default: Expression | None
         name, attr_type, default = parse_declaration_text(
             declaration_text="is_valid: Bool = a == b"
         )
 
         assert name == "is_valid"
-        assert attr_type == "Bool"
-        assert default == "a == b"
+        assert attr_type.name == "Bool"
+
+        assert isinstance(default, BinaryOpExpr)
+        assert default.op == "=="
 
     def test_generic_type_with_default(self) -> None:
         """
@@ -315,15 +321,22 @@ class TestParseDeclarationText:
         """
 
         name: str
-        attr_type: str
-        default: str | None
+        attr_type: TmpType
+        default: Expression | None
         name, attr_type, default = parse_declaration_text(
             declaration_text='routing_table: Dict[Str, Str] = {"a": "b"}'
         )
 
         assert name == "routing_table"
-        assert attr_type == "Dict[Str, Str]"
-        assert default == '{"a": "b"}'
+        assert attr_type.to_dict() == {
+            "name": "Dict",
+            "children": [
+                {"name": "Str", "children": []},
+                {"name": "Str", "children": []},
+            ],
+        }
+
+        assert isinstance(default, DictLiteralExpr)
 
 
 class TestParseCallables:
@@ -345,9 +358,9 @@ class TestParseCallables:
 
         method = server_tmp.methods["is_overloaded"]
 
-        assert method.fn_output_type == "Bool"
+        assert method.fn_output_type.name == "Bool"
         assert "current_load" in method.fn_argument
-        assert method.fn_argument["current_load"].attribute_type == "UFloat32"
+        assert method.fn_argument["current_load"].attribute_type.name == "UFloat32"
 
         # Body is parsed into statement AST nodes
         assert any(isinstance(stmt, ReturnStmt) for stmt in method.fn_body)
@@ -363,7 +376,7 @@ class TestParseCallables:
         node_tmp = parser.parser_state.tmp_structs["Node"]
 
         assert "describe" in node_tmp.methods
-        assert node_tmp.methods["describe"].fn_output_type == "Str"
+        assert node_tmp.methods["describe"].fn_output_type.name == "Str"
         assert node_tmp.methods["describe"].fn_argument == {}
 
     def test_default_parameter_value(self) -> None:
@@ -409,8 +422,8 @@ class TestParseCallables:
 
         fn = parser.parser_state.tmp_functions["is_adult"]
 
-        assert fn.fn_output_type == "Bool"
-        assert fn.fn_argument["h"].attribute_type == "Human"
+        assert fn.fn_output_type.name == "Bool"
+        assert fn.fn_argument["h"].attribute_type.name == "Human"
         assert any(isinstance(stmt, ReturnStmt) for stmt in fn.fn_body)
 
     def test_duplicate_method_rejected(self) -> None:
@@ -633,3 +646,65 @@ class TestStatementParser:
         assert isinstance(statements[2], IfStmt)
         assert isinstance(statements[3], ReturnStmt)
         assert isinstance(statements[3].value_expr, LiteralExpr)
+
+class TestTypeParser:
+    """
+    Tests for the type annotation parser producing TmpType trees.
+    """
+
+    def test_simple_type(self) -> None:
+        """
+        Tests that a plain type has no children.
+        """
+
+        parsed: TmpType = TypeParser.parse_text(text="Str")
+
+        assert parsed.name == "Str"
+        assert parsed.children == []
+        assert parsed.to_dict() == {"name": "Str", "children": []}
+
+    def test_generic_type(self) -> None:
+        """
+        Tests a single argument generic type.
+        """
+
+        parsed: TmpType = TypeParser.parse_text(text="Array[Entity]")
+
+        assert parsed.name == "Array"
+        assert len(parsed.children) == 1
+        assert parsed.children[0].name == "Entity"
+        assert repr(parsed) == "Array[Entity]"
+
+    def test_nested_generic_type(self) -> None:
+        """
+        Tests nested and multi argument generics.
+        """
+
+        parsed: TmpType = TypeParser.parse_text(text="Dict[Str, Array[Int32]]")
+
+        assert parsed.name == "Dict"
+        assert parsed.children[0].name == "Str"
+        assert parsed.children[1].to_dict() == {
+            "name": "Array",
+            "children": [{"name": "Int32", "children": []}],
+        }
+
+    def test_collect_names(self) -> None:
+        """
+        Tests dependency collection over the type tree.
+        """
+
+        parsed: TmpType = TypeParser.parse_text(text="Dict[Str, Array[Entity]]")
+
+        assert parsed.collect_names() == {"Dict", "Str", "Array", "Entity"}
+
+    def test_malformed_type_rejected(self) -> None:
+        """
+        Tests that malformed annotations raise a SyntaxError.
+        """
+
+        with pytest.raises(SyntaxError):
+            TypeParser.parse_text(text="Array[Entity")
+
+        with pytest.raises(SyntaxError):
+            TypeParser.parse_text(text="Array[")

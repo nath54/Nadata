@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from src.core.expressions.expression import Expression
 from src.core.expressions.statement import Statement
+from src.parser.expressions.type_parser import TmpType
 
 
 @dataclass
@@ -27,13 +28,14 @@ class TmpAttribute:
 
     Attributes:
         attribute_name (str): Name of the attribute or parameter.
-        attribute_type (str): Raw type annotation string (e.g. 'Array[Entity]').
+        attribute_type (TmpType): Parsed type annotation tree
+            (e.g. Array[Entity]).
         attribute_default_value (Optional[Expression]): Parsed default value
             expression AST, or None if the attribute has no default.
     """
 
     attribute_name: str
-    attribute_type: str
+    attribute_type: TmpType
     attribute_default_value: Optional[Expression] = None
 
     dependencies: set[str] = field(default_factory=set)
@@ -49,7 +51,7 @@ class TmpAttribute:
 
         return {
             "attribute_name": self.attribute_name,
-            "attribute_type": self.attribute_type,
+            "attribute_type": self.attribute_type.to_dict(),
             "attribute_default_value": (
                 repr(self.attribute_default_value)
                 if self.attribute_default_value is not None
@@ -70,13 +72,13 @@ class TmpFunction:
 
     Attributes:
         fn_name (str): Name of the function or method.
-        fn_output_type (str): Raw return type annotation string.
+        fn_output_type (TmpType): Parsed return type annotation tree.
         fn_argument (dict[str, TmpAttribute]): Parameters by name.
         fn_body (list[Statement]): Parsed body statements in source order.
     """
 
     fn_name: str
-    fn_output_type: str
+    fn_output_type: TmpType
     fn_argument: dict[str, TmpAttribute] = field(default_factory=dict)
     fn_body: list[Statement] = field(default_factory=list)
 
@@ -93,7 +95,7 @@ class TmpFunction:
 
         return {
             "fn_name": self.fn_name,
-            "fn_output_type": self.fn_output_type,
+            "fn_output_type": self.fn_output_type.to_dict(),
             "fn_argument": {
                 name: argument.to_dict()
                 for name, argument in self.fn_argument.items()

@@ -306,7 +306,7 @@ class TestParseStructAttribute:
         tmp_human: TmpStruct = parser.parser_state.tmp_structs["Human"]
 
         assert list(tmp_human.attributes.keys()) == ["name", "gender", "size"]
-        assert tmp_human.attributes["name"].attribute_type == "Str"
+        assert tmp_human.attributes["name"].attribute_type.name == "Str"
         assert tmp_human.attributes["name"].attribute_default_value is None
 
         # Defaults are stored as parsed Expression AST nodes
@@ -357,7 +357,10 @@ class TestParseStructAttribute:
         assert notes_default.value.get() == "end; not yet = true: ok"
 
         assert tmp_human.attributes["notes"].dependencies == {"Str"}
-        assert tmp_human.attributes["tags"].attribute_type == "Array[Str]"
+        assert tmp_human.attributes["tags"].attribute_type.to_dict() == {
+            "name": "Array",
+            "children": [{"name": "Str", "children": []}],
+        }
 
     def test_duplicate_attribute_error(self) -> None:
         """

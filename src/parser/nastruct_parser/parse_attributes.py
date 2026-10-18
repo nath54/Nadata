@@ -7,10 +7,9 @@ from __future__ import annotations
 from typing import Optional
 
 from src.core.expressions.expression import Expression
-from src.parser.utils.brackets import BracketsAndStrings, BracketTree
 from src.parser.expressions.dependencies import collect_dependencies
-from src.parser.expressions.expression_parser import ExpressionParser
-from src.parser.utils.identifiers import IdentifierExtractor
+from src.parser.expressions.type_parser import TmpType
+from src.parser.utils.brackets import BracketsAndStrings, BracketTree
 from src.parser.nastruct_parser.declaration import parse_declaration_text
 from src.parser.nastruct_parser.tmp_structs import TmpAttribute, TmpStruct
 from src.parser.nastruct_parser.struct_body_state import StructBodyScanState
@@ -98,8 +97,8 @@ def parse_struct_attribute(
 
     # Parse the declaration into name, type, and default value
     attr_name: str
-    attr_type: str
-    attr_default: Optional[str]
+    attr_type: TmpType
+    attr_default: Optional[Expression]
     attr_name, attr_type, attr_default = parse_declaration_text(
         declaration_text=attr_text
     )
@@ -118,22 +117,16 @@ def parse_struct_attribute(
             f"Attribute '{attr_name}' is already defined on struct '{struct_name}'"
         )
 
-    # Collect the dependencies from the type annotation and the default value
-    # (types are plain text; defaults are parsed once and stored as AST in
-    # the tmp attribute, collecting only free identifiers)
-    dependencies: set[str] = IdentifierExtractor.extract_identifiers(text=attr_type)
-
-    default_expression: Optional[Expression] = None
+    # Collect the dependencies from the type tree and the default expression
+    dependencies: set[str] = attr_type.collect_names()
 
     if attr_default is not None:
-        default_expression = ExpressionParser.parse_text(text=attr_default)
-
-        dependencies |= collect_dependencies(expression=default_expression)
+        dependencies |= collect_dependencies(expression=attr_default)
 
     # Register the attribute in the tmp struct
     tmp_struct.attributes[attr_name] = TmpAttribute(
         attribute_name=attr_name,
         attribute_type=attr_type,
-        attribute_default_value=default_expression,
+        attribute_default_value=attr_default,
         dependencies=dependencies
     )

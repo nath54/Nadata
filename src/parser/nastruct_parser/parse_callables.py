@@ -22,6 +22,7 @@ from src.parser.expressions.expression_parser import ExpressionParser
 from src.parser.expressions.splitter import split_top_level
 from src.parser.expressions.statement_parser import StatementParser
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
+from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.utils.brackets import BracketTree
 from src.parser.utils.identifiers import IdentifierExtractor
 from src.parser.nastruct_parser.declaration import parse_declaration_text
@@ -56,7 +57,7 @@ def parse_struct_method(
 
     # Parse the shared header grammar (parameters and return type)
     fn_arguments: dict[str, TmpAttribute]
-    fn_output_type: str
+    fn_output_type: TmpType
     fn_arguments, fn_output_type = _parse_callable_header(header_text=header)
 
     # Parse the raw body text into statement AST nodes
@@ -117,7 +118,7 @@ def parse_fn(
     # Parse the shared header grammar (function name, parameters, return type)
     fn_name: str
     fn_arguments: dict[str, TmpAttribute]
-    fn_output_type: str
+    fn_output_type: TmpType
     fn_name, fn_arguments, fn_output_type = _parse_fn_header(header_text=header_body)
 
     # Parse the raw body text into statement AST nodes
@@ -145,7 +146,7 @@ def parse_fn(
 
 def _parse_fn_header(
     header_text: str
-) -> tuple[str, dict[str, TmpAttribute], str]:
+) -> tuple[str, dict[str, TmpAttribute], TmpType]:
     """
     Parses a standalone function header into its name, parameters, and return type.
 
@@ -154,7 +155,7 @@ def _parse_fn_header(
             (e.g. 'is_adult(h: Human) -> Bool').
 
     Returns:
-        tuple[str, dict[str, TmpAttribute], str]: The function name, the
+        tuple[str, dict[str, TmpAttribute], TmpType]: The function name, the
             parameters by name, and the raw return type annotation.
 
     Raises:
@@ -181,7 +182,7 @@ def _parse_fn_header(
 
     # Parse the shared parameter list and return type
     fn_arguments: dict[str, TmpAttribute]
-    fn_output_type: str
+    fn_output_type: TmpType
     fn_arguments, fn_output_type = _parse_callable_header(header_text=header_text)
 
     return fn_name, fn_arguments, fn_output_type
@@ -189,7 +190,7 @@ def _parse_fn_header(
 
 def _parse_callable_header(
     header_text: str
-) -> tuple[dict[str, TmpAttribute], str]:
+) -> tuple[dict[str, TmpAttribute], TmpType]:
     """
     Parses the '(...)' parameter list and '-> ReturnType' of a callable header.
 
@@ -198,8 +199,8 @@ def _parse_callable_header(
             (e.g. 'age(now: DateTime) -> DateTime').
 
     Returns:
-        tuple[dict[str, TmpAttribute], str]: The parameters by name and the
-            raw return type annotation.
+        tuple[dict[str, TmpAttribute], TmpType]: The parameters by name and
+            the parsed return type tree.
 
     Raises:
         SyntaxError: If the header is malformed.
@@ -223,7 +224,7 @@ def _parse_callable_header(
     )
 
     # Parse the return type annotation after the closing parenthesis
-    fn_output_type: str = _parse_return_type(
+    fn_output_type: TmpType = _parse_return_type(
         tokens=tokens,
         close_index=close_index,
         header_text=header_text
@@ -323,8 +324,8 @@ def _parse_parameter_tokens(
         param_text: str = header_text[segment[0].position:segment[-1].end_position]
 
         param_name: str
-        param_type: str
-        param_default: Optional[str]
+        param_type: TmpType
+        param_default: Optional[Expression]
         param_name, param_type, param_default = parse_declaration_text(
             declaration_text=param_text
         )
@@ -335,22 +336,16 @@ def _parse_parameter_tokens(
                 f"Parameter '{param_name}' is declared twice in header: '{header_text}'"
             )
 
-        # Collect dependencies from the type annotation and the default value
-        # (defaults are parsed once and stored as AST in the tmp attribute,
-        # collecting only free identifiers)
-        dependencies: set[str] = IdentifierExtractor.extract_identifiers(text=param_type)
-
-        default_expression: Optional[Expression] = None
+        # Collect dependencies from the type tree and the default expression
+        dependencies: set[str] = param_type.collect_names()
 
         if param_default is not None:
-            default_expression = ExpressionParser.parse_text(text=param_default)
-
-            dependencies |= collect_dependencies(expression=default_expression)
+            dependencies |= collect_dependencies(expression=param_default)
 
         fn_arguments[param_name] = TmpAttribute(
             attribute_name=param_name,
             attribute_type=param_type,
-            attribute_default_value=default_expression,
+            attribute_default_value=param_default,
             dependencies=dependencies
         )
 
@@ -361,7 +356,7 @@ def _parse_return_type(
     tokens: list[Token],
     close_index: int,
     header_text: str
-) -> str:
+) -> TmpType:
     """
     Parses the '-> ReturnType' annotation following the parameter list.
 
@@ -379,9 +374,9 @@ def _parse_return_type(
 
     rest_tokens: list[Token] = tokens[close_index + 1:]
 
-    # No return type annotation
+    # No return type annotation is not allowed (kept explicit for clarity)
     if not rest_tokens or rest_tokens[0].token_type == TokenType.EOF:
-        return ""
+        raise SyntaxError(f"Missing return type in header: '{header_text}'")
 
     # The annotation must start with the '->' arrow operator
     arrow_token: Token = rest_tokens[0]
@@ -393,12 +388,14 @@ def _parse_return_type(
     if len(rest_tokens) < 2 or rest_tokens[1].token_type == TokenType.EOF:
         raise SyntaxError(f"Missing return type after '->' in header: '{header_text}'")
 
-    return header_text[arrow_token.end_position:].strip()
+    return_type_text: str = header_text[arrow_token.end_position:].strip()
+
+    return TypeParser.parse_text(text=return_type_text)
 
 
 def _collect_callable_dependencies(
     fn_arguments: dict[str, TmpAttribute],
-    fn_output_type: str,
+    fn_output_type: TmpType,
     fn_body: list[Statement]
 ) -> set[str]:
     """
@@ -406,7 +403,7 @@ def _collect_callable_dependencies(
 
     Args:
         fn_arguments (dict[str, TmpAttribute]): Parameters by name.
-        fn_output_type (str): Raw return type annotation.
+        fn_output_type (TmpType): Parsed return type tree.
         fn_body (list[Statement]): Parsed body statements.
 
     Returns:
@@ -421,8 +418,7 @@ def _collect_callable_dependencies(
         dependencies |= fn_argument.dependencies
 
     # Add the return type dependencies
-    if fn_output_type:
-        dependencies |= IdentifierExtractor.extract_identifiers(text=fn_output_type)
+    dependencies |= fn_output_type.collect_names()
 
     # Add the free body dependencies (subtract parameters and locals)
     body_dependencies: set[str] = collect_statement_dependencies(statements=fn_body)
