@@ -8,7 +8,7 @@ and the dependency bookkeeping used by the resolution phase.
 
 # Import Modules
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 
 from src.core.database.database import NaDataDatabase
 from src.parser.nastruct_parser.tmp_structs import (
@@ -53,3 +53,23 @@ class NaStructParserState:
         # Intermediate representation awaiting resolution
         self.tmp_structs: dict[str, TmpStruct] = {}
         self.tmp_functions: dict[str, TmpFunction] = {}
+
+    def to_ir_dict(self) -> dict[str, Any]:
+        """
+        Converts the intermediate representation to a plain JSON serializable dict.
+
+        Returns:
+            dict[str, Any]: Dict with 'structs' and 'functions' keys mapping
+                names to their serialized representations.
+        """
+
+        return {
+            "structs": {
+                name: tmp_struct.to_dict()
+                for name, tmp_struct in self.tmp_structs.items()
+            },
+            "functions": {
+                name: tmp_function.to_dict()
+                for name, tmp_function in self.tmp_functions.items()
+            },
+        }

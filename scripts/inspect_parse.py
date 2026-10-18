@@ -6,11 +6,12 @@ representation (TmpStruct / TmpFunction) produced by the scan phase, before
 the resolution phase registers anything in the database.
 
 Usage:
-    python -m scripts.inspect_parse <folder_path>
+    python -m scripts.inspect_parse <folder_path> [--json]
 """
 
 # Import Modules
 from __future__ import annotations
+import json
 import sys
 
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
@@ -129,14 +130,22 @@ def main() -> None:
     """
 
     # Check the folder argument is present
-    if len(sys.argv) != 2:
-        print("Usage: python -m scripts.inspect_parse <folder_path>")
+    if len(sys.argv) < 2:
+        print("Usage: python -m scripts.inspect_parse <folder_path> [--json]")
         sys.exit(1)
 
+    folder_path: str = sys.argv[1]
+    as_json: bool = "--json" in sys.argv[2:]
+
     parser: NaStructParser = NaStructParser()
-    parser.parse_folder(folder_path=sys.argv[1])
+    parser.parse_folder(folder_path=folder_path)
 
     state = parser.parser_state
+
+    # JSON output mode: dump the whole intermediate representation
+    if as_json:
+        print(json.dumps(state.to_ir_dict(), indent=4))
+        return
 
     # Summary line
     print(
