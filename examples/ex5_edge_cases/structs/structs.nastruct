@@ -27,7 +27,7 @@ class EdgeCaseItem {
     }
 
     # Method with argument having same name as an attribute
-    @update_coords(x: Int32; y: Int32) -> Int32 {
+    @update_coords(x: Int32, y: Int32) -> Int32 {
         Int32 sum = x + y;
         return sum;
     }

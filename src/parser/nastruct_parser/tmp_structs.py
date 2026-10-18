@@ -1,5 +1,8 @@
 """
-TODO
+Intermediate representation dataclasses for .nastruct parsing.
+
+These structures hold raw parsed data between the scanning phase and the
+type resolution phase.
 """
 
 # Import Modules
@@ -22,7 +25,7 @@ class TmpAttribute:
     Attributes:
         attribute_name (str): Name of the attribute or parameter.
         attribute_type (str): Raw type annotation string (e.g. 'Array[Entity]').
-        attribute_default_value (Optional[Any]): Raw default value expression
+        attribute_default_value (Optional[str]): Raw default value expression
             string, or None if the attribute has no default.
     """
 

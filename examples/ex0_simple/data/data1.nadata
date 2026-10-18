@@ -2,54 +2,54 @@
 # --- Humans ---
 
 tom = Human(
-    name="Tom";
-    gender="m";
-    birthday=DateTime(d=12; m=04; y=2003);
-    birthplace="Paris";
-    parents=[jean, louise];
+    name="Tom",
+    gender="m",
+    birthday=DateTime(d=12, m=04, y=2003),
+    birthplace="Paris",
+    parents=[jean, louise],
     objects=[
         ObjectInstance(knife)
     ]
 )
 
 jean = Human(
-    name="Jean";
-    gender="m";
-    birthday=DateTime(d=12; m=04; y=1972);
-    birthplace="Paris";
-    children=[tom];
+    name="Jean",
+    gender="m",
+    birthday=DateTime(d=12, m=04, y=1972),
+    birthplace="Paris",
+    children=[tom],
     pets=[white_cat]
 )
 
 louise = Human(
-    name="Louise";
-    gender="f";
-    birthday=DateTime(d=12; m=04; y=1972);
+    name="Louise",
+    gender="f",
+    birthday=DateTime(d=12, m=04, y=1972),
     birthplace="Paris"
 )
 
 # --- Animals ---
 
 white_cat = Cat(
-    name="White cat";
-    color=Color(255; 255; 255)
+    name="White cat",
+    color=Color(255, 255, 255)
 )
 
-knife = ObjectType(name="Knife"; description="cut things")
+knife = ObjectType(name="Knife", description="cut things")
 
 # --- Scripts & Queries ---
 
 # Calling standalone top-level functions defined in structs.nastruct
-DateTime age_diff = calculate_age_difference(tom; jean);
-print("Age difference between Tom and Jean:"; age_diff);
+DateTime age_diff = calculate_age_difference(tom, jean);
+print("Age difference between Tom and Jean:", age_diff);
 
-print("Is Tom an adult:"; is_adult(tom));
-print("Is Jean an adult:"; is_adult(jean));
+print("Is Tom an adult:", is_adult(tom));
+print("Is Jean an adult:", is_adult(jean));
 
 # Using standalone function in a chained where query!
 Array[Human] adults = Human.where((h: Human) -> is_adult(h));
 Array[Human] parisians_adults = adults.where((h: Human) -> h.birthplace == "Paris");
 
-print("Adult Parisians count:"; parisians_adults.count());
-print("Adult Parisians:"; parisians_adults);
+print("Adult Parisians count:", parisians_adults.count());
+print("Adult Parisians:", parisians_adults);
 

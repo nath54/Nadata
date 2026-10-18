@@ -438,14 +438,24 @@ class BinaryOpExpr(Expression):
         if comp_res is not None:
             return comp_res
 
-        # 3. Logical operations
-        if self.op in ("and", "&&"):
+        # 3. Logical operations (keyword only: 'and', 'or', 'xor', 'nand')
+        if self.op == "and":
             bool_and: bool = bool(left_val.get()) and bool(right_val.get())
             return ValueBool(value_type=TypeBool(), value=bool_and)
 
-        if self.op in ("or", "||"):
+        if self.op == "or":
             bool_or: bool = bool(left_val.get()) or bool(right_val.get())
             return ValueBool(value_type=TypeBool(), value=bool_or)
+
+        if self.op == "xor":
+            bool_xor: bool = bool(left_val.get()) != bool(right_val.get())
+            return ValueBool(value_type=TypeBool(), value=bool_xor)
+
+        if self.op == "nand":
+            bool_nand: bool = not (
+                bool(left_val.get()) and bool(right_val.get())
+            )
+            return ValueBool(value_type=TypeBool(), value=bool_nand)
 
         raise ValueError(
             f"Unsupported operator '{self.op}' for {type(left_val).__name__} "

@@ -265,3 +265,36 @@ def test_member_call_and_older_logic() -> None:
     assert res_jean_older is not None
     assert isinstance(res_jean_older, ValueBool)
     assert res_jean_older.get() is True
+
+
+def test_logical_operators_keywords() -> None:
+    """
+    Tests the keyword-only logical operators: and, or, xor, nand.
+    """
+
+    def eval_op(op: str, left: bool, right: bool) -> bool:
+        expr: BinaryOpExpr = BinaryOpExpr(
+            left=LiteralExpr(value=ValueBool(value_type=TypeBool(), value=left)),
+            op=op,
+            right=LiteralExpr(value=ValueBool(value_type=TypeBool(), value=right)),
+        )
+        result: Value = expr.evaluate(scope=ExecutionScope())
+        return bool(result.get())
+
+    # and
+    assert eval_op("and", True, True) is True
+    assert eval_op("and", True, False) is False
+
+    # or
+    assert eval_op("or", False, True) is True
+    assert eval_op("or", False, False) is False
+
+    # xor
+    assert eval_op("xor", True, False) is True
+    assert eval_op("xor", True, True) is False
+    assert eval_op("xor", False, False) is False
+
+    # nand
+    assert eval_op("nand", True, True) is False
+    assert eval_op("nand", True, False) is True
+    assert eval_op("nand", False, False) is True

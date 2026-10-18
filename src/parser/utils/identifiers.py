@@ -28,7 +28,8 @@ class IdentifierExtractor:
 
     # Reserved keywords that are not dependencies
     _KEYWORDS: frozenset[str] = frozenset({
-        "class", "fn", "if", "else", "return", "true", "false", "and", "or", "not",
+        "class", "fn", "if", "else", "return", "true", "false",
+        "and", "or", "xor", "nand",
     })
 
     # String and comment delimiters

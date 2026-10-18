@@ -18,7 +18,7 @@ the canonical acceptance material for the parsers.
 | Case sensitivity | Fully case-sensitive (`Human` ≠ `human`) |
 | Whitespace | Spaces, tabs and newlines are insignificant except inside strings and comments |
 | Identifiers | `[A-Za-z_][A-Za-z0-9_]*` (letters, digits, underscore; cannot start with a digit) |
-| Keywords | `class`, `fn`, `if`, `else`, `return`, `true`, `false`, `and`, `or`, `not` |
+| Keywords | `class`, `fn`, `if`, `else`, `return`, `true`, `false`, `and`, `or`, `xor`, `nand` |
 
 ---
 
@@ -167,14 +167,13 @@ name: Type = default;           // attribute with default value
 ### 6.3 Methods
 
 ```text
-@name(param: Type; param2: Type = default) -> ReturnType {
+@name(param: Type, param2: Type = default) -> ReturnType {
     ...body...
 }
 ```
 
 - Method declarations are prefixed with `@`.
-- Parameters are `name: Type`, separated by **semicolons `;`** (never commas);
-  trailing separators allowed.
+- Parameters are `name: Type`, comma-separated; trailing commas allowed.
 - Parameters may have default expressions (evaluated **at each call**, so
   `now: DateTime = DateTime.now()` is refreshed per call).
 - **Parameter order is free**: parameters with default values may be declared
@@ -212,7 +211,7 @@ Rules:
 ### 6.5 Standalone functions
 
 ```text
-fn name(h1: Human; now: DateTime = DateTime.now()) -> DateTime {
+fn name(h1: Human, now: DateTime = DateTime.now()) -> DateTime {
     DateTime age1 = h1.age(now);
     return age1;
 }
@@ -232,7 +231,8 @@ return result;                            // return (mandatory last expression)
 ```
 
 - Conditions are parenthesized: `if ((flag_a and not flag_b) or flag_c) { ... }`.
-- Operators: `+ - * / %`, comparisons `== != < <= > >=`, logic `and or not`.
+- Operators: `+ - * / %`, comparisons `== != < <= > >=`,
+  logic (keyword only): `and`, `or`, `xor`, `nand`.
 - Local variable declarations may be typed (`Float32 result = scaled + bias;`).
 - Member access with `.`; method calls with `()`; `self` refers to the receiver.
 
@@ -249,8 +249,8 @@ Every call site (methods, functions, constructors, computed properties) accepts
 exactly one calling style:
 
 ```text
-obj.method(value1; value2)               // positional, declaration order
-obj.method(param1=value1; param2=value2) // named
+obj.method(value1, value2)               // positional, declaration order
+obj.method(param1=value1, param2=value2) // named
 obj.method()                             // zero args: parentheses still mandatory
 ```
 
@@ -263,19 +263,19 @@ obj.method()                             // zero args: parentheses still mandato
 
 ```text
 symbol_name = ClassName(
-    attr=value;
-    attr2=[sym_a, sym_b];
-    attr3={ "key": value };
+    attr=value,
+    attr2=[sym_a, sym_b],
+    attr3={ "key": value },
 )
 ```
 
 - `symbol_name` becomes a database symbol; later declarations can reference it.
 - **Forward references are allowed**: an instance may reference symbols declared
   later in the file (including cyclic references).
-- Arguments follow the common call rules (§7.1), separated by `;`;
-  **trailing separators allowed** (both in argument lists and arrays).
+- Arguments follow the common call rules (§7.1), comma-separated;
+  **trailing commas allowed** (both in argument lists and arrays).
 - Empty instantiation is valid: `item2 = EdgeCaseItem()` (all defaults apply).
-- Single-line form is valid: `item3 = EdgeCaseItem(x=10; y=20)`.
+- Single-line form is valid: `item3 = EdgeCaseItem(x=10, y=20)`.
 - Values may be: literals, arrays `[a, b, c]`, dictionaries `{ "k": v }`,
   symbol references, nested constructor calls, negative numbers.
 
@@ -298,8 +298,8 @@ Array[MathPipeline] heavy_pipes = MathPipeline.where(...);
 
 - Assignment: `name = expression;`
 - Expression statements (calls): `pipe_standard.apply_transform(test_input);`
-- Built-in `print(...)`: `print("Label:"; value);` — accepts multiple arguments
-  separated by `;`.
+- Built-in `print(...)`: `print("Label:", value);` — accepts multiple arguments
+  separated by commas.
 - Semicolons terminate statements; when the statement ends at end of line, the
   semicolon is **optional** (both styles appear in the examples).
 
@@ -326,9 +326,10 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 |---|---|
 | `{ }` | Class / function bodies, block comments (`"""`), dict literals |
 | `{ }` (literal) | Dict literals — **entries separated by `,`** |
-| `( )` | Parameter lists, inheritance, call arguments, query lambdas — **arguments separated by `;`** |
+| `( )` | Parameter lists, inheritance, call arguments, query lambdas — **arguments separated by `,`** |
 | `[ ]` | Array literals and generic type arguments — **elements separated by `,`** |
-| `;` | Ends attribute declarations and statements; separates parameters/arguments inside `( )` |
+| `;` | Ends attribute declarations and statements (never a separator inside brackets) |
+| `,` | Separates arguments, array elements, dict entries, and generic type arguments inside any bracket |
 | `,` | Separates array elements, dict entries, and generic type arguments inside `[ ]` and `{ }` |
 | `:` | Type annotations, dict key/value separation |
 | `=` | Assignments, default values, named arguments |
@@ -360,3 +361,6 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
   plus the string span registry; braces inside strings are ignored.
 - `NaStructParser.parse_file` dispatches each top-level tree to `parse_struct` /
   `parse_fn`, passing the full header text and the body index range.
+- Argument/parameter separation is **depth-aware**: `,` inside nested calls,
+  arrays, dicts, or strings never terminates an outer construct
+  (`BracketsAndStrings.find_unnested`).

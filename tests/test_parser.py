@@ -9,7 +9,10 @@ from typing import Optional
 
 import pytest
 
+import src.parser.nastruct_parser.nastruct_parser as nastruct_parser_module
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
+from src.parser.nastruct_parser.parser_state import NaStructParserState
+from src.parser.nastruct_parser.tmp_structs import TmpStruct
 from src.parser.utils import (
     BracketTree,
     BracketsAndStrings,
@@ -151,7 +154,7 @@ class TestNaStructParser:
     Tests for the NaStructParser block dispatch.
     """
 
-    def test_parser_block_extraction(self) -> None:
+    def test_parser_block_extraction(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         Tests that parse_file extracts classes and standalone functions.
         """
@@ -175,6 +178,7 @@ class TestNaStructParser:
 
         # Monkeypatch dispatch to capture parsed blocks
         def mock_parse_struct(
+            parser_state: NaStructParserState,
             struct_name: str,
             struct_parent: Optional[str],
             struct_start: int,
@@ -185,6 +189,7 @@ class TestNaStructParser:
             recorded.append(("struct", struct_name, struct_parent, struct_start, struct_end))
 
         def mock_parse_fn(
+            parser_state: NaStructParserState,
             name: str,
             fn_start: int,
             fn_end: int,
@@ -193,8 +198,9 @@ class TestNaStructParser:
         ) -> None:
             recorded.append(("fn", name, None, fn_start, fn_end))
 
-        parser.parse_struct = mock_parse_struct  # type: ignore[method-assign]
-        parser.parse_fn = mock_parse_fn          # type: ignore[method-assign]
+        # Patch the module-level functions used by parse_file
+        monkeypatch.setattr(nastruct_parser_module, "parse_struct", mock_parse_struct)
+        monkeypatch.setattr(nastruct_parser_module, "parse_fn", mock_parse_fn)
 
         parser.parse_file(content=content)
 
@@ -275,3 +281,83 @@ class TestIdentifierExtractor:
         )
 
         assert identifiers == {"Array", "Float32"}
+
+
+class TestParseStructAttribute:
+    """
+    Tests for struct attribute declaration parsing into the tmp IR.
+    """
+
+    def test_attributes_populate_tmp_ir(self) -> None:
+        """
+        Tests that parsed attributes are registered with types and defaults.
+        """
+
+        parser: NaStructParser = NaStructParser()
+        parser.parse_file(content=(
+            "class Human {\n"
+            "    name: Str;\n"
+            "    gender: Str = \"?\";\n"
+            "    size: UFloat16 = 1.75;\n"
+            "}\n"
+        ))
+
+        tmp_human: TmpStruct = parser.parser_state.tmp_structs["Human"]
+
+        assert list(tmp_human.attributes.keys()) == ["name", "gender", "size"]
+        assert tmp_human.attributes["name"].attribute_type == "Str"
+        assert tmp_human.attributes["name"].attribute_default_value is None
+        assert tmp_human.attributes["gender"].attribute_default_value == "\"?\""
+        assert tmp_human.attributes["size"].attribute_default_value == "1.75"
+
+        # Dependencies extracted from types and defaults
+        assert tmp_human.attributes["name"].dependencies == {"Str"}
+        assert tmp_human.attributes["size"].dependencies == {"UFloat16"}
+
+    def test_separators_nested_in_calls_and_strings(self) -> None:
+        """
+        Tests that the attribute terminator ';' is depth-aware: commas inside
+        nested calls and ';' inside strings do not terminate the attribute.
+        """
+
+        parser: NaStructParser = NaStructParser()
+        parser.parse_file(content=(
+            "class Human {\n"
+            "    birthday: DateTime = DateTime(d=12, m=04, y=2003);\n"
+            "    notes: Str = \"end; not yet = true: ok\";\n"
+            "    tags: Array[Str] = [\"a; b\", \"c\"];\n"
+            "}\n"
+        ))
+
+        tmp_human: TmpStruct = parser.parser_state.tmp_structs["Human"]
+
+        assert tmp_human.attributes["birthday"].attribute_default_value == (
+            "DateTime(d=12, m=04, y=2003)"
+        )
+
+        # Dependencies are an over-approximation: keyword argument names
+        # ('d', 'm', 'y') are included; the validation phase will use the
+        # real expression AST to distinguish them from symbol references.
+        assert tmp_human.attributes["birthday"].dependencies == {
+            "DateTime", "d", "m", "y"
+        }
+        assert tmp_human.attributes["notes"].attribute_default_value == (
+            "\"end; not yet = true: ok\""
+        )
+        assert tmp_human.attributes["notes"].dependencies == {"Str"}
+        assert tmp_human.attributes["tags"].attribute_type == "Array[Str]"
+
+    def test_duplicate_attribute_error(self) -> None:
+        """
+        Tests that declaring the same attribute twice raises a SyntaxError.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        with pytest.raises(SyntaxError, match="already defined"):
+            parser.parse_file(content=(
+                "class Human {\n"
+                "    name: Str;\n"
+                "    name: Str;\n"
+                "}\n"
+            ))

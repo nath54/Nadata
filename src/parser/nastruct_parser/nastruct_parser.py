@@ -10,9 +10,9 @@ from pathlib import Path
 from src.core.database.database import NaDataDatabase
 from src.parser.utils.comments_remove import CommentsRemover
 from src.parser.utils.brackets import BracketsAndStrings, BracketTree
-from src.parser.nastruct_parser.nastruct_parser_states import NaStructParserStates
+from src.parser.nastruct_parser.parser_state import NaStructParserState
 from src.parser.nastruct_parser.parse_structs import parse_struct, parse_struct_header
-from src.parser.nastruct_parser.parse_functions import parse_fn
+from src.parser.nastruct_parser.parse_callables import parse_fn
 
 
 class NaStructParser:
@@ -27,7 +27,7 @@ class NaStructParser:
         """
         Init function.
         """
-        self.parser_state: NaStructParserStates = NaStructParserStates(
+        self.parser_state: NaStructParserState = NaStructParserState(
             database=database
         )
 

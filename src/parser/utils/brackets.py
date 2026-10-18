@@ -60,6 +60,77 @@ class BracketsAndStrings:
     _PATTERN: re.Pattern[str] = re.compile("[{}\"]")
 
     @staticmethod
+    def find_unnested(
+        content: str,
+        target_chars: str,
+        start: int,
+        end: int
+    ) -> int:
+        """
+        Finds the first occurrence of any target char at bracket/string depth zero.
+
+        Skips string literals (with escapes) and the inside of '(', '[' and '{'
+        brackets, so separators nested in calls, arrays, dicts, or strings are
+        ignored.
+
+        Args:
+            content (str): Comment-free source content to scan.
+            target_chars (str): Characters to search for.
+            start (int): Index to start searching from (inclusive).
+            end (int): Index to stop searching at (exclusive).
+
+        Returns:
+            int: Index of the first target char at depth zero, or -1 if none.
+
+        Raises:
+            SyntaxError: If an unexpected closing bracket is encountered.
+        """
+
+        # Depth stack of currently open brackets
+        depth_stack: list[str] = []
+
+        cursor: int = start
+
+        # Single left-to-right scan tracking strings and bracket depth
+        while cursor < end:
+            char: str = content[cursor]
+
+            # Skip string literals (with escapes)
+            if char == "\"":
+                cursor += 1
+
+                while cursor < end:
+                    if content[cursor] == "\\":
+                        cursor += 2
+                        continue
+
+                    if content[cursor] == "\"":
+                        break
+
+                    cursor += 1
+
+                cursor += 1
+                continue
+
+            # Track bracket nesting
+            if char in "([{":
+                depth_stack.append(char)
+            elif char in ")]}" and depth_stack:
+                depth_stack.pop()
+            elif char in ")]}" and not depth_stack:
+                raise SyntaxError(
+                    f"Unexpected closing bracket '{char}' at index {cursor}"
+                )
+
+            # Target char found at depth zero
+            elif char in target_chars and not depth_stack:
+                return cursor
+
+            cursor += 1
+
+        return -1
+
+    @staticmethod
     def process(content: str) -> tuple[list[BracketTree], dict[int, int]]:
         """
         Scans the content and extracts top-level bracket trees and string couples.

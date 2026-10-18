@@ -5,15 +5,15 @@
 
 # Trailing commas in arguments, strings with escaped quotes, weird whitespace
 item1 = EdgeCaseItem(
-    x = -0;
-    y = 42;
-    str_with_symbols = "String containing quotes: \"escaped\" and brackets [ { ( ) } ]";
-    empty_str = "";
+    x = -0,
+    y = 42,
+    str_with_symbols = "String containing quotes: \"escaped\" and brackets [ { ( ) } ]",
+    empty_str = "",
     tags = [
         "tag_a",
         "tag_b",
         "tag_with_comma,", # Trailing comma inside string and list item
-    ]; # Trailing comma after list
+    ], # Trailing comma after list
 )
 
 # Empty instance with all default values (empty parentheses)
@@ -24,22 +24,22 @@ empty_inst = EmptyClass()
 child_inst = ChildOfEmpty()
 
 # Mixed single-line instance declaration
-item3 = EdgeCaseItem(x=10; y=20)
+item3 = EdgeCaseItem(x=10, y=20)
 
 # Anonymous inline instantiation inside an array
 item4 = EdgeCaseItem(
-    x=99;
-    y=100;
+    x=99,
+    y=100,
     str_with_symbols="anonymous container"
 )
 
 # --- Script Testing Edge Executions ---
 
-print("Item 1 noop call:"; item1.noop());
-print("Item 1 coordinate sum with shadow parameters:"; item1.update_coords(5; 10));
+print("Item 1 noop call:", item1.noop());
+print("Item 1 coordinate sum with shadow parameters:", item1.update_coords(5, 10));
 
 # Query testing zero and empty string matching
 Array[EdgeCaseItem] zero_items = EdgeCaseItem.where(
     (item: EdgeCaseItem) -> item.x == 0 and item.empty_str == ""
 );
-print("Zero items count:"; zero_items.count());
+print("Zero items count:", zero_items.count());

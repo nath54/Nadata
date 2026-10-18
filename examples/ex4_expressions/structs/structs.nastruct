@@ -36,7 +36,7 @@ class MathPipeline {
         return "NORMAL";
     }
 
-    @evaluate_boolean_logic(flag_a: Bool; flag_b: Bool; flag_c: Bool) -> Bool {
+    @evaluate_boolean_logic(flag_a: Bool, flag_b: Bool, flag_c: Bool) -> Bool {
         # Complex boolean with and, or, not
         if ((flag_a and not flag_b) or flag_c) {
             return true;

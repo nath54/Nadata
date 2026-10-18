@@ -1,30 +1,39 @@
 """
-TODO
+Attribute declaration parsing for .nastruct schema files.
 """
 
 # Import Modules
 from __future__ import annotations
 from typing import Optional
 
-from src.parser.utils.brackets import BracketTree
-from src.parser.nastruct_parser.tmp_structs import TmpAttribute
+from src.parser.utils.brackets import BracketsAndStrings, BracketTree
+from src.parser.utils.identifiers import IdentifierExtractor
+from src.parser.nastruct_parser.declaration import parse_declaration_text
+from src.parser.nastruct_parser.tmp_structs import TmpAttribute, TmpStruct
 from src.parser.nastruct_parser.struct_body_state import StructBodyScanState
-from src.parser.nastruct_parser.nastruct_parser_states import NaStructParserStates
+from src.parser.nastruct_parser.parser_state import NaStructParserState
 
 
 def parse_struct_attribute_case(
-    parser_state: NaStructParserStates,
+    parser_state: NaStructParserState,
     scan_state: StructBodyScanState
 ) -> None:
     """
     Detects and dispatches a single attribute declaration of a struct body.
 
     Args:
-        state (StructBodyScanState): Mutable scanning state (updated in place).
+        parser_state (NaStructParserState): Shared parsing session state.
+        scan_state (StructBodyScanState): Mutable scanning state (updated in place).
     """
 
-    # Find the closing ; within the struct body only
-    semicolon_index: int = scan_state.content.find(";", scan_state.cursor, scan_state.struct_end)
+    # Find the closing ; at depth zero within the struct body only
+    # (skips ';' nested in call arguments, arrays, dicts, and strings)
+    semicolon_index: int = BracketsAndStrings.find_unnested(
+        content=scan_state.content,
+        target_chars=";",
+        start=scan_state.cursor,
+        end=scan_state.struct_end
+    )
 
     # Check closing ;
     if semicolon_index == -1:
@@ -61,7 +70,7 @@ def parse_struct_attribute_case(
 
 
 def parse_struct_attribute(
-    parser_state: NaStructParserStates,
+    parser_state: NaStructParserState,
     struct_name: str,
     attr_start: int,
     attr_end: int,
@@ -69,9 +78,10 @@ def parse_struct_attribute(
     bracket_inside: Optional[BracketTree]
 ) -> None:
     """
-    Parses a single struct attribute declaration.
+    Parses a single struct attribute declaration into the tmp IR.
 
     Args:
+        parser_state (NaStructParserState): Shared parsing session state.
         struct_name (str): Name of the struct owning the attribute.
         attr_start (int): Index of the first character of the declaration.
         attr_end (int): Index of the closing ';' of the declaration.
@@ -80,4 +90,41 @@ def parse_struct_attribute(
             declaration (e.g. '{} ' or '[]' default value), None if none.
     """
 
-    pass
+    # Extract the declaration text between the start and the closing ';'
+    attr_text: str = content[attr_start:attr_end]
+
+    # Parse the declaration into name, type, and default value
+    attr_name: str
+    attr_type: str
+    attr_default: Optional[str]
+    attr_name, attr_type, attr_default = parse_declaration_text(
+        declaration_text=attr_text
+    )
+
+    # Check the tmp struct exists (it is created before scanning the body)
+    tmp_struct: Optional[TmpStruct] = parser_state.tmp_structs.get(struct_name)
+
+    if tmp_struct is None:
+        raise SyntaxError(
+            f"Attribute '{attr_name}' refers to unknown struct '{struct_name}'"
+        )
+
+    # Check the attribute is not already declared on the struct
+    if attr_name in tmp_struct.attributes:
+        raise SyntaxError(
+            f"Attribute '{attr_name}' is already defined on struct '{struct_name}'"
+        )
+
+    # Collect the dependencies from the type annotation and the default value
+    dependencies: set[str] = IdentifierExtractor.extract_identifiers(text=attr_type)
+
+    if attr_default is not None:
+        dependencies |= IdentifierExtractor.extract_identifiers(text=attr_default)
+
+    # Register the attribute in the tmp struct
+    tmp_struct.attributes[attr_name] = TmpAttribute(
+        attribute_name=attr_name,
+        attribute_type=attr_type,
+        attribute_default_value=attr_default,
+        dependencies=dependencies
+    )
