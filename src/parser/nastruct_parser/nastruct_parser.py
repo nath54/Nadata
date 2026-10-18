@@ -169,12 +169,15 @@ class NaStructParser:
             content (str): text of the file
         """
 
+        # Start of the struct code
         cursor: int = start
 
+        # Prepare for the next bracket
         next_bracket: Optional[BracketTree] = (
             brackets_inside.pop(0) if len(brackets_inside) > 0 else None
         )
 
+        # While we have something in the struct brackets
         while cursor < end:
 
             # Manage white spaces (spaces, tabs, newlines, and blanked comments)
@@ -201,6 +204,7 @@ class NaStructParser:
                 # A method declaration requires a parameter list '(...)'
                 paren_index: int = method_header.find("(")
 
+                # If there are no parenthesis, it is a syntax error
                 if paren_index == -1:
                     raise SyntaxError(
                         f"Method declaration at index {cursor} is missing its "
