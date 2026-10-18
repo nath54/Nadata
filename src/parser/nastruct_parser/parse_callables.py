@@ -11,6 +11,9 @@ resolution phase.
 from __future__ import annotations
 from typing import Optional
 
+from src.core.expressions.expression import Expression
+from src.parser.expressions.dependencies import collect_dependencies
+from src.parser.expressions.expression_parser import ExpressionParser
 from src.parser.expressions.splitter import split_top_level
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
 from src.parser.utils.brackets import BracketTree
@@ -321,10 +324,16 @@ def _parse_parameter_tokens(
             )
 
         # Collect dependencies from the type annotation and the default value
+        # (defaults are parsed so only free identifiers are collected,
+        # excluding member names like 'now' in 'DateTime.now()')
         dependencies: set[str] = IdentifierExtractor.extract_identifiers(text=param_type)
 
         if param_default is not None:
-            dependencies |= IdentifierExtractor.extract_identifiers(text=param_default)
+            default_expression: Expression = ExpressionParser.parse_text(
+                text=param_default
+            )
+
+            dependencies |= collect_dependencies(expression=default_expression)
 
         fn_arguments[param_name] = TmpAttribute(
             attribute_name=param_name,

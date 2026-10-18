@@ -434,3 +434,59 @@ class TestParseCallables:
                 "    return 2;\n"
                 "}\n"
             ))
+
+class TestDependencyCollection:
+    """
+    Tests for AST based dependency collection on real declarations.
+    """
+
+    def test_member_call_default_excludes_member_name(self) -> None:
+        """
+        Tests that 'DateTime.now()' depends only on 'DateTime', not 'now'.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content=(
+            "class A {\n"
+            "    birthday: DateTime = DateTime.now();\n"
+            "}\n"
+        ))
+
+        attribute = parser.parser_state.tmp_structs["A"].attributes["birthday"]
+
+        assert attribute.dependencies == {"DateTime"}
+
+    def test_plain_identifier_default_is_collected(self) -> None:
+        """
+        Tests that a bare identifier default is still a dependency.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content=(
+            "class A {\n"
+            "    is_valid: Bool = some_flag;\n"
+            "}\n"
+        ))
+
+        attribute = parser.parser_state.tmp_structs["A"].attributes["is_valid"]
+
+        assert attribute.dependencies == {"Bool", "some_flag"}
+
+    def test_nested_member_chain_default(self) -> None:
+        """
+        Tests that only the root identifier of a member chain is collected.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content=(
+            "class A {\n"
+            "    x: Int32 = obj.inner.count();\n"
+            "}\n"
+        ))
+
+        attribute = parser.parser_state.tmp_structs["A"].attributes["x"]
+
+        assert attribute.dependencies == {"Int32", "obj"}

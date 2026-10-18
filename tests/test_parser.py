@@ -335,12 +335,9 @@ class TestParseStructAttribute:
             "DateTime(d=12, m=04, y=2003)"
         )
 
-        # Dependencies are an over-approximation: keyword argument names
-        # ('d', 'm', 'y') are included; the validation phase will use the
-        # real expression AST to distinguish them from symbol references.
-        assert tmp_human.attributes["birthday"].dependencies == {
-            "DateTime", "d", "m", "y"
-        }
+        # Dependencies come from the parsed default expression AST: keyword
+        # argument names ('d', 'm', 'y') are NOT symbol references.
+        assert tmp_human.attributes["birthday"].dependencies == {"DateTime"}
         assert tmp_human.attributes["notes"].attribute_default_value == (
             "\"end; not yet = true: ok\""
         )
