@@ -10,7 +10,8 @@ default value are returned as raw strings, to be resolved in a later phase.
 from __future__ import annotations
 from typing import Optional
 
-from src.parser.utils.brackets import BracketsAndStrings
+from src.parser.expressions.splitter import find_top_level
+from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
 
 
 def parse_declaration_text(
@@ -19,8 +20,9 @@ def parse_declaration_text(
     """
     Parses a 'name: Type = default' declaration text into its components.
 
-    The default value detection and the name/type split are depth-aware:
-    '=' and ':' characters nested in strings or brackets are ignored.
+    The split points are token-based, so '=' inside comparisons ('==', '<=',
+    '>=', '!=', '->') and ':' inside dict literals are never mistaken for
+    declaration separators.
 
     Args:
         declaration_text (str): Raw declaration text without its trailing ';'.
@@ -40,39 +42,38 @@ def parse_declaration_text(
     if not text:
         raise SyntaxError("Empty declaration")
 
-    # Detect the default value: first '=' at depth zero
-    equals_index: int = BracketsAndStrings.find_unnested(
-        content=text,
-        target_chars="=",
-        start=0,
-        end=len(text)
-    )
+    tokens: list[Token] = Tokenizer(content=text).tokenize()
+
+    # Locate the default value separator: the first top-level '=' token
+    equals_token_index: int = find_top_level(tokens=tokens, value="=")
 
     default_value: Optional[str] = None
+    type_end: int = len(text)
 
     # Split off the default value if present
-    if equals_index != -1:
-        default_value = text[equals_index + 1:].strip()
-        text = text[:equals_index].strip()
+    if equals_token_index != -1:
+        equals_token: Token = tokens[equals_token_index]
 
-    # Check a default value is not empty
-    if default_value is not None and not default_value:
-        raise SyntaxError(f"Empty default value in declaration: '{declaration_text}'")
+        default_value = text[equals_token.end_position:].strip()
+        type_end = equals_token.position
 
-    # Split the name and the type: first ':' at depth zero
-    colon_index: int = BracketsAndStrings.find_unnested(
-        content=text,
-        target_chars=":",
-        start=0,
-        end=len(text)
-    )
+        # Check a default value is not empty
+        if not default_value:
+            raise SyntaxError(f"Empty default value in declaration: '{declaration_text}'")
+
+        tokens = tokens[:equals_token_index]
+
+    # Locate the name / type separator: the first top-level ':' token
+    colon_token_index: int = find_top_level(tokens=tokens, value=":")
 
     # Check the name/type separator is present
-    if colon_index == -1:
+    if colon_token_index == -1:
         raise SyntaxError(f"Missing ':' type separator in declaration: '{declaration_text}'")
 
-    declaration_name: str = text[:colon_index].strip()
-    declaration_type: str = text[colon_index + 1:].strip()
+    colon_token: Token = tokens[colon_token_index]
+
+    declaration_name: str = text[:colon_token.position].strip()
+    declaration_type: str = text[colon_token.end_position:type_end].strip()
 
     # Check the name is present
     if not declaration_name:

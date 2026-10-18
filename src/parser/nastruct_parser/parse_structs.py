@@ -188,7 +188,7 @@ def parse_struct_method_case(
         struct_name=scan_state.struct_name,
         struct_method_name=method_name,
         header=method_header,
-        method_start=scan_state.next_bracket.open_index,
+        method_start=scan_state.next_bracket.open_index + 1,
         method_end=scan_state.next_bracket.close_index,
         content=scan_state.content,
         brackets_inside=scan_state.next_bracket.inside
