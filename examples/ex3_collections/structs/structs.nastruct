@@ -5,7 +5,7 @@
 
 class Palette {
     name: Str;
-    primary_color: Color = Color(0, 0, 0);
+    primary_color: Color = Color(0; 0; 0);
     accent_colors: Array[Color] = [];
     color_map: Dict[Str, Color] = {};
 

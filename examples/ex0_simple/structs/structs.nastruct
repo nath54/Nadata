@@ -12,7 +12,7 @@ class Entity{
         return now - birthday;
     }
 
-    @older(other_entity: Entity, now: DateTime = DateTime.now()) -> Bool {
+    @older(other_entity: Entity; now: DateTime = DateTime.now()) -> Bool {
         other_entity_age: DateTime = other_entity.age(now);
         self_age: DateTime = age(now);
 
@@ -35,7 +35,7 @@ class Human(Entity){
 class Animal(Entity){}
 
 class Cat(Animal){
-    color: Color = Color(255, 255, 255);
+    color: Color = Color(255; 255; 255);
 }
 
 class ObjectType{
@@ -61,13 +61,13 @@ class ObjectInstance{
 
 # --- Standalone Top-Level Functions ---
 
-fn calculate_age_difference(h1: Human, h2: Human, now: DateTime = DateTime.now()) -> DateTime {
+fn calculate_age_difference(h1: Human; h2: Human; now: DateTime = DateTime.now()) -> DateTime {
     DateTime age1 = h1.age(now);
     DateTime age2 = h2.age(now);
     return age1 - age2;
 }
 
-fn is_adult(h: Human, now: DateTime = DateTime.now()) -> Bool {
+fn is_adult(h: Human; now: DateTime = DateTime.now()) -> Bool {
     DateTime current_age = h.age(now);
     if (current_age.year >= 18) {
         return true;

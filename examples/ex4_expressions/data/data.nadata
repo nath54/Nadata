@@ -4,16 +4,16 @@
 # ==============================================================================
 
 pipe_standard = MathPipeline(
-    name="Standard_Scaler",
-    scale_factor=3.5,
-    bias=-1.0,
+    name="Standard_Scaler";
+    scale_factor=3.5;
+    bias=-1.0;
     enabled=true
 )
 
 pipe_passthrough = MathPipeline(
-    name="Bypass_Scaler",
-    scale_factor=1.0,
-    bias=0.0,
+    name="Bypass_Scaler";
+    scale_factor=1.0;
+    bias=0.0;
     enabled=false
 )
 
@@ -21,23 +21,23 @@ pipe_passthrough = MathPipeline(
 
 Float32 test_input = 10.0;
 Float32 transformed = pipe_standard.apply_transform(test_input);
-print("Input 10.0 transformed by Standard Scaler:", transformed);
+print("Input 10.0 transformed by Standard Scaler:"; transformed);
 
 Float32 bypass_result = pipe_passthrough.apply_transform(test_input);
-print("Input 10.0 transformed by Bypass Scaler:", bypass_result);
+print("Input 10.0 transformed by Bypass Scaler:"; bypass_result);
 
 
-print("Classify -5.0:", pipe_standard.classify_metric(-5.0));
-print("Classify 0.0:", pipe_standard.classify_metric(0.0));
-print("Classify 45.0:", pipe_standard.classify_metric(45.0));
-print("Classify 150.0:", pipe_standard.classify_metric(150.0));
+print("Classify -5.0:"; pipe_standard.classify_metric(-5.0));
+print("Classify 0.0:"; pipe_standard.classify_metric(0.0));
+print("Classify 45.0:"; pipe_standard.classify_metric(45.0));
+print("Classify 150.0:"; pipe_standard.classify_metric(150.0));
 
-print("Boolean logic test (true, false, false):", pipe_standard.evaluate_boolean_logic(true, false, false));
-print("Boolean logic test (false, true, false):", pipe_standard.evaluate_boolean_logic(false, true, false));
-print("Boolean logic test (false, false, true):", pipe_standard.evaluate_boolean_logic(false, false, true));
+print("Boolean logic test (true, false, false):"; pipe_standard.evaluate_boolean_logic(true; false; false));
+print("Boolean logic test (false, true, false):"; pipe_standard.evaluate_boolean_logic(false; true; false));
+print("Boolean logic test (false, false, true):"; pipe_standard.evaluate_boolean_logic(false; false; true));
 
 # Query pipelines where scale_factor is greater than 2.0
 Array[MathPipeline] heavy_pipes = MathPipeline.where(
     (p: MathPipeline) -> p.scale_factor > 2.0 and p.enabled == true
 );
-print("Heavy pipelines:", heavy_pipes);
+print("Heavy pipelines:"; heavy_pipes);

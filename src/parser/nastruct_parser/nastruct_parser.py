@@ -4,10 +4,8 @@ Parser module for .nastruct schema files.
 
 # Import Modules
 from __future__ import annotations
-from typing import Optional, Pattern
+from typing import Optional
 from pathlib import Path
-
-import re
 
 from src.core.struct.struct import Struct
 from src.core.database.database import NaDataDatabase
@@ -122,9 +120,9 @@ class NaStructParser:
             # First case: class
             if keyword == "class":
                 self.parse_struct(
-                    name=header_text,
-                    start=bt.start + 1,
-                    end=bt.end,
+                    struct_name=header_text,
+                    struct_start=bt.start + 1,
+                    struct_end=bt.end,
                     brackets_inside=bt.inside,
                     content=content
                 )
@@ -152,9 +150,9 @@ class NaStructParser:
 
     def parse_struct(
         self,
-        name: str,
-        start: int,
-        end: int,
+        struct_name: str,
+        struct_start: int,
+        struct_end: int,
         brackets_inside: list[BracketTree],
         content: str
     ) -> None:
@@ -170,7 +168,7 @@ class NaStructParser:
         """
 
         # Start of the struct code
-        cursor: int = start
+        cursor: int = struct_start
 
         # Prepare for the next bracket
         next_bracket: Optional[BracketTree] = (
@@ -178,7 +176,7 @@ class NaStructParser:
         )
 
         # While we have something in the struct brackets
-        while cursor < end:
+        while cursor < struct_end:
 
             # Manage white spaces (spaces, tabs, newlines, and blanked comments)
             if content[cursor].isspace():
@@ -188,92 +186,76 @@ class NaStructParser:
             # Class method
             if content[cursor] == "@":
 
-                # Check bracket
-                if next_bracket is None:
-                    raise SyntaxError(
-                        f"Method declaration at index {cursor} has no body '{{...}}'"
-                    )
-
-                # Get text before (the full method header: name, params, return type)
-                method_header: str = content[cursor + 1:next_bracket.start].strip()
-
-                # Check the text is present
-                if not method_header:
-                    raise SyntaxError(f"Empty method declaration at index {cursor}")
-
-                # A method declaration requires a parameter list '(...)'
-                paren_index: int = method_header.find("(")
-
-                # If there are no parenthesis, it is a syntax error
-                if paren_index == -1:
-                    raise SyntaxError(
-                        f"Method declaration at index {cursor} is missing its "
-                        f"parameter list '(...)': '@{method_header[:20]}...'"
-                    )
-
-                # The method name is the text before the parameter list
-                method_name: str = method_header[:paren_index].strip()
-
-                # Check the method name is present
-                if not method_name:
-                    raise SyntaxError(f"Missing method name at index {cursor}")
-
-                # Parse the struct method
-                self.parse_struct_method(
-                    struct_name=name,
-                    struct_method_name=method_name,
-                    header=method_header,
-                    start=next_bracket.start,
-                    end=next_bracket.end,
+                cursor, next_bracket, brackets_inside = self.parse_struct_method_case(
+                    struct_name=struct_name,
+                    cursor=cursor,
                     content=content,
-                    brackets_inside=next_bracket.inside
-                )
-
-                # Advance the cursor
-                cursor = next_bracket.end + 1
-
-                # Advance the next bracket
-                next_bracket = (
-                    brackets_inside.pop(0) if len(brackets_inside) > 0 else None
+                    brackets_inside=brackets_inside,
+                    next_bracket = next_bracket
                 )
 
             # Else, it is an attribut definition
             else:
 
-                # Find the closing ; within the struct body only
-                i: int = content.find(";", cursor, end)
-
-                # Check closing ;
-                if i == -1:
-                    raise SyntaxError(
-                        f"Missing closing ';' for attribute starting at index {cursor}"
-                    )
-
-                bracket_inside: Optional[BracketTree] = None
-
-                # Check next bracket
-                if next_bracket is not None and next_bracket.start < i:
-
-                    # Mark the bracket as inside the attribute declaration
-                    bracket_inside = next_bracket
-
-                    # Advance the next bracket
-                    next_bracket = (
-                        brackets_inside.pop(0) if len(brackets_inside) > 0 else None
-                    )
-
-                # Process the attribute
-                self.parse_struct_attribute(
-                    struct_name=name,
-                    start=cursor,
-                    end=i,
+                cursor, next_bracket, brackets_inside = self.parse_struct_attribute_case(
+                    struct_name=struct_name,
+                    struct_end=struct_end,
+                    cursor=cursor,
                     content=content,
-                    bracket_inside=bracket_inside
+                    brackets_inside=brackets_inside,
+                    next_bracket = next_bracket
                 )
 
-                # Advance the cursor
-                cursor = i + 1
 
+    def parse_struct_attribute_case(
+        self,
+        struct_name: str,
+        struct_end: int,
+        content: str,
+        cursor: int,
+        brackets_inside: list[BracketTree],
+        next_bracket: Optional[BracketTree]
+    ) -> tuple[int, Optional[BracketTree], Optional[list[BracketTree]]]:
+        """
+        TODO
+        """
+
+        # Find the closing ; within the struct body only
+        i: int = content.find(";", cursor, struct_end)
+
+        # Check closing ;
+        if i == -1:
+            raise SyntaxError(
+                f"Missing closing ';' for attribute starting at index {cursor}"
+            )
+
+        bracket_inside: Optional[BracketTree] = None
+
+        # Check next bracket
+        if next_bracket is not None and next_bracket.start < i:
+
+            # Mark the bracket as inside the attribute declaration
+            bracket_inside = next_bracket
+
+            # Advance the next bracket
+            next_bracket = (
+                brackets_inside.pop(0) if len(brackets_inside) > 0 else None
+            )
+
+        # Process the attribute
+        self.parse_struct_attribute(
+            struct_name=struct_name,
+            start=cursor,
+            end=i,
+            content=content,
+            bracket_inside=bracket_inside
+        )
+
+        # Advance the cursor
+        cursor = i + 1
+
+        # Return
+        return cursor, next_bracket, brackets_inside
 
     def parse_struct_attribute(
         self,
@@ -296,6 +278,70 @@ class NaStructParser:
         """
 
         pass
+
+    def parse_struct_method_case(
+        self,
+        struct_name: str,
+        cursor: int,
+        content: str,
+        brackets_inside: list[BracketTree],
+        next_bracket: Optional[BracketTree]
+    ) -> tuple[int, Optional[BracketTree], Optional[list[BracketTree]]]:
+        """
+        TODO
+        """
+
+        # Check bracket
+        if next_bracket is None:
+            raise SyntaxError(
+                f"Method declaration at index {cursor} has no body '{{...}}'"
+            )
+
+        # Get text before (the full method header: name, params, return type)
+        method_header: str = content[cursor + 1:next_bracket.start].strip()
+
+        # Check the text is present
+        if not method_header:
+            raise SyntaxError(f"Empty method declaration at index {cursor}")
+
+        # A method declaration requires a parameter list '(...)'
+        paren_index: int = method_header.find("(")
+
+        # If there are no parenthesis, it is a syntax error
+        if paren_index == -1:
+            raise SyntaxError(
+                f"Method declaration at index {cursor} is missing its "
+                f"parameter list '(...)': '@{method_header[:20]}...'"
+            )
+
+        # The method name is the text before the parameter list
+        method_name: str = method_header[:paren_index].strip()
+
+        # Check the method name is present
+        if not method_name:
+            raise SyntaxError(f"Missing method name at index {cursor}")
+
+        # Parse the struct method
+        self.parse_struct_method(
+            struct_name=struct_name,
+            struct_method_name=method_name,
+            header=method_header,
+            start=next_bracket.start,
+            end=next_bracket.end,
+            content=content,
+            brackets_inside=next_bracket.inside
+        )
+
+        # Advance the cursor
+        cursor = next_bracket.end + 1
+
+        # Advance the next bracket
+        next_bracket = (
+            brackets_inside.pop(0) if len(brackets_inside) > 0 else None
+        )
+
+        # Return
+        return cursor, next_bracket, brackets_inside
 
 
     def parse_struct_method(

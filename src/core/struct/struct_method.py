@@ -84,6 +84,12 @@ class StructMethod:
 
         param_names: list[str] = list(self.params.keys())
 
+        # Reject mixing positional and keyword arguments
+        if args and kwargs:
+            raise TypeError(
+                f"Method '@{self.name}' cannot mix positional and keyword arguments"
+            )
+
         # Check argument count
         if len(args) > len(param_names):
             raise TypeError(
@@ -106,6 +112,9 @@ class StructMethod:
             bound[kw_name] = kw_val
 
         # Fill in missing arguments from defaults
+        # Parameter declaration order is free: defaults may appear anywhere,
+        # since positional binding follows the declared order and named binding
+        # follows the parameter names.
         for param_name in param_names:
             if param_name not in bound:
                 if param_name in self.default_param_exprs:

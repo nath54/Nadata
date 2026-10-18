@@ -4,36 +4,36 @@
 # ==============================================================================
 
 theme_dark = Palette(
-    name="Cyberpunk_Dark",
-    primary_color=Color(r=15, g=15, b=25, a=255),
+    name="Cyberpunk_Dark";
+    primary_color=Color(r=15; g=15; b=25; a=255);
     accent_colors=[
-        Color(r=255, g=0, b=128),
-        Color(r=0, g=255, b=200, a=200)
-    ],
+        Color(r=255; g=0; b=128),
+        Color(r=0; g=255; b=200; a=200)
+    ];
     color_map={
-        "background": Color(15, 15, 25),
-        "neon_pink": Color(255, 0, 128),
-        "neon_cyan": Color(0, 255, 200)
+        "background": Color(15; 15; 25),
+        "neon_pink": Color(255; 0; 128),
+        "neon_cyan": Color(0; 255; 200)
     }
 )
 
 theme_light = Palette(
-    name="Paper_White",
-    primary_color=Color(250, 250, 250),
-    accent_colors=[Color(40, 40, 40)],
+    name="Paper_White";
+    primary_color=Color(250; 250; 250);
+    accent_colors=[Color(40; 40; 40)];
     color_map={
-        "background": Color(250, 250, 250),
-        "text": Color(20, 20, 20)
+        "background": Color(250; 250; 250),
+        "text": Color(20; 20; 20)
     }
 )
 
 terrain_map = MatrixGrid(
-    label="Terrain_Altitude_Map",
+    label="Terrain_Altitude_Map";
     grid_cells=[
         [0.0, 1.2, 2.5],
         [1.5, 4.8, 6.2],
         [3.0, 5.1, 8.9]
-    ],
+    ];
     coordinate_tags={
         "spawn_zone": ["origin", "safe"],
         "boss_arena": ["danger", "high_altitude"]
@@ -41,9 +41,9 @@ terrain_map = MatrixGrid(
 )
 
 hackathon = EventSchedule(
-    title="Global Nadata Hackathon",
-    start_time=DateTime(y=2026, m=10, d=20, H=9, M=0, S=0, MS=0),
-    end_time=DateTime(y=2026, m=10, d=22, H=18, M=0, S=0, MS=0),
+    title="Global Nadata Hackathon";
+    start_time=DateTime(y=2026; m=10; d=20; H=9; M=0; S=0; MS=0);
+    end_time=DateTime(y=2026; m=10; d=22; H=18; M=0; S=0; MS=0);
     metadata={
         "location": "Paris",
         "organizer": "Nathan Cerisara"
@@ -52,18 +52,18 @@ hackathon = EventSchedule(
 
 # --- Scripts & Queries ---
 
-print("Dark theme has opaque primary:", theme_dark.has_opaque_primary())
-print("Hackathon duration:", hackathon.duration())
+print("Dark theme has opaque primary:"; theme_dark.has_opaque_primary())
+print("Hackathon duration:"; hackathon.duration())
 
 # Query palettes by name
 Array[Palette] dark_palettes = Palette.where(
     (p: Palette) -> p.name == "Cyberpunk_Dark"
 );
-print("Dark palettes found:", dark_palettes.count())
+print("Dark palettes found:"; dark_palettes.count())
 
 # Query schedules starting after year 2025
-DateTime threshold_date = DateTime(y=2025, m=1, d=1);
+DateTime threshold_date = DateTime(y=2025; m=1; d=1);
 Array[EventSchedule] future_events = EventSchedule.where(
     (e: EventSchedule) -> e.start_time >= threshold_date
 );
-print("Future events:", future_events)
+print("Future events:"; future_events)

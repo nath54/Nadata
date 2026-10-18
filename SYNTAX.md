@@ -167,17 +167,22 @@ name: Type = default;           // attribute with default value
 ### 6.3 Methods
 
 ```text
-@name(param: Type, param2: Type = default) -> ReturnType {
+@name(param: Type; param2: Type = default) -> ReturnType {
     ...body...
 }
 ```
 
 - Method declarations are prefixed with `@`.
-- Parameters are `name: Type`, comma-separated; trailing commas allowed.
+- Parameters are `name: Type`, separated by **semicolons `;`** (never commas);
+  trailing separators allowed.
 - Parameters may have default expressions (evaluated **at each call**, so
   `now: DateTime = DateTime.now()` is refreshed per call).
+- **Parameter order is free**: parameters with default values may be declared
+  before, after, or between required parameters. Positional call binding follows
+  the declared order, named binding follows names — so no ordering constraint
+  is needed.
 - The return type is mandatory: `-> Type`.
-- The body uses the same statement language as `.nadata` scripts (see §8).
+- The body uses the same statement language as `.nadata` scripts (see §7.5).
 
 ### 6.4 Computed properties
 
@@ -207,14 +212,14 @@ Rules:
 ### 6.5 Standalone functions
 
 ```text
-fn name(h1: Human, now: DateTime = DateTime.now()) -> DateTime {
+fn name(h1: Human; now: DateTime = DateTime.now()) -> DateTime {
     DateTime age1 = h1.age(now);
     return age1;
 }
 ```
 
 - Declared at top level with the `fn` keyword.
-- Same parameter / return type rules as methods.
+- Same parameter / return type rules as methods (see §6.3).
 - Registered globally in the database; callable from methods and scripts.
 
 ### 6.6 Statements allowed in method / function bodies
@@ -238,32 +243,48 @@ return result;                            // return (mandatory last expression)
 A `.nadata` file mixes three kinds of content: **instance declarations**,
 **script statements**, and **queries**.
 
-### 7.1 Instance declarations (named symbols)
+### 7.1 Call arguments: named or positional, never mixed
+
+Every call site (methods, functions, constructors, computed properties) accepts
+exactly one calling style:
+
+```text
+obj.method(value1; value2)               // positional, declaration order
+obj.method(param1=value1; param2=value2) // named
+obj.method()                             // zero args: parentheses still mandatory
+```
+
+- **Mixing positional and named arguments in the same call is an error.**
+- With named arguments, any parameter order is allowed.
+- With positional arguments, values bind in declaration order.
+- Trailing separators are allowed in argument lists.
+
+### 7.2 Instance declarations (named symbols)
 
 ```text
 symbol_name = ClassName(
-    attr=value,
-    attr2=[sym_a, sym_b],
-    attr3={ "key": value },
+    attr=value;
+    attr2=[sym_a, sym_b];
+    attr3={ "key": value };
 )
 ```
 
 - `symbol_name` becomes a database symbol; later declarations can reference it.
 - **Forward references are allowed**: an instance may reference symbols declared
   later in the file (including cyclic references).
-- Arguments are keyword-only (`attr=value`), comma-separated; **trailing commas
-  allowed** (both in argument lists and arrays).
+- Arguments follow the common call rules (§7.1), separated by `;`;
+  **trailing separators allowed** (both in argument lists and arrays).
 - Empty instantiation is valid: `item2 = EdgeCaseItem()` (all defaults apply).
-- Single-line form is valid: `item3 = EdgeCaseItem(x=10, y=20)`.
+- Single-line form is valid: `item3 = EdgeCaseItem(x=10; y=20)`.
 - Values may be: literals, arrays `[a, b, c]`, dictionaries `{ "k": v }`,
   symbol references, nested constructor calls, negative numbers.
 
-### 7.2 Anonymous inline instances
+### 7.3 Anonymous inline instances
 
 An instance may be constructed inline, without a symbol, inside another value
 (e.g. inside an array or a `Dict` value).
 
-### 7.3 Typed script declarations
+### 7.4 Typed script declarations
 
 ```text
 Float32 test_input = 10.0;
@@ -273,15 +294,16 @@ Array[MathPipeline] heavy_pipes = MathPipeline.where(...);
 - Syntax: `Type name = expression;`
 - The declared `Type` must match the expression's evaluated type.
 
-### 7.4 Plain script statements
+### 7.5 Plain script statements
 
 - Assignment: `name = expression;`
 - Expression statements (calls): `pipe_standard.apply_transform(test_input);`
-- Built-in `print(...)`: `print("Label:", value);` — accepts multiple arguments.
+- Built-in `print(...)`: `print("Label:"; value);` — accepts multiple arguments
+  separated by `;`.
 - Semicolons terminate statements; when the statement ends at end of line, the
   semicolon is **optional** (both styles appear in the examples).
 
-### 7.5 Queries
+### 7.6 Queries
 
 ```text
 Array[Node] all_nodes = Node.where((n: Node) -> n.uid != "");
@@ -303,12 +325,13 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 | Token | Usage |
 |---|---|
 | `{ }` | Class / function bodies, block comments (`"""`), dict literals |
-| `( )` | Parameter lists, inheritance, call arguments, query lambdas |
-| `[ ]` | Array literals, generic type arguments |
-| `;` | Ends attribute declarations and statements |
-| `,` | Separates arguments / items; trailing commas allowed |
+| `{ }` (literal) | Dict literals — **entries separated by `,`** |
+| `( )` | Parameter lists, inheritance, call arguments, query lambdas — **arguments separated by `;`** |
+| `[ ]` | Array literals and generic type arguments — **elements separated by `,`** |
+| `;` | Ends attribute declarations and statements; separates parameters/arguments inside `( )` |
+| `,` | Separates array elements, dict entries, and generic type arguments inside `[ ]` and `{ }` |
 | `:` | Type annotations, dict key/value separation |
-| `=` | Assignments, default values, keyword arguments |
+| `=` | Assignments, default values, named arguments |
 | `->` | Return types (methods, functions, query lambdas) |
 | `@` | Method and computed property declarations (parameter list `()` mandatory) |
 | `.` | Member access and method calls |
