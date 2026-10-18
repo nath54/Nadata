@@ -5,6 +5,8 @@ and comment removal utilities.
 
 # Import Modules
 from __future__ import annotations
+from typing import Optional
+
 import pytest
 
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
@@ -12,6 +14,7 @@ from src.parser.utils import (
     BracketTree,
     BracketsAndStrings,
     CommentsRemover,
+    IdentifierExtractor,
 )
 
 
@@ -166,19 +169,20 @@ class TestNaStructParser:
         }
         """
 
-        recorded: list[tuple[str, str, int, int]] = []
+        recorded: list[tuple[str, str, Optional[str], int, int]] = []
 
         parser: NaStructParser = NaStructParser()
 
         # Monkeypatch dispatch to capture parsed blocks
         def mock_parse_struct(
             struct_name: str,
+            struct_parent: Optional[str],
             struct_start: int,
             struct_end: int,
             brackets_inside: list[BracketTree],
             content: str
         ) -> None:
-            recorded.append(("struct", struct_name, struct_start, struct_end))
+            recorded.append(("struct", struct_name, struct_parent, struct_start, struct_end))
 
         def mock_parse_fn(
             name: str,
@@ -187,7 +191,7 @@ class TestNaStructParser:
             brackets_inside: list[BracketTree],
             content: str
         ) -> None:
-            recorded.append(("fn", name, fn_start, fn_end))
+            recorded.append(("fn", name, None, fn_start, fn_end))
 
         parser.parse_struct = mock_parse_struct  # type: ignore[method-assign]
         parser.parse_fn = mock_parse_fn          # type: ignore[method-assign]
@@ -196,7 +200,8 @@ class TestNaStructParser:
 
         assert len(recorded) == 2
         assert recorded[0][0] == "struct"
-        assert recorded[0][1] == "class Human"
+        assert recorded[0][1] == "Human"
+        assert recorded[0][2] is None
         assert recorded[1][0] == "fn"
         assert recorded[1][1] == "fn is_adult(h: Human) -> Bool"
 
@@ -221,3 +226,52 @@ class TestNaStructParser:
 
         with pytest.raises(SyntaxError, match="Expected 'class' or 'fn' block"):
             parser.parse_file(content=content)
+
+
+class TestIdentifierExtractor:
+    """
+    Tests for the IdentifierExtractor dependency scanner.
+    """
+
+    def test_extract_from_method_body(self) -> None:
+        """
+        Tests that identifiers from calls, types, and declarations are collected.
+        """
+
+        body: str = (
+            "DateTime age1 = h1.age(now); "
+            "DateTime age2 = h2.age(now); "
+            "return calculate_age_difference(h1; h2; now);"
+        )
+
+        identifiers: set[str] = IdentifierExtractor.extract_identifiers(text=body)
+
+        assert "DateTime" in identifiers
+        assert "age" in identifiers
+        assert "now" in identifiers
+        assert "calculate_age_difference" in identifiers
+        assert "h1" in identifiers
+
+    def test_keywords_and_strings_excluded(self) -> None:
+        """
+        Tests that keywords are filtered and string contents are ignored.
+        """
+
+        body: str = 'if (x == true and flag != "false and not a keyword") { return y; }'
+
+        identifiers: set[str] = IdentifierExtractor.extract_identifiers(text=body)
+
+        assert identifiers == {"x", "flag", "y"}
+        assert "and" not in identifiers
+        assert "not" not in identifiers
+
+    def test_type_annotation_extraction(self) -> None:
+        """
+        Tests extraction from a raw type annotation string.
+        """
+
+        identifiers: set[str] = IdentifierExtractor.extract_identifiers(
+            text="Array[Array[Float32]]"
+        )
+
+        assert identifiers == {"Array", "Float32"}
