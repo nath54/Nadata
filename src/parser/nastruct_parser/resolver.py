@@ -188,14 +188,14 @@ class TypeResolver:
 
             return TypeArray(value_type=resolved_children[0])
 
-        # Dict takes exactly a value type and a key type
+        # Dict takes exactly a key type and a value type (Dict[K, V])
         if tmp_type.name == "Dict":
             if len(resolved_children) != 2:
                 raise TypeError("Type 'Dict' takes exactly two type arguments")
 
             return TypeDict(
-                value_type=resolved_children[0],
-                key_type=resolved_children[1]
+                value_type=resolved_children[1],
+                key_type=resolved_children[0]
             )
 
         raise TypeError(f"Unknown generic type '{tmp_type.name}'")

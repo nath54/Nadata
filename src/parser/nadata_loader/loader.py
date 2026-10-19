@@ -1,0 +1,527 @@
+"""
+Data loader for Nadata .nadata files.
+
+Parses .nadata source into statements, creates and links struct instances
+(two phase, supporting forward and circular references), then executes the
+remaining script statements (function calls, typed declarations, queries).
+"""
+
+# Import Modules
+from __future__ import annotations
+from pathlib import Path
+from typing import Any, Optional, cast
+
+from src.core.struct.struct import Struct
+from src.core.values.values import Value, ValueExternal
+from src.core.expressions.scope import ExecutionScope
+from src.core.expressions.statement import AssignStmt, Statement, VarDeclStmt
+from src.core.database.database import NaDataDatabase
+from src.core.database.instance import StructInstance
+from src.core.database.queryset import QuerySet
+from src.core.expressions.expression import CallExpr, Expression, IdentifierExpr
+from src.parser.expressions.type_parser import TmpType, TypeParser
+from src.parser.utils.comments_remove import CommentsRemover
+from src.parser.nastruct_parser.resolver import TypeResolver, build_type_globals
+from src.parser.expressions.statement_parser import StatementParser
+
+
+class StructRuntimeBinding:
+    """
+    Runtime binding of a struct name to its database table.
+
+    Placed in loader globals under the struct name. Callable as a constructor
+    creating new instances, and exposing query entry points such as where().
+
+    Attributes:
+        struct (Struct): Bound struct schema.
+        database (NaDataDatabase): Owning database used for instance creation.
+    """
+
+    def __init__(self, struct: Struct, database: NaDataDatabase) -> None:
+        """
+        Initializes the StructRuntimeBinding instance.
+
+        Args:
+            struct (Struct): Bound struct schema.
+            database (NaDataDatabase): Owning database used for instance creation.
+        """
+
+        self.struct: Struct = struct
+        self.database: NaDataDatabase = database
+
+    def __call__(
+        self,
+        *args: Value,
+        **kwargs: Value
+    ) -> StructInstance:
+        """
+        Creates a new instance, binding positional args to attributes in
+        declaration order and keyword args by name.
+
+        Args:
+            *args (Value): Positional attribute values in declaration order.
+            **kwargs (Value): Named attribute values.
+
+        Returns:
+            StructInstance: The created (unregistered) instance.
+
+        Raises:
+            TypeError: If more positional args are given than declared attributes.
+        """
+
+        attribute_names: list[str] = list(self.struct.get_all_attributes().keys())
+
+        if len(args) > len(attribute_names):
+            raise TypeError(
+                f"Struct '{self.struct.name}' takes at most {len(attribute_names)} "
+                f"positional attributes but {len(args)} given"
+            )
+
+        instance: StructInstance = self.database.create_instance(
+            struct=self.struct,
+            attributes=None
+        )
+
+        # Bind positional arguments in declaration order
+        for idx, arg_value in enumerate(args):
+            instance.set_attribute(name=attribute_names[idx], value=arg_value)
+
+        # Bind keyword arguments by name
+        for kw_name, kw_value in kwargs.items():
+            instance.set_attribute(name=kw_name, value=kw_value)
+
+        return instance
+
+    def where(self, predicate: Value) -> QuerySet:
+        """
+        Filters all instances of the struct (including subclasses) by a predicate.
+
+        Args:
+            predicate (Value): ValueExternal wrapping a callable candidate predicate.
+
+        Returns:
+            QuerySet: Filtered query set over the polymorphic instance list.
+
+        Raises:
+            TypeError: If the predicate does not resolve to a callable.
+        """
+
+        callable_predicate: Any = (
+            predicate.get() if isinstance(predicate, Value) else predicate
+        )
+
+        if not callable(callable_predicate):
+            raise TypeError(
+                f"'.where' on struct '{self.struct.name}' expects a callable predicate"
+            )
+
+        return QuerySet(
+            struct=self.struct,
+            instances=self._collect_polymorphic_instances(),
+            database=self.database,
+            query_executor=self.database.query_executor
+        ).where(predicate=callable_predicate)
+
+    def _collect_polymorphic_instances(self) -> list[StructInstance]:
+        """
+        Collects every instance of the struct and of all its subclasses.
+
+        Returns:
+            list[StructInstance]: Instances from all matching tables.
+        """
+
+        instances: list[StructInstance] = []
+
+        for table in self.database.tables_by_struct_name.values():
+            if table.struct is self.struct or table.struct.is_subclass_of(other=self.struct):
+                instances.extend(table.all())
+
+        return instances
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the binding.
+
+        Returns:
+            str: Binding representation.
+        """
+
+        return f"StructRuntimeBinding({self.struct.name})"
+
+
+class NaDataLoader:
+    """
+    Loads .nadata data files into an existing resolved NaDataDatabase.
+
+    Instance declarations are detected as assignments whose right hand side is
+    a call on a registered struct name. Declaration and population are split
+    in two phases so that forward and circular references between instances
+    resolve correctly. Remaining statements execute as a script sharing the
+    instance symbol scope.
+
+    Attributes:
+        database (NaDataDatabase): Target database the data is loaded into.
+        declarations (list[tuple[str, str, AssignStmt]]): Pending instance
+            declarations as (struct_name, symbol, statement) tuples.
+        script_statements (list[Statement]): Non-declaration statements.
+        instance_bindings (dict[str, ValueExternal]): Symbol to instance bindings.
+        globals_dict (dict[str, Any]): Global symbols for script execution.
+        scope (Optional[ExecutionScope]): Shared execution scope for all passes.
+        type_resolver (TypeResolver): Resolver for declared variable types.
+        _type_cache (dict[str, Any]): Resolved variable type cache by annotation.
+    """
+
+    def __init__(self, database: NaDataDatabase) -> None:
+        """
+        Initializes the NaDataLoader instance.
+
+        Args:
+            database (NaDataDatabase): Target database the data is loaded into.
+        """
+
+        self.database: NaDataDatabase = database
+        self.declarations: list[tuple[str, str, AssignStmt]] = []
+        self.script_statements: list[Statement] = []
+        self.instance_bindings: dict[str, ValueExternal] = {}
+        self.globals_dict: dict[str, Any] = {}
+        self.scope: ExecutionScope = ExecutionScope(globals_dict={})
+        self.type_resolver: TypeResolver = TypeResolver()
+        self.type_resolver.struct_provider = self._resolve_struct_type
+        self._type_cache: dict[str, Any] = {}
+
+    # --- Public API ---
+
+    def load_file(self, content: str) -> None:
+        """
+        Parses and loads a single .nadata source content.
+
+        Args:
+            content (str): Raw .nadata source text.
+        """
+
+        self._collect_statements(statements=self._parse(content=content))
+        self._run_passes()
+
+    def load_folder(self, folder_path: str) -> None:
+        """
+        Loads every .nadata file in a folder with a shared symbol scope.
+
+        Args:
+            folder_path (str): Folder containing .nadata files.
+        """
+
+        data_files: list[Path] = sorted(Path(folder_path).glob("*.nadata"))
+
+        for data_file in data_files:
+            self._collect_statements(
+                statements=self._parse(content=data_file.read_text(encoding="utf-8"))
+            )
+
+        self._run_passes()
+
+    # --- Pass 0: parsing and classification ---
+
+    def _parse(self, content: str) -> list[Statement]:
+        """
+        Strips comments and parses the source into statements.
+
+        Args:
+            content (str): Raw .nadata source text.
+
+        Returns:
+            list[Statement]: Parsed statements in source order.
+        """
+
+        clean_content: str = CommentsRemover.remove_all_comments(content=content)
+
+        return StatementParser.parse_body(text=clean_content)
+
+    def _collect_statements(self, statements: list[Statement]) -> None:
+        """
+        Splits statements into instance declarations and script statements.
+
+        Args:
+            statements (list[Statement]): Parsed statements to classify.
+        """
+
+        for stmt in statements:
+            struct_name: Optional[str] = self._instance_struct_name(stmt=stmt)
+
+            if struct_name is not None and isinstance(stmt, AssignStmt):
+                self.declarations.append(
+                    (struct_name, stmt.target_name, stmt)
+                )
+
+            else:
+                self.script_statements.append(stmt)
+
+    def _instance_struct_name(self, stmt: Statement) -> Optional[str]:
+        """
+        Returns the struct name if the statement declares an instance, else None.
+
+        Args:
+            stmt (Statement): Statement to inspect.
+
+        Returns:
+            Optional[str]: Struct name of the declared instance, or None.
+        """
+
+        if not isinstance(stmt, AssignStmt):
+            return None
+
+        if not isinstance(stmt.value_expr, CallExpr):
+            return None
+
+        callee: Expression = stmt.value_expr.callee
+
+        if not isinstance(callee, IdentifierExpr):
+            return None
+
+        if callee.name not in self.database.tables_by_struct_name:
+            return None
+
+        return callee.name
+
+    # --- Pass 1: instance creation ---
+
+    def _declare_instances(self) -> None:
+        """
+        Creates every declared instance empty and binds its symbol.
+
+        All instances exist before any attribute is populated, so forward and
+        circular references between symbols evaluate correctly in pass 2.
+        """
+
+        for _, symbol, _ in self.declarations:
+            struct_name: str = self._symbol_struct_name(symbol=symbol)
+            struct: Struct = self.database.tables_by_struct_name[struct_name].struct
+
+            instance: StructInstance = self.database.create_instance(
+                struct=struct,
+                attributes=None,
+                symbol=symbol
+            )
+
+            self.instance_bindings[symbol] = ValueExternal(payload=instance)
+
+    def _symbol_struct_name(self, symbol: str) -> str:
+        """
+        Finds the struct name declared for a symbol.
+
+        Args:
+            symbol (str): Instance symbol name.
+
+        Returns:
+            str: Declared struct name.
+
+        Raises:
+            ValueError: If the symbol is declared twice with different structs.
+        """
+
+        for struct_name, declared_symbol, _ in self.declarations:
+            if declared_symbol == symbol:
+                return struct_name
+
+        raise ValueError(f"Symbol '{symbol}' has no pending declaration")
+
+    # --- Pass 2: attribute population ---
+
+    def _populate_instances(self) -> None:
+        """
+        Evaluates every declaration arguments and sets the instance attributes.
+
+        Argument evaluation happens in the shared scope where all instance
+        symbols already exist, enabling forward and circular references.
+        """
+
+        for _, symbol, stmt in self.declarations:
+            instance: StructInstance = self.instance_bindings[symbol].get()
+            call: CallExpr = cast(CallExpr, stmt.value_expr)
+
+            attribute_values: dict[str, Value] = {}
+
+            # Keyword arguments bind by name
+            for kw_name, kw_expr in call.kwargs.items():
+                attribute_values[kw_name] = kw_expr.evaluate(scope=self.scope)
+
+            # Positional arguments bind to attributes in declaration order
+            attribute_names: list[str] = list(instance.struct.get_all_attributes().keys())
+
+            if len(call.args) > len(attribute_names):
+                raise TypeError(
+                    f"Instance '{symbol}' of '{instance.struct.name}' takes at most "
+                    f"{len(attribute_names)} positional attributes but {len(call.args)} given"
+                )
+
+            for idx, arg_expr in enumerate(call.args):
+                attribute_values[attribute_names[idx]] = arg_expr.evaluate(
+                    scope=self.scope
+                )
+
+            for attr_name, attr_value in attribute_values.items():
+                instance.set_attribute(name=attr_name, value=attr_value)
+
+    # --- Pass 3: script execution ---
+
+    def _execute_scripts(self) -> None:
+        """
+        Executes the remaining script statements in the shared scope.
+        """
+
+        for stmt in self.script_statements:
+            if isinstance(stmt, VarDeclStmt):
+                self._execute_var_decl(stmt=stmt)
+
+            elif isinstance(stmt, AssignStmt):
+                self._execute_assign(stmt=stmt)
+
+            else:
+                stmt.execute(scope=self.scope)
+
+    def _execute_var_decl(self, stmt: VarDeclStmt) -> None:
+        """
+        Resolves the declaration type annotation then executes the statement.
+
+        Args:
+            stmt (VarDeclStmt): Typed declaration statement.
+        """
+
+        if stmt.var_type_name is not None:
+            stmt.var_type = self._resolve_var_type(type_name=stmt.var_type_name)
+
+        stmt.execute(scope=self.scope)
+
+    def _execute_assign(self, stmt: AssignStmt) -> None:
+        """
+        Executes an assignment, defining the name if it does not exist yet.
+
+        Args:
+            stmt (AssignStmt): Assignment statement.
+        """
+
+        value: Value = stmt.value_expr.evaluate(scope=self.scope)
+
+        try:
+            self.scope.get(name=stmt.target_name)
+
+            # Existing name: reassign through the scope hierarchy
+            self.scope.assign(name=stmt.target_name, value=value)
+
+        except NameError:
+            self.scope.define(name=stmt.target_name, value=value)
+
+    # --- Helpers ---
+
+    def _resolve_var_type(self, type_name: str) -> Any:
+        """
+        Resolves a raw type annotation into a schema Type.
+
+        Args:
+            type_name (str): Raw type annotation (e.g. 'Array[Human]').
+
+        Returns:
+            Any: Resolved schema Type instance.
+        """
+
+        if type_name in self._type_cache:
+            return self._type_cache[type_name]
+
+        tmp_type: TmpType = TypeParser.parse_text(text=type_name)
+
+        resolved: Any = self.type_resolver.resolve(tmp_type=tmp_type)
+
+        self._type_cache[type_name] = resolved
+
+        return resolved
+
+    def _resolve_struct_type(self, name: str) -> Struct:
+        """
+        Looks up a struct by name for the type resolver.
+
+        Args:
+            name (str): Struct name to look up.
+
+        Returns:
+            Struct: The registered struct.
+
+        Raises:
+            KeyError: If no struct is registered under the name.
+        """
+
+        return self.database.tables_by_struct_name[name].struct
+
+    def _build_globals(self) -> dict[str, Any]:
+        """
+        Builds the global symbol table for evaluation.
+
+        Contains home types, struct runtime bindings, standalone functions,
+        and the print builtin.
+
+        Returns:
+            dict[str, Any]: Global symbol table.
+        """
+
+        globals_dict: dict[str, Any] = build_type_globals()
+
+        globals_dict["print"] = self._print_values
+
+        for struct_name in self.database.tables_by_struct_name:
+            globals_dict[struct_name] = StructRuntimeBinding(
+                struct=self.database.tables_by_struct_name[struct_name].struct,
+                database=self.database
+            )
+
+        for function_name, function in self.database.functions.items():
+            globals_dict[function_name] = function
+
+        return globals_dict
+
+    def _format_value(self, val: Any) -> str:
+        """
+        Formats a runtime Value for the print builtin.
+
+        Query results render as instance lists, other payloads render raw.
+
+        Args:
+            val (Any): Value or raw payload to format.
+
+        Returns:
+            str: Human readable representation.
+        """
+
+        raw: Any = val.get() if isinstance(val, Value) else val
+
+        # Duck-typed query results render as instance lists
+        if hasattr(raw, "to_list") and hasattr(raw, "where"):
+            return "[" + ", ".join(repr(inst) for inst in raw.to_list()) + "]"
+
+        return str(raw)
+
+    def _print_values(self, *args: Value) -> None:
+        """
+        Print builtin formatting each argument Value.
+
+        Args:
+            *args (Value): Argument Values to print space separated.
+        """
+
+        print(" ".join(self._format_value(val=val) for val in args))
+
+    # --- Orchestration ---
+
+    def _run_passes(self) -> None:
+        """
+        Runs the declare, populate, and execute passes in order.
+        """
+
+        self._declare_instances()
+
+        self.globals_dict = {
+            **self._build_globals(),
+            **self.instance_bindings
+        }
+
+        self.scope = ExecutionScope(globals_dict=self.globals_dict)
+
+        self._populate_instances()
+        self._execute_scripts()
