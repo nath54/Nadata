@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional, cast
 from src.core.database.database import NaDataDatabase
 from src.core.expressions.expression import ArrayLiteralExpr, DictLiteralExpr, Expression
 from src.core.expressions.scope import ExecutionScope
-from src.core.expressions.statement import BlockStmt
+from src.core.expressions.statement import BlockStmt, IfStmt, Statement, VarDeclStmt
 from src.core.struct.struct import Struct
 from src.core.struct.struct_attribute import StructAttribute
 from src.core.struct.struct_method import StructMethod
@@ -299,9 +299,80 @@ class SchemaResolver:
         for tmp_function in tmp_struct.methods.values():
             struct.add_method(method=self.resolve_callable(tmp_function=tmp_function))
 
+        self.check_identifier_shadowing(tmp_struct=tmp_struct, struct=struct)
+
         self.in_progress.discard(name)
 
         return struct
+
+    def check_identifier_shadowing(self, tmp_struct: TmpStruct, struct: Struct) -> None:
+        """
+        Rejects method parameters or locals that shadow struct attributes.
+
+        Bare names in method bodies resolve to parameters, locals, and
+        globals only; attributes are reached through explicit 'self.'. A
+        parameter or local sharing a name with an attribute would silently
+        take precedence over it, so it is a resolution error.
+
+        Args:
+            tmp_struct (TmpStruct): Intermediate struct with method bodies.
+            struct (Struct): Resolved struct owning the attributes.
+
+        Raises:
+            SyntaxError: If a method parameter or local variable name
+                collides with an attribute of the struct or its parents.
+        """
+
+        attribute_names: set[str] = set(struct.attributes.keys())
+
+        parent: Optional[Struct] = struct.parent
+
+        while parent is not None:
+            attribute_names.update(parent.attributes.keys())
+            parent = parent.parent
+
+        for tmp_function in tmp_struct.methods.values():
+            declared_names: list[str] = list(tmp_function.fn_argument.keys())
+
+            for statement in tmp_function.fn_body:
+                self._collect_declared_names(statement=statement, names=declared_names)
+
+            for declared_name in declared_names:
+                if declared_name in attribute_names:
+                    raise SyntaxError(
+                        f"'{declared_name}' in method '{tmp_function.fn_name}' "
+                        f"of struct '{struct.name}' shadows an attribute: "
+                        f"access attributes through 'self'"
+                    )
+
+    def _collect_declared_names(self, statement: Statement, names: list[str]) -> None:
+        """
+        Appends the names of variables declared by a statement tree.
+
+        Args:
+            statement (Statement): Statement to inspect (recursed into
+                blocks and branches).
+            names (list[str]): Accumulator for declared variable names.
+        """
+
+        if isinstance(statement, VarDeclStmt):
+            names.append(statement.name)
+
+            return
+
+        if isinstance(statement, BlockStmt):
+            for nested in statement.statements:
+                self._collect_declared_names(statement=nested, names=names)
+
+            return
+
+        if isinstance(statement, IfStmt):
+            for nested in statement.then_block.statements:
+                self._collect_declared_names(statement=nested, names=names)
+
+            if statement.else_block is not None:
+                for nested in statement.else_block.statements:
+                    self._collect_declared_names(statement=nested, names=names)
 
     def resolve_attribute(
         self,

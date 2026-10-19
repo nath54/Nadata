@@ -4,6 +4,8 @@ Tests for the resolution phase: tmp IR to registered database objects.
 
 # Import Modules
 from __future__ import annotations
+from typing import Any
+
 import pytest
 
 from src.core.types.types import TypeArray, TypeDict, UFloat32, UInt8
@@ -11,6 +13,7 @@ from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
 from src.core.values.values import ValueDateTime, ValueStr
 from src.core.types.types import TypeStr
+from src.parser.nadata_loader.loader import NaDataLoader
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
 from src.parser.nastruct_parser.resolver import build_type_globals
 
@@ -302,3 +305,166 @@ class TestRuntime:
                 args=[cat],
                 globals_dict=self.globals_dict
             )
+
+
+class TestExplicitSelf:
+    """
+    Tests the explicit self rule: attributes via 'self.', no shadowing.
+    """
+
+    def test_explicit_self_resolves_attribute(self) -> None:
+        """
+        Tests that 'self.attribute' resolves during method execution.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content=(
+            "class Counter {\n"
+            "    count: Int32 = 0;\n"
+            "\n"
+            "    @doubled() -> Int32 {\n"
+            "        return self.count * 2;\n"
+            "    }\n"
+            "}\n"
+        ))
+
+        database = parser.resolve()
+
+        loader: NaDataLoader = NaDataLoader(database=database)
+        loader.load_file(content='c = Counter(count = 21)')
+
+        counter: Any = database.get_by_symbol(name="c")
+
+        assert counter.call_method("doubled").get() == 42
+
+    def test_bare_attribute_name_is_undefined(self) -> None:
+        """
+        Tests that bare attribute names no longer resolve in method bodies.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content=(
+            "class Counter {\n"
+            "    count: Int32 = 0;\n"
+            "\n"
+            "    @doubled() -> Int32 {\n"
+            "        return count * 2;\n"
+            "    }\n"
+            "}\n"
+        ))
+
+        database = parser.resolve()
+
+        loader: NaDataLoader = NaDataLoader(database=database)
+        loader.load_file(content='c = Counter()')
+
+        counter: Any = database.get_by_symbol(name="c")
+
+        with pytest.raises(NameError):
+            counter.call_method("doubled")
+
+    def test_parameter_shadowing_attribute_rejected(self) -> None:
+        """
+        Tests that a parameter named like an attribute is a resolution error.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        with pytest.raises(SyntaxError, match="shadows an attribute"):
+            parser.parse_folder = None  # type: ignore[assignment]
+
+            parser.parse_file(content=(
+                "class A {\n"
+                "    name: Str;\n"
+                "\n"
+                "    @m(name: Int32) -> Int32 {\n"
+                "        return name;\n"
+                "    }\n"
+                "}\n"
+            ))
+
+            parser.resolve()
+
+    def test_local_shadowing_attribute_rejected(self) -> None:
+        """
+        Tests that a local variable named like an attribute is rejected.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        with pytest.raises(SyntaxError, match="shadows an attribute"):
+            parser.parse_file(content=(
+                "class A {\n"
+                "    name: Str;\n"
+                "\n"
+                "    @m() -> Int32 {\n"
+                "        Int32 name = 5;\n"
+                "        return name;\n"
+                "    }\n"
+                "}\n"
+            ))
+
+            parser.resolve()
+
+    def test_inherited_attribute_shadowing_rejected(self) -> None:
+        """
+        Tests that shadowing a parent attribute is rejected too.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        with pytest.raises(SyntaxError, match="shadows an attribute"):
+            parser.parse_file(content=(
+                "class A {\n"
+                "    name: Str;\n"
+                "}\n"
+                "\n"
+                "class B(A) {\n"
+                "    @m(name: Int32) -> Int32 {\n"
+                "        return name;\n"
+                "    }\n"
+                "}\n"
+            ))
+
+            parser.resolve()
+
+    def test_disjoint_names_are_accepted(self) -> None:
+        """
+        Tests that parameters reusing nothing attribute-like still resolve.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content=(
+            "class A {\n"
+            "    name: Str;\n"
+            "\n"
+            "    @m(times: Int32) -> Int32 {\n"
+            "        Int32 doubled = times * 2;\n"
+            "        return doubled;\n"
+            "    }\n"
+            "}\n"
+        ))
+
+        database = parser.resolve()
+
+        assert "m" in database.tables_by_struct_name["A"].struct.methods
+
+    def test_self_undefined_in_scripts(self) -> None:
+        """
+        Tests that 'self' does not resolve outside method bodies.
+        """
+
+        parser: NaStructParser = NaStructParser()
+
+        parser.parse_file(content="class A { name: Str; }\n")
+
+        database = parser.resolve()
+
+        loader: NaDataLoader = NaDataLoader(database=database)
+
+        with pytest.raises(NameError):
+            loader.load_file(content='x = self')
+

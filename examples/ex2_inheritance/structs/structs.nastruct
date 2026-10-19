@@ -8,7 +8,7 @@ class Node {
     creation_time: DateTime = DateTime.now();
 
     @describe() -> Str {
-        return uid;
+        return self.uid;
     }
 }
 

@@ -10,7 +10,7 @@ class Palette {
     color_map: Dict[Str, Color] = {};
 
     @has_opaque_primary() -> Bool {
-        if (primary_color.a == 255) {
+        if (self.primary_color.a == 255) {
             return true;
         }
 
@@ -38,6 +38,6 @@ class EventSchedule {
     metadata: Dict[Str, Str] = {};
 
     @duration() -> DateTime {
-        return end_time - start_time;
+        return self.end_time - self.start_time;
     }
 }

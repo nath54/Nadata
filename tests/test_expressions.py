@@ -101,9 +101,12 @@ def test_is_broken_method_logic() -> None:
         var_type=TypeBool()
     )
 
-    # 2. if (state <= 0) { broken = true; }
+    # 2. if (self.state <= 0) { broken = true; }
     cond_expr: BinaryOpExpr = BinaryOpExpr(
-        left=IdentifierExpr(name="state"),
+        left=MemberAccessExpr(
+            target=IdentifierExpr(name="self"),
+            member="state"
+        ),
         op="<=",
         right=LiteralExpr(value=ValueInt(value_type=Int32, value=0))
     )
@@ -171,7 +174,10 @@ def test_member_call_and_older_logic() -> None:
         params={},
         return_type=Int32,
         body_block=BlockStmt(statements=[
-            ReturnStmt(value_expr=IdentifierExpr(name="stored_age"))
+            ReturnStmt(value_expr=MemberAccessExpr(
+                target=IdentifierExpr(name="self"),
+                member="stored_age"
+            ))
         ])
     )
     struct_entity.add_method(method=method_age)
@@ -221,7 +227,10 @@ def test_member_call_and_older_logic() -> None:
         VarDeclStmt(
             name="self_age",
             init_expr=CallExpr(
-                callee=IdentifierExpr(name="age")
+                callee=MemberAccessExpr(
+                    target=IdentifierExpr(name="self"),
+                    member="age"
+                )
             ),
             var_type=Int32
         ),

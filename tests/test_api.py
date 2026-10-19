@@ -300,7 +300,7 @@ class TestNadataCodeExecution:
                 '    damage: Int32 = 10;\n'
                 '\n'
                 '    @describe() -> Str {\n'
-                '        return name;\n'
+                '        return self.name;\n'
                 '    }\n'
                 '}'
             )

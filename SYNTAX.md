@@ -183,6 +183,34 @@ name: Type = default;           // attribute with default value
 - The return type is mandatory: `-> Type`.
 - The body uses the same statement language as `.nadata` scripts (see §7.5).
 
+#### Explicit `self`
+
+Attribute and method access on the receiver is **always explicit** through
+`self`:
+
+```text
+@is_broken() -> Bool {
+    broken: Bool = false;
+    if (self.state <= 0) {
+        broken = true;
+    }
+    return broken;
+}
+```
+
+- `self` is a read-only identifier bound to the receiver instance; it is only
+  defined inside method / computed property bodies (using it in a `.nadata`
+  script is a `NameError`).
+- Bare attribute names do **not** resolve: `return uid;` is a `NameError`, use
+  `return self.uid;`. This keeps parameters, locals, attributes, and global
+  functions in disjoint namespaces.
+- **Shadowing is a resolution error**: a method parameter or local variable may
+  not share a name with an attribute of the struct or any of its parents.
+  This applies transitively to inherited attributes.
+- `self` may be used as a value: passed to functions (`self == other`), stored,
+  or returned.
+- Calling another method on the receiver: `self.age(now)`.
+
 ### 6.4 Computed properties
 
 A method with an **empty parameter list** is a computed property:
@@ -190,7 +218,7 @@ A method with an **empty parameter list** is a computed property:
 ```text
 @is_broken() -> Bool {
     broken: Bool = false;
-    if (state <= 0) {
+    if (self.state <= 0) {
         broken = true;
     }
     return broken;
@@ -224,7 +252,7 @@ fn name(h1: Human, now: DateTime = DateTime.now()) -> DateTime {
 ### 6.6 Statements allowed in method / function bodies
 
 ```text
-Float32 scaled = x * scale_factor;        // typed variable declaration
+Float32 scaled = x * self.scale_factor;   // typed variable declaration
 broken = true;                            // assignment
 if (condition) { ... } else { ... }       // conditionals (if / else)
 return result;                            // return (mandatory last expression)
@@ -233,8 +261,10 @@ return result;                            // return (mandatory last expression)
 - Conditions are parenthesized: `if ((flag_a and not flag_b) or flag_c) { ... }`.
 - Operators: `+ - * / %`, comparisons `== != < <= > >=`,
   logic (keyword only): `and`, `or`, `xor`, `nand`.
-- Local variable declarations may be typed (`Float32 result = scaled + bias;`).
-- Member access with `.`; method calls with `()`; `self` refers to the receiver.
+- Local variable declarations may be typed (`Float32 result = scaled + self.bias;`).
+- Member access with `.`; method calls with `()`.
+- Instance state is reached only through `self.` (see §6.3): bare names resolve
+  to parameters, locals, and global functions — never attributes.
 
 ---
 

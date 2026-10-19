@@ -32,7 +32,7 @@ class NumericSensors {
 
     # Method testing arithmetic and edge bounds
     @is_saturated() -> Bool {
-        if (byte_val >= 255 and port == 8080) {
+        if (self.byte_val >= 255 and self.port == 8080) {
             return true;
         }
 
@@ -40,7 +40,7 @@ class NumericSensors {
     }
 
     @compute_offset(delta: Float32) -> Float32 {
-        Float32 adjusted = temp_standard + delta;
+        Float32 adjusted = self.temp_standard + delta;
         return adjusted;
     }
 }

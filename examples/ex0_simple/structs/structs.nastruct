@@ -9,12 +9,12 @@ class Entity{
     children: Array[Entity] = [];
 
     @age(now: DateTime = DateTime.now()) -> DateTime {
-        return now - birthday;
+        return now - self.birthday;
     }
 
     @older(other_entity: Entity, now: DateTime = DateTime.now()) -> Bool {
         other_entity_age: DateTime = other_entity.age(now);
-        self_age: DateTime = age(now);
+        self_age: DateTime = self.age(now);
 
         if(other_entity_age >= self_age){
             return false;
@@ -51,7 +51,7 @@ class ObjectInstance{
 
         broken: Bool = false;
 
-        if (state <= 0){
+        if (self.state <= 0){
             broken = true;
         }
 

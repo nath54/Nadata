@@ -10,12 +10,12 @@ class MathPipeline {
     enabled: Bool = true;
 
     @apply_transform(x: Float32) -> Float32 {
-        if (not enabled) {
+        if (not self.enabled) {
             return x;
         }
 
-        Float32 scaled = x * scale_factor;
-        Float32 result = scaled + bias;
+        Float32 scaled = x * self.scale_factor;
+        Float32 result = scaled + self.bias;
         return result;
     }
 

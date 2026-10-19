@@ -26,9 +26,11 @@ class EdgeCaseItem {
         return true;
     }
 
-    # Method with argument having same name as an attribute
-    @update_coords(x: Int32, y: Int32) -> Int32 {
-        Int32 sum = x + y;
+    # Method with parameters disjoint from attribute names (shadowing is
+    # a resolution error): 'x' and 'y' above are attributes, so the
+    # parameters must use different names
+    @update_coords(new_x: Int32, new_y: Int32) -> Int32 {
+        Int32 sum = new_x + new_y;
         return sum;
     }
 }

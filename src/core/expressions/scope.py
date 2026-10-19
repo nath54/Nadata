@@ -109,6 +109,9 @@ class ExecutionScope:
         if not isinstance(value, Value):
             raise TypeError(f"Expected Value instance, got {type(value).__name__}")
 
+        if name == "self":
+            raise NameError("Cannot assign to 'self'")
+
         # Update in local variables if present
         if name in self.variables:
             self.variables[name] = value
@@ -119,19 +122,6 @@ class ExecutionScope:
             self.parameters[name] = value
             return
 
-        # Check self instance attributes if available
-        if self.self_instance is not None:
-            if hasattr(self.self_instance, "attributes"):
-                attrs: dict[str, Any] = getattr(self.self_instance, "attributes")
-
-                if name in attrs:
-                    attrs[name] = value
-                    return
-
-            if hasattr(self.self_instance, name):
-                setattr(self.self_instance, name, value)
-                return
-
         # Check parent scope recursively
         if self.parent is not None:
             self.parent.assign(name=name, value=value)
@@ -139,49 +129,14 @@ class ExecutionScope:
 
         raise NameError(f"Cannot assign to undefined variable '{name}'")
 
-    def _lookup_self_member(self, name: str) -> Any:
-        """
-        Looks up an attribute or method on the self instance.
-
-        Args:
-            name (str): Identifier name to look up on self.
-
-        Returns:
-            Any: Resolved Value or method callable.
-
-        Raises:
-            KeyError: If member is not found on self.
-        """
-
-        if self.self_instance is None:
-            raise KeyError(name)
-
-        # Check dictionary-backed attributes on self instance
-        if hasattr(self.self_instance, "attributes"):
-            attrs: dict[str, Any] = getattr(self.self_instance, "attributes")
-
-            if name in attrs:
-                return attrs[name]
-
-        # Check Python object attributes
-        if hasattr(self.self_instance, name):
-            return getattr(self.self_instance, name)
-
-        # Check methods on struct schema if self instance has struct definition
-        if hasattr(self.self_instance, "struct"):
-            struct_def: Any = getattr(self.self_instance, "struct")
-
-            if hasattr(struct_def, "get_method"):
-                method: Any = struct_def.get_method(name=name)
-
-                if method is not None:
-                    return method
-
-        raise KeyError(name)
-
     def get(self, name: str) -> Any:
         """
-        Resolves an identifier through local variables, parameters, self, parent, and globals.
+        Resolves an identifier through self, locals, parameters, parent, and globals.
+
+        Attribute access on the receiver is explicit: method bodies read
+        instance state through 'self.attribute_name', never through bare
+        identifiers. This keeps parameters, locals, attributes, and global
+        symbols in disjoint namespaces.
 
         Args:
             name (str): Identifier name to look up.
@@ -193,19 +148,17 @@ class ExecutionScope:
             NameError: If identifier cannot be resolved.
         """
 
-        # 1. Check local variables
+        # 1. The receiver itself (explicit self in method bodies)
+        if name == "self" and self.self_instance is not None:
+            return self.self_instance
+
+        # 2. Check local variables
         if name in self.variables:
             return self.variables[name]
 
-        # 2. Check method parameters
+        # 3. Check method parameters
         if name in self.parameters:
             return self.parameters[name]
-
-        # 3. Check self instance
-        try:
-            return self._lookup_self_member(name=name)
-        except KeyError:
-            pass
 
         # 4. Check own global symbols (child scope bindings live here)
         if name in self.globals_dict:
