@@ -10,3 +10,5 @@ instance references.
 # Import Modules
 from src.core.database.persistence.dumper import dump_database
 from src.core.database.persistence.loader import load_database
+
+__all__ = ["dump_database", "load_database"]

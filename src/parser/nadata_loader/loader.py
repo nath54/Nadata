@@ -117,26 +117,13 @@ class StructRuntimeBinding:
 
         return QuerySet(
             struct=self.struct,
-            instances=self._collect_polymorphic_instances(),
+            instances=collect_polymorphic_instances(
+                struct=self.struct,
+                database=self.database
+            ),
             database=self.database,
             query_executor=self.database.query_executor
         ).where(predicate=callable_predicate)
-
-    def _collect_polymorphic_instances(self) -> list[StructInstance]:
-        """
-        Collects every instance of the struct and of all its subclasses.
-
-        Returns:
-            list[StructInstance]: Instances from all matching tables.
-        """
-
-        instances: list[StructInstance] = []
-
-        for table in self.database.tables_by_struct_name.values():
-            if table.struct is self.struct or table.struct.is_subclass_of(other=self.struct):
-                instances.extend(table.all())
-
-        return instances
 
     def __repr__(self) -> str:
         """
@@ -147,6 +134,63 @@ class StructRuntimeBinding:
         """
 
         return f"StructRuntimeBinding({self.struct.name})"
+
+
+def collect_polymorphic_instances(
+    struct: Struct,
+    database: NaDataDatabase
+) -> list[StructInstance]:
+    """
+    Collects every instance of a struct and of all its subclasses.
+
+    Args:
+        struct (Struct): Struct whose instance hierarchy is collected.
+        database (NaDataDatabase): Database to search for instance tables.
+
+    Returns:
+        list[StructInstance]: Instances from all matching tables.
+    """
+
+    instances: list[StructInstance] = []
+
+    for table in database.tables_by_struct_name.values():
+        if table.struct is struct or table.struct.is_subclass_of(other=struct):
+            instances.extend(table.all())
+
+    return instances
+
+
+def format_runtime_value(val: Any) -> str:
+    """
+    Formats a runtime Value for the print builtin.
+
+    Query results render as instance lists, other payloads render raw.
+
+    Args:
+        val (Any): Value or raw payload to format.
+
+    Returns:
+        str: Human readable representation.
+    """
+
+    raw: Any = val.get() if isinstance(val, Value) else val
+
+    # Duck-typed query results render as instance lists
+    if hasattr(raw, "to_list") and hasattr(raw, "where"):
+        return "[" + ", ".join(repr(inst) for inst in raw.to_list()) + "]"
+
+    return str(raw)
+
+
+def print_runtime_values(*args: Value) -> None:
+    """
+    Print builtin formatting each argument Value.
+
+    Args:
+        *args (Value): Argument Values to print space separated.
+    """
+
+    print(" ".join(format_runtime_value(val=val) for val in args))
 
 
 class NaDataLoader:
@@ -204,13 +248,14 @@ class NaDataLoader:
 
     def load_folder(self, folder_path: str) -> None:
         """
-        Loads every .nadata file in a folder with a shared symbol scope.
+        Loads every .nadata file found recursively in a folder with a shared
+        symbol scope.
 
         Args:
             folder_path (str): Folder containing .nadata files.
         """
 
-        data_files: list[Path] = sorted(Path(folder_path).glob("*.nadata"))
+        data_files: list[Path] = sorted(Path(folder_path).rglob("*.nadata"))
 
         for data_file in data_files:
             self._collect_statements(
@@ -450,12 +495,16 @@ class NaDataLoader:
 
         return self.database.tables_by_struct_name[name].struct
 
-    def _build_globals(self) -> dict[str, Any]:
+    @staticmethod
+    def build_runtime_globals(database: NaDataDatabase) -> dict[str, Any]:
         """
         Builds the global symbol table for evaluation.
 
         Contains home types, struct runtime bindings, standalone functions,
-        and the print builtin.
+        instance symbol bindings, and the print builtin.
+
+        Args:
+            database (NaDataDatabase): Database whose symbols are exposed.
 
         Returns:
             dict[str, Any]: Global symbol table.
@@ -463,49 +512,24 @@ class NaDataLoader:
 
         globals_dict: dict[str, Any] = build_type_globals()
 
-        globals_dict["print"] = self._print_values
+        globals_dict["print"] = print_runtime_values
 
-        for struct_name in self.database.tables_by_struct_name:
+        for struct_name, table in database.tables_by_struct_name.items():
             globals_dict[struct_name] = StructRuntimeBinding(
-                struct=self.database.tables_by_struct_name[struct_name].struct,
-                database=self.database
+                struct=table.struct,
+                database=database
             )
 
-        for function_name, function in self.database.functions.items():
+        for function_name, function in database.functions.items():
             globals_dict[function_name] = function
 
+        for symbol_name, entity_id in database.symbols.items():
+            instance: Optional[StructInstance] = database.get_by_symbol(name=symbol_name)
+
+            if instance is not None:
+                globals_dict[symbol_name] = ValueExternal(payload=instance)
+
         return globals_dict
-
-    def _format_value(self, val: Any) -> str:
-        """
-        Formats a runtime Value for the print builtin.
-
-        Query results render as instance lists, other payloads render raw.
-
-        Args:
-            val (Any): Value or raw payload to format.
-
-        Returns:
-            str: Human readable representation.
-        """
-
-        raw: Any = val.get() if isinstance(val, Value) else val
-
-        # Duck-typed query results render as instance lists
-        if hasattr(raw, "to_list") and hasattr(raw, "where"):
-            return "[" + ", ".join(repr(inst) for inst in raw.to_list()) + "]"
-
-        return str(raw)
-
-    def _print_values(self, *args: Value) -> None:
-        """
-        Print builtin formatting each argument Value.
-
-        Args:
-            *args (Value): Argument Values to print space separated.
-        """
-
-        print(" ".join(self._format_value(val=val) for val in args))
 
     # --- Orchestration ---
 
@@ -516,10 +540,7 @@ class NaDataLoader:
 
         self._declare_instances()
 
-        self.globals_dict = {
-            **self._build_globals(),
-            **self.instance_bindings
-        }
+        self.globals_dict = self.build_runtime_globals(database=self.database)
 
         self.scope = ExecutionScope(globals_dict=self.globals_dict)
 
