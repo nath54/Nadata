@@ -17,6 +17,7 @@ from src.core.expressions.expression import (
     DictLiteralExpr,
     Expression,
     IdentifierExpr,
+    LambdaExpr,
     LiteralExpr,
     MemberAccessExpr,
     UnaryOpExpr,
@@ -266,6 +267,17 @@ class ExpressionParser:
             Expression: Parsed expression.
         """
 
+        # Unary negation applied to the following unary expression
+        if (
+            self._current().token_type == TokenType.KEYWORD
+            and self._current().value == "not"
+        ):
+            self.cursor += 1
+
+            operand: Expression = self._parse_unary()
+
+            return UnaryOpExpr(op="not", operand=operand)
+
         # Unary minus applied to the following unary expression
         if (
             self._current().token_type == TokenType.OPERATOR
@@ -273,9 +285,9 @@ class ExpressionParser:
         ):
             self.cursor += 1
 
-            operand: Expression = self._parse_unary()
+            minus_operand: Expression = self._parse_unary()
 
-            return UnaryOpExpr(op="-", operand=operand)
+            return UnaryOpExpr(op="-", operand=minus_operand)
 
         return self._parse_postfix()
 
@@ -287,7 +299,14 @@ class ExpressionParser:
             Expression: Parsed expression.
         """
 
-        expression: Expression = self._parse_primary()
+        expression: Expression
+
+        # Lambda '(param: ParamType) -> body' has primary-like precedence
+        if self._at_lambda_start():
+            expression = self._parse_lambda()
+
+        else:
+            expression = self._parse_primary()
 
         # Consume postfix operators while present
         while True:
@@ -308,6 +327,117 @@ class ExpressionParser:
                 break
 
         return expression
+
+    def _at_lambda_start(self) -> bool:
+        """
+        Checks whether a lambda expression starts at the cursor.
+
+        A lambda starts with '( identifier :' — any other parenthesized
+        expression starts differently and is parsed as a primary.
+
+        Returns:
+            bool: True if a lambda expression starts at the cursor.
+        """
+
+        token: Token = self._current()
+
+        if not (token.token_type == TokenType.PUNCTUATION and token.value == "("):
+            return False
+
+        # Guard against running past the stream end
+        if self.cursor + 2 >= len(self.tokens):
+            return False
+
+        name_token: Token = self.tokens[self.cursor + 1]
+        colon_token: Token = self.tokens[self.cursor + 2]
+
+        return (
+            name_token.token_type == TokenType.IDENTIFIER
+            and colon_token.token_type == TokenType.PUNCTUATION
+            and colon_token.value == ":"
+        )
+
+    def _parse_lambda(self) -> LambdaExpr:
+        """
+        Parses a lambda expression '(param: ParamType) -> body'.
+
+        Returns:
+            LambdaExpr: The parsed lambda expression.
+
+        Raises:
+            SyntaxError: On malformed parameter list or missing arrow.
+        """
+
+        # Consume the opening parenthesis
+        self._expect_punctuation("(")
+
+        param_token: Token = self._expect_identifier()
+
+        self._expect_punctuation(":")
+
+        # Collect the raw parameter type tokens up to the closing parenthesis
+        type_values: list[str] = []
+
+        while not (
+            self._current().token_type == TokenType.PUNCTUATION
+            and self._current().value == ")"
+        ):
+            if self._current().token_type == TokenType.EOF:
+                raise SyntaxError(
+                    f"Missing ')' in lambda parameter list at index {self._current().position}"
+                )
+
+            type_values.append(self._current().value)
+            self.cursor += 1
+
+        # Rebuild the annotation without internal padding spaces
+        param_type_name: str = self._join_type_values(type_values=type_values)
+
+        # Consume the closing parenthesis
+        self._expect_punctuation(")")
+
+        # Consume the arrow (tokenized as an operator, not punctuation)
+        arrow_token: Token = self._current()
+
+        if not (arrow_token.token_type == TokenType.OPERATOR and arrow_token.value == "->"):
+            raise SyntaxError(
+                f"Expected '->' in lambda but found '{arrow_token.value}' "
+                f"at index {arrow_token.position}"
+            )
+
+        self.cursor += 1
+
+        body: Expression = self._parse_or()
+
+        return LambdaExpr(
+            param_name=param_token.value,
+            body=body,
+            param_type_name=param_type_name
+        )
+
+    def _join_type_values(self, type_values: list[str]) -> str:
+        """
+        Joins type annotation tokens into a compact raw string.
+
+        Args:
+            type_values (list[str]): Token values of the annotation.
+
+        Returns:
+            str: Reconstructed annotation (e.g. 'Array[Human]').
+        """
+
+        joined: str = ""
+
+        for value in type_values:
+            is_closing: bool = value in ("])")
+            is_opening: bool = value == "["
+
+            if joined and not is_closing and not is_opening and joined[-1] not in "[(":
+                joined += " "
+
+            joined += value
+
+        return joined
 
     def _parse_primary(self) -> Expression:
         """
@@ -380,17 +510,24 @@ class ExpressionParser:
         # Consume the opening bracket
         self._expect_punctuation("[")
 
-        # Empty array fast path
-        if self._match_punctuation("]"):
-            return ArrayLiteralExpr(elements=[])
+        # Parse comma separated elements, tolerating a trailing comma
+        elements: list[Expression] = []
 
-        # Parse comma separated elements
-        elements: list[Expression] = [self._parse_or()]
+        while True:
 
-        while self._match_punctuation(","):
+            # Closing bracket ends the literal
+            if self._match_punctuation("]"):
+                break
+
             elements.append(self._parse_or())
 
-        self._expect_punctuation("]")
+            # Elements are comma separated; a trailing comma may precede ']'
+            if not self._match_punctuation(","):
+                self._expect_punctuation("]")
+                break
+
+            if self._match_punctuation("]"):
+                break
 
         return ArrayLiteralExpr(elements=elements)
 
@@ -424,9 +561,12 @@ class ExpressionParser:
 
             # Continue on comma, else close the dict
             if not self._match_punctuation(","):
+                self._expect_punctuation("}")
                 break
 
-        self._expect_punctuation("}")
+            # Tolerate a trailing comma before the closing brace
+            if self._match_punctuation("}"):
+                break
 
         return DictLiteralExpr(entries=entries)
 
@@ -475,9 +615,12 @@ class ExpressionParser:
 
             # Continue on comma, else close the call
             if not self._match_punctuation(","):
+                self._expect_punctuation(")")
                 break
 
-        self._expect_punctuation(")")
+            # Tolerate a trailing comma before the closing parenthesis
+            if self._match_punctuation(")"):
+                break
 
         return CallExpr(callee=callee, args=args, kwargs=kwargs)
 

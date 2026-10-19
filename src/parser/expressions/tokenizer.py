@@ -49,7 +49,7 @@ class Token:
 # Language keywords (logical operators are keyword-only per the specification)
 KEYWORDS: frozenset[str] = frozenset({
     "class", "fn", "if", "else", "return",
-    "true", "false", "and", "or", "xor", "nand",
+    "true", "false", "and", "or", "xor", "nand", "not",
 })
 
 # Two-character operators, checked before single-character ones

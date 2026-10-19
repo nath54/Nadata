@@ -446,6 +446,11 @@ class StatementParser:
             if token.token_type == TokenType.EOF:
                 return -1
 
+            # A top-level parenthesis is a call argument list — never part of
+            # an LHS, so the '=' belongs to a later statement
+            if depth == 0 and token.value in ("(", ")"):
+                return -1
+
             # Track bracket nesting
             if token.value in "([{":
                 depth += 1
@@ -457,7 +462,32 @@ class StatementParser:
             elif depth == 0 and token.value == "=":
                 return offset - self.cursor
 
+            # A '=' only marks a declaration while the left hand side so far
+            # looks like 'name', 'name: Type', or 'Type name' — anything else
+            # (e.g. a call argument) means the '=' belongs to a later statement
+            elif depth == 0 and not self._is_lhs_token(token=token):
+                return -1
+
         return -1
+
+    def _is_lhs_token(self, token: Token) -> bool:
+        """
+        Checks whether a token can appear in a declaration left hand side.
+
+        Args:
+            token (Token): Token to inspect.
+
+        Returns:
+            bool: True if the token fits a declaration LHS shape.
+        """
+
+        if token.token_type == TokenType.IDENTIFIER:
+            return True
+
+        return (
+            token.token_type == TokenType.PUNCTUATION
+            and token.value in ("[", "]", ":", ".")
+        )
 
     def _slice_text(
         self,

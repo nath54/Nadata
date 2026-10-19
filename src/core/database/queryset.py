@@ -16,6 +16,7 @@ from typing import (
 )
 
 from src.core.struct.struct import Struct
+from src.core.values.values import Value
 from src.core.database.instance import StructInstance
 from src.core.database.query_engine import (
     QueryExecutor,
@@ -79,7 +80,11 @@ class QuerySet:
 
         filtered_instances: list[StructInstance] = self.query_executor.filter(
             candidates=self.instances,
-            predicate=predicate
+            predicate=(
+                predicate.get()
+                if isinstance(predicate, Value) and callable(predicate.get())
+                else predicate
+            )
         )
 
         return QuerySet(

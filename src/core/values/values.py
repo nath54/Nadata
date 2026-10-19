@@ -589,3 +589,84 @@ def make_value(value_type: Type, raw: Any) -> Value:
         return ValueStr(value_type=value_type, value=raw)
 
     raise TypeError(f"Cannot wrap raw value into '{repr(value_type)}'")
+
+
+class TypeExternal(Type):
+    """
+    Schema type accepting any opaque runtime payload.
+
+    Used by ValueExternal wrappers for runtime objects that have no schema
+    type of their own, such as query results or lambda closures.
+    """
+
+    def check_value(self, value: Any) -> None:
+        """
+        Accepts any payload value without validation.
+
+        Args:
+            value (Any): Payload value to (not) validate.
+        """
+
+        # External payloads are intentionally unvalidated
+        return
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the type.
+
+        Returns:
+            str: Type representation.
+        """
+
+        return "External"
+
+
+# Shared singleton instance used by every ValueExternal wrapper
+TYPE_EXTERNAL: TypeExternal = TypeExternal()
+
+
+class ValueExternal(Value):
+    """
+    Opaque Value wrapping a runtime object that is not schema-typed.
+
+    Typical payloads are query results (QuerySet), lambda closure callables,
+    and struct instance references circulating in loader scopes. Member
+    access and callables resolve through get(), so wrapped payloads behave
+    transparently in expressions.
+
+    Attributes:
+        payload (Any): Wrapped runtime object.
+    """
+
+    def __init__(self, payload: Any) -> None:
+        """
+        Initializes the ValueExternal instance.
+
+        Args:
+            payload (Any): Runtime object to wrap.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=TYPE_EXTERNAL)
+
+        self.payload: Any = payload
+
+    def get(self) -> Any:
+        """
+        Returns the wrapped payload object.
+
+        Returns:
+            Any: Wrapped runtime object.
+        """
+
+        return self.payload
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the wrapper.
+
+        Returns:
+            str: Wrapper representation.
+        """
+
+        return f"ValueExternal({repr(self.payload)})"

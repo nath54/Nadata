@@ -333,6 +333,10 @@ class TypeArray(Type):
             TypeError: If value is not a list or an item violates value_type.
         """
 
+        # Accept query-like containers duck-typed via to_list (e.g. QuerySet)
+        if hasattr(value, "to_list"):
+            value = value.to_list()
+
         # Verify container type
         if not isinstance(value, list):
             raise TypeError(f"Expected list, got {type(value).__name__}")

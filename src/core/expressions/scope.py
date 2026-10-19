@@ -207,13 +207,13 @@ class ExecutionScope:
         except KeyError:
             pass
 
-        # 4. Check parent scope recursively
-        if self.parent is not None:
-            return self.parent.get(name=name)
-
-        # 5. Check global symbols
+        # 4. Check own global symbols (child scope bindings live here)
         if name in self.globals_dict:
             return self.globals_dict[name]
+
+        # 5. Check parent scope recursively
+        if self.parent is not None:
+            return self.parent.get(name=name)
 
         raise NameError(f"Identifier '{name}' is not defined")
 

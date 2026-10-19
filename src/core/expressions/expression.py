@@ -10,13 +10,16 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from src.core.types.types import (
-    Int32,
+    Int64,
     TypeStr,
     Float32,
     TypeBool,
+    TypeInt,
     TypeFloat,
     TypeArray,
     TypeDict,
+    Float64,
+    UInt64,
 )
 from src.core.values.values import (
     Value,
@@ -28,6 +31,7 @@ from src.core.values.values import (
     ValueArray,
     ValueDict,
     ValueDateTime,
+    ValueExternal,
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
@@ -78,9 +82,13 @@ class LiteralExpr(Expression):
         elif isinstance(value, bool):
             self.value = ValueBool(value_type=TypeBool(), value=value)
         elif isinstance(value, int):
-            self.value = ValueInt(value_type=Int32, value=value)
+
+            # Unsigned 64 bit max does not fit the default signed Int64
+            int_type: TypeInt = Int64 if value <= 2**63 - 1 else UInt64
+
+            self.value = ValueInt(value_type=int_type, value=value)
         elif isinstance(value, float):
-            self.value = ValueFloat(value_type=Float32, value=value)
+            self.value = ValueFloat(value_type=Float64, value=value)
         elif isinstance(value, str):
             self.value = ValueStr(value_type=TypeStr(), value=value)
         elif isinstance(value, DateTime):
@@ -572,6 +580,10 @@ class MemberAccessExpr(Expression):
 
         target_obj: Any = self._resolve_target(scope=scope)
 
+        # Unwrap Value containers to expose the payload object
+        if isinstance(target_obj, Value):
+            target_obj = target_obj.get()
+
         # Check Python attributes / methods / staticmethods (e.g. DateTime.now)
         if hasattr(target_obj, self.member):
             return getattr(target_obj, self.member)
@@ -705,6 +717,22 @@ class CallExpr(Expression):
             if isinstance(res, Value):
                 return res
 
+            # Wrap primitive results (e.g. QuerySet.count()) into typed Values
+            if isinstance(res, (bool, int, float, str)):
+                return LiteralExpr(value=res).evaluate(scope=scope)
+
+            # Native callables returning None (e.g. print) yield an empty opaque Value
+            if res is None:
+                return ValueExternal(payload=None)
+
+            # Wrap query-like results (duck-typed QuerySet API) as opaque Values
+            if hasattr(res, "to_list") and hasattr(res, "where"):
+                return ValueExternal(payload=res)
+
+            # Wrap struct-instance results (e.g. constructors) as opaque Values
+            if hasattr(res, "struct") and hasattr(res, "attributes"):
+                return ValueExternal(payload=res)
+
             if isinstance(res, DateTime):
                 return ValueDateTime(value=res)
 
@@ -717,7 +745,6 @@ class CallExpr(Expression):
             )
 
         raise TypeError(f"Target '{callable_obj}' is not callable")
-
 
     def __repr__(self) -> str:
         """
@@ -732,6 +759,131 @@ class CallExpr(Expression):
         combined_args: str = ", ".join(arg_strs + kw_strs)
 
         return f"{repr(self.callee)}({combined_args})"
+
+
+class LambdaPredicate:
+    """
+    Callable predicate produced by LambdaExpr evaluation.
+
+    Binds the candidate payload into a child scope under the lambda parameter
+    name, evaluates the body expression, and returns its boolean result.
+
+    Attributes:
+        param_name (str): Candidate parameter identifier.
+        body (Expression): Predicate body expression.
+        scope (ExecutionScope): Scope the lambda was evaluated in.
+    """
+
+    def __init__(
+        self,
+        param_name: str,
+        body: Expression,
+        scope: ExecutionScope
+    ) -> None:
+        """
+        Initializes the LambdaPredicate instance.
+
+        Args:
+            param_name (str): Candidate parameter identifier.
+            body (Expression): Predicate body expression.
+            scope (ExecutionScope): Defining execution scope.
+        """
+
+        self.param_name: str = param_name
+        self.body: Expression = body
+        self.scope: ExecutionScope = scope
+
+    def __call__(self, candidate: Any) -> bool:
+        """
+        Evaluates the lambda body with the candidate bound to the parameter.
+
+        Args:
+            candidate (Any): Candidate payload (e.g. a StructInstance).
+
+        Returns:
+            bool: Boolean result of the body expression.
+        """
+
+        child_scope: ExecutionScope = self.scope.create_child_scope()
+        child_scope.globals_dict[self.param_name] = ValueExternal(payload=candidate)
+
+        result: Value = self.body.evaluate(scope=child_scope)
+
+        return bool(result.get())
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the predicate.
+
+        Returns:
+            str: Predicate representation.
+        """
+
+        return f"LambdaPredicate({self.param_name}: {repr(self.body)})"
+
+
+class LambdaExpr(Expression):
+    """
+    AST node representing a lambda expression '(param: ParamType) -> body'.
+
+    Evaluates to an opaque ValueExternal wrapping a LambdaPredicate callable,
+    suitable for query predicates such as '.where((h: Human) -> h.age > 18)'.
+
+    Attributes:
+        param_name (str): Candidate parameter identifier.
+        param_type_name (Optional[str]): Raw parameter type annotation.
+        body (Expression): Predicate body expression.
+    """
+
+    def __init__(
+        self,
+        param_name: str,
+        body: Expression,
+        param_type_name: Optional[str] = None
+    ) -> None:
+        """
+        Initializes the LambdaExpr instance.
+
+        Args:
+            param_name (str): Candidate parameter identifier.
+            body (Expression): Predicate body expression.
+            param_type_name (Optional[str], optional): Raw parameter annotation. Defaults to None.
+        """
+
+        self.param_name: str = param_name
+        self.body: Expression = body
+        self.param_type_name: Optional[str] = param_type_name
+
+    def evaluate(self, scope: ExecutionScope) -> Value:
+        """
+        Builds the predicate callable bound to the defining scope.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            Value: ValueExternal wrapping the LambdaPredicate callable.
+        """
+
+        predicate: LambdaPredicate = LambdaPredicate(
+            param_name=self.param_name,
+            body=self.body,
+            scope=scope
+        )
+
+        return ValueExternal(payload=predicate)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the lambda.
+
+        Returns:
+            str: Lambda representation.
+        """
+
+        type_str: str = f"{self.param_type_name}" if self.param_type_name else ""
+
+        return f"({self.param_name}: {type_str}) -> {repr(self.body)}"
 
 
 class ArrayLiteralExpr(Expression):
