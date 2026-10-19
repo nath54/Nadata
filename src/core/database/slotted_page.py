@@ -15,10 +15,10 @@ class SlottedPage:
     Fixed-size slotted page for binary record storage.
 
     Layout:
-        Header (8 bytes):
+        Header (10 bytes):
             - page_id: uint32 (4 bytes)
             - slot_count: uint16 (2 bytes)
-            - free_space_offset: uint16 (2 bytes, points to start of record heap from end)
+            - free_space_offset: uint32 (4 bytes, points to start of record heap from end)
         Slot Directory:
             - array of (offset: uint16, length: uint16) growing forward from header.
         Record Heap:
@@ -30,7 +30,7 @@ class SlottedPage:
         data (bytearray): Contiguous byte buffer.
     """
 
-    HEADER_SIZE: int = 8
+    HEADER_SIZE: int = 10
     SLOT_SIZE: int = 4
 
     def __init__(
@@ -80,8 +80,8 @@ class SlottedPage:
         # slot_count (2 bytes, little endian)
         self.data[4:6] = slot_count.to_bytes(2, byteorder="little")
 
-        # free_space_offset (2 bytes, little endian)
-        self.data[6:8] = free_space_offset.to_bytes(2, byteorder="little")
+        # free_space_offset (4 bytes, little endian; uint16 cannot hold 64KB)
+        self.data[6:10] = free_space_offset.to_bytes(4, byteorder="little")
 
     @property
     def slot_count(self) -> int:
@@ -103,7 +103,7 @@ class SlottedPage:
             int: Byte offset.
         """
 
-        return int.from_bytes(self.data[6:8], byteorder="little")
+        return int.from_bytes(self.data[6:10], byteorder="little")
 
     def available_space(self) -> int:
         """
