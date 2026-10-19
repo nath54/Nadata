@@ -274,3 +274,108 @@ class TestNadataPersistence:
             app.dump(storage_path=storage_path)
 
         os.remove(storage_path)
+
+
+class TestNadataCodeExecution:
+    """
+    Tests executing raw .nastruct and .nadata source strings.
+    """
+
+    def setup_method(self) -> None:
+        """
+        Loads the ex0 example for the execution tests.
+        """
+
+        self.app: Nadata = Nadata.load(path="./examples/ex0_simple")
+
+    def test_execute_schema_adds_struct(self) -> None:
+        """
+        Tests that schema source registers a new struct with methods.
+        """
+
+        self.app.execute_schema(
+            schema_text=(
+                'class Weapon {\n'
+                '    name: Str = "Sword";\n'
+                '    damage: Int32 = 10;\n'
+                '\n'
+                '    @describe() -> Str {\n'
+                '        return name;\n'
+                '    }\n'
+                '}'
+            )
+        )
+
+        assert "Weapon" in self.app.struct_names
+
+        excalibur = self.app.create_instance(
+            struct_name="Weapon",
+            attributes={"name": "Excalibur", "damage": 99},
+            symbol="excalibur",
+        )
+
+        assert excalibur.get_attribute("damage").get() == 99
+        assert self.app.call_method("excalibur", "describe") == "Excalibur"
+
+    def test_execute_data_creates_instances(self) -> None:
+        """
+        Tests that data source creates and binds instances.
+        """
+
+        self.app.execute_data(data_text='wanderer = Human(name = "Wanderer")')
+
+        assert self.app.get_attribute(symbol="wanderer", name="name") == "Wanderer"
+        assert self.app.count("Human") == 4
+
+    def test_execute_data_runs_script_statements(self, capsys: Any) -> None:
+        """
+        Tests that script statements (print) execute during execute_data.
+        """
+
+        self.app.execute_data(
+            data_text='print("Hello from", tom.name);'
+        )
+
+        assert "Hello from Tom" in capsys.readouterr().out
+
+    def test_execute_auto_detects_schema(self) -> None:
+        """
+        Tests that execute() routes class declarations to the schema parser.
+        """
+
+        self.app.execute(text="class Shield { defense: Int32 = 5; }")
+
+        assert "Shield" in self.app.struct_names
+
+    def test_execute_auto_detects_data(self) -> None:
+        """
+        Tests that execute() routes plain statements to the data loader.
+        """
+
+        self.app.execute(text='drifter = Human(name = "Drifter")')
+
+        assert self.app.get_attribute(symbol="drifter", name="name") == "Drifter"
+
+    def test_execute_data_unknown_struct_raises(self) -> None:
+        """
+        Tests that data referencing an unknown struct raises NameError.
+        """
+
+        with pytest.raises(NameError):
+            self.app.execute_data(data_text="x = Missing(name = \"x\")")
+
+    def test_executed_code_is_queryable_and_persistable(self, tmp_path: Any) -> None:
+        """
+        Tests that string executed content survives a dump / open cycle.
+        """
+
+        self.app.execute(text='class Gem { carat: Int32 = 1; }')
+        self.app.execute(text='big_gem = Gem(carat = 5)')
+
+        storage_path: str = str(tmp_path / "exec.ndb")
+
+        self.app.dump(storage_path=storage_path)
+        reopened: Nadata = Nadata.open(storage_path=storage_path)
+
+        assert "Gem" in reopened.struct_names
+        assert reopened.get_attribute(symbol="big_gem", name="carat") == 5

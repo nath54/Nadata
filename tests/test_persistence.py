@@ -7,9 +7,18 @@ entity ids, cross instance references, and symbols.
 """
 
 # Import Modules
+import os
 from typing import Any
 
-from src.core.database.persistence import dump_database, load_database
+from src.core.expressions.expression import LiteralExpr
+from src.core.types.types import TypeArray
+from src.core.values.values import Value, ValueArray
+
+from src.core.database.persistence import (
+    append_database_changes,
+    dump_database,
+    load_database,
+)
 from src.core.database.persistence.record_store import RecordStore
 from src.core.database.page_manager import PageManager
 from src.core.database.database import NaDataDatabase
@@ -338,3 +347,173 @@ class TestPersistenceRoundTrip:
 
         with pytest.raises(ValueError, match="not a Nadata database dump"):
             load_database(storage_path=invalid_path)
+
+
+def _wrap_raw_value(raw: Any) -> Value:
+    """
+    Wraps a raw Python value into a runtime Value for direct instance writes.
+
+    Delegates to the API wrapper which handles scalars, struct instances,
+    and lists of those.
+
+    Args:
+        raw (Any): Raw Python value.
+
+    Returns:
+        Value: Typed runtime Value.
+    """
+
+    from src.api import _wrap_argument
+
+    return _wrap_argument(value=raw)
+
+
+class TestIncrementalPersistence:
+    """
+    Tests appending deltas to existing database files.
+    """
+
+    def test_save_changes_after_mutation(self, tmp_path: Any) -> None:
+        """
+        Tests that new and changed instances are appended and reloaded.
+        """
+
+        database: NaDataDatabase = load_example_database("ex0_simple")
+        storage_path: str = str(tmp_path / "incr.ndb")
+
+        dump_database(database=database, storage_path=storage_path)
+
+        reopened: NaDataDatabase = load_database(storage_path=storage_path)
+        reopened.create_instance(
+            struct=reopened.tables_by_struct_name["Human"].struct,
+            symbol="late_guy",
+        )
+        tom: Any = reopened.get_by_symbol(name="tom")
+        tom.set_attribute(name="birthplace", value=_wrap_raw_value("Lyon"))
+
+        append_database_changes(database=reopened, storage_path=storage_path)
+
+        final: NaDataDatabase = load_database(storage_path=storage_path)
+
+        assert final.get_by_symbol(name="late_guy") is not None
+
+        final_tom: Any = final.get_by_symbol(name="tom")
+        final_jean: Any = final.get_by_symbol(name="jean")
+
+        assert final_tom.get_attribute("birthplace").get() == "Lyon"
+        assert final_jean.get_attribute("name").get() == "Jean"
+
+    def test_save_changes_twice(self, tmp_path: Any) -> None:
+        """
+        Tests that repeated incremental saves keep accumulating correctly.
+        """
+
+        database: NaDataDatabase = load_example_database("ex0_simple")
+        storage_path: str = str(tmp_path / "incr.ndb")
+
+        dump_database(database=database, storage_path=storage_path)
+
+        first: NaDataDatabase = load_database(storage_path=storage_path)
+        first.create_instance(
+            struct=first.tables_by_struct_name["Human"].struct,
+            symbol="guy_one",
+        )
+        append_database_changes(database=first, storage_path=storage_path)
+
+        second: NaDataDatabase = load_database(storage_path=storage_path)
+        second.create_instance(
+            struct=second.tables_by_struct_name["Human"].struct,
+            symbol="guy_two",
+        )
+        append_database_changes(database=second, storage_path=storage_path)
+
+        final: NaDataDatabase = load_database(storage_path=storage_path)
+
+        assert final.get_by_symbol(name="guy_one") is not None
+        assert final.get_by_symbol(name="guy_two") is not None
+        assert len(final.symbols) == len(database.symbols) + 2
+
+    def test_save_changes_without_changes(self, tmp_path: Any) -> None:
+        """
+        Tests that saving an unchanged database appends only the meta doc.
+        """
+
+        database: NaDataDatabase = load_example_database("ex0_simple")
+        storage_path: str = str(tmp_path / "incr.ndb")
+
+        dump_database(database=database, storage_path=storage_path)
+        size_before: int = os.path.getsize(storage_path)
+
+        reopened: NaDataDatabase = load_database(storage_path=storage_path)
+        written: int = append_database_changes(
+            database=reopened, storage_path=storage_path
+        )
+
+        assert written == 1
+
+        final: NaDataDatabase = load_database(storage_path=storage_path)
+
+        assert sorted(final.symbols) == sorted(database.symbols)
+        assert os.path.getsize(storage_path) >= size_before
+
+    def test_save_changes_reference_update(self, tmp_path: Any) -> None:
+        """
+        Tests that changed instance references are detected and appended.
+        """
+
+        database: NaDataDatabase = load_example_database("ex0_simple")
+        storage_path: str = str(tmp_path / "incr.ndb")
+
+        dump_database(database=database, storage_path=storage_path)
+
+        reopened: NaDataDatabase = load_database(storage_path=storage_path)
+        jean: Any = reopened.get_by_symbol(name="jean")
+        louise: Any = reopened.get_by_symbol(name="louise")
+
+        jean.set_attribute(name="parents", value=_wrap_raw_value([louise]))
+
+        append_database_changes(database=reopened, storage_path=storage_path)
+
+        final: NaDataDatabase = load_database(storage_path=storage_path)
+
+        final_jean: Any = final.get_by_symbol(name="jean")
+        final_parents: Any = final_jean.get_attribute("parents").get()
+
+        assert len(final_parents) == 1
+        assert final_parents[0].entity_id.value == louise.entity_id.value
+
+    def test_append_to_missing_file_raises(self, tmp_path: Any) -> None:
+        """
+        Tests that appending to a missing file raises ValueError.
+        """
+
+        import pytest
+
+        database: NaDataDatabase = load_example_database("ex0_simple")
+
+        with pytest.raises(ValueError, match="does not exist"):
+            append_database_changes(
+                database=database,
+                storage_path=str(tmp_path / "missing.ndb"),
+            )
+
+    def test_incremental_with_executed_data(self, tmp_path: Any) -> None:
+        """
+        Tests the full pipeline: dump, execute data text, append, reload.
+        """
+
+        from src.api import Nadata
+
+        app: Nadata = Nadata.load(path="./examples/ex0_simple")
+        storage_path: str = str(tmp_path / "pipeline.ndb")
+
+        app.dump(storage_path=storage_path)
+
+        reopened: Nadata = Nadata.open(storage_path=storage_path)
+        reopened.execute_data(data_text='bob = Human(name = "Bob")')
+        reopened.save_changes(storage_path=storage_path)
+
+        final: Nadata = Nadata.open(storage_path=storage_path)
+
+        assert final.get_attribute(symbol="bob", name="name") == "Bob"
+        assert final.count("Human") == 4

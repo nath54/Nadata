@@ -9,12 +9,17 @@ using plain Python values.
 # Import Modules
 from __future__ import annotations
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional, cast
 
 from src.core.database.database import NaDataDatabase
 from src.core.database.instance import StructInstance
-from src.core.database.persistence import dump_database, load_database
+from src.core.database.persistence import (
+    append_database_changes,
+    dump_database,
+    load_database,
+)
 from src.core.database.queryset import QuerySet
 from src.core.expressions.expression import LiteralExpr
 from src.core.expressions.scope import ExecutionScope
@@ -563,6 +568,92 @@ class Nadata:
         """
 
         dump_database(database=self.database, storage_path=storage_path)
+
+    def save_changes(self, storage_path: str) -> int:
+        """
+        Appends only new or changed data to an existing database file.
+
+        The current state is diffed against the file contents: new structs,
+        new or changed instances, and new symbol bindings are appended as a
+        delta that the loader replays over the earlier snapshot. Calling
+        this repeatedly on the same file is safe; unchanged data produces
+        no records.
+
+        Args:
+            storage_path (str): Path to the existing .ndb file to extend.
+
+        Returns:
+            int: Number of delta documents appended.
+
+        Raises:
+            ValueError: If the file does not exist or is not a Nadata dump.
+        """
+
+        written: int = append_database_changes(
+            database=self.database,
+            storage_path=storage_path,
+        )
+
+        # The appended delta may have introduced new symbols or structs
+        self._globals = None
+
+        return written
+
+    # --- Code execution ---
+
+    def execute_schema(self, schema_text: str) -> None:
+        """
+        Parses and resolves .nastruct schema source into the database.
+
+        New structs and functions become available immediately; re-declaring
+        an attribute that already exists raises a duplicate error.
+
+        Args:
+            schema_text (str): Raw .nastruct source text.
+        """
+
+        parser: NaStructParser = NaStructParser(database=self.database)
+
+        parser.parse_file(content=schema_text)
+        parser.resolve()
+
+        # New structs and functions must appear in the runtime globals
+        self._globals = None
+
+    def execute_data(self, data_text: str) -> None:
+        """
+        Parses and executes .nadata source (instances and scripts).
+
+        Instance declarations are created and bound, and script statements
+        (function calls, queries, prints) execute immediately.
+
+        Args:
+            data_text (str): Raw .nadata source text.
+        """
+
+        loader: NaDataLoader = NaDataLoader(database=self.database)
+
+        loader.load_file(content=data_text)
+
+        # New instances and symbols must appear in the runtime globals
+        self._globals = None
+
+    def execute(self, text: str) -> None:
+        """
+        Executes Nadata source, auto detecting schema vs data content.
+
+        Text containing top level 'class' or 'fn' declarations is treated as
+        .nastruct schema source, everything else as .nadata data source.
+
+        Args:
+            text (str): Raw Nadata source text.
+        """
+
+        if re.search(r"(?:^|\n)\s*(?:class|fn)\s", text):
+            self.execute_schema(schema_text=text)
+
+        else:
+            self.execute_data(data_text=text)
 
     # --- Internals ---
 

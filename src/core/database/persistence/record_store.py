@@ -33,16 +33,23 @@ class RecordStore:
     CHUNK_HEADER_SIZE: int = 8
     CHUNK_PAYLOAD_SIZE: int = 4096
 
-    def __init__(self, page_manager: PageManager) -> None:
+    def __init__(
+        self,
+        page_manager: PageManager,
+        next_document_id: int = 0
+    ) -> None:
         """
         Initializes the RecordStore instance.
 
         Args:
             page_manager (PageManager): Underlying page allocator and cache.
+            next_document_id (int, optional): First document id to assign.
+                When appending to an existing store, pass the existing
+                document count so ids do not collide. Defaults to 0.
         """
 
         self.page_manager: PageManager = page_manager
-        self.next_document_id: int = 0
+        self.next_document_id: int = next_document_id
         self._current_page: Optional[SlottedPage] = None
 
     def put_document(self, payload: bytes) -> int:
