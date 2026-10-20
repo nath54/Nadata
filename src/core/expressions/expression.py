@@ -14,6 +14,7 @@ from src.core.types.types import (
     TypeStr,
     Float32,
     TypeBool,
+    Type,
     TypeInt,
     TypeFloat,
     TypeArray,
@@ -22,6 +23,7 @@ from src.core.types.types import (
     UInt64,
 )
 from src.core.values.values import (
+    TYPE_EXTERNAL,
     Value,
     ValueStr,
     ValueInt,
@@ -32,6 +34,7 @@ from src.core.values.values import (
     ValueDict,
     ValueDateTime,
     ValueExternal,
+    make_value,
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
@@ -363,12 +366,30 @@ class BinaryOpExpr(Expression):
         if op not in ("+", "-", "*", "/", "%"):
             return None
 
+        # String concatenation: strictly Str + Str, nothing else
+        if op == "+" and (
+            isinstance(left, ValueStr) or isinstance(right, ValueStr)
+        ):
+            if not (isinstance(left, ValueStr) and isinstance(right, ValueStr)):
+                raise ValueError(
+                    f"Cannot concatenate {type(left).__name__} and "
+                    f"{type(right).__name__}: '+' on Str requires two Str operands"
+                )
+
+            return ValueStr(
+                value_type=left.value_type,
+                value=str(left.get()) + str(right.get()),
+            )
+
         # Check if left value has custom operator method (e.g. DateTime - DateTime)
         raw_left: Any = left.get()
         raw_right: Any = right.get()
 
         if hasattr(raw_left, "__sub__") and op == "-":
-            custom_diff: Any = raw_left - raw_right
+            try:
+                custom_diff: Any = raw_left - raw_right
+            except TypeError:
+                custom_diff = None
 
             if isinstance(custom_diff, Value):
                 return custom_diff
@@ -377,7 +398,10 @@ class BinaryOpExpr(Expression):
                 return ValueDateTime(value=custom_diff)
 
         if hasattr(raw_left, "__add__") and op == "+":
-            custom_sum: Any = raw_left + raw_right
+            try:
+                custom_sum: Any = raw_left + raw_right
+            except TypeError:
+                custom_sum = None
 
             if isinstance(custom_sum, Value):
                 return custom_sum
@@ -651,6 +675,227 @@ class MemberAccessExpr(Expression):
         """
 
         return f"{repr(self.target)}.{self.member}"
+
+
+def _wrap_indexed_element(raw: Any, element_type: Type) -> Value:
+    """
+    Wraps an indexed element back into a typed Value.
+
+    Args:
+        raw (Any): The raw element extracted from the container.
+        element_type (Type): Declared element type of the container.
+
+    Returns:
+        Value: The typed Value for the element.
+    """
+
+    # Instances and opaque payloads have no make_value constructor
+    if element_type is TYPE_EXTERNAL or hasattr(raw, "entity_id"):
+        return ValueExternal(payload=raw)
+
+    return make_value(value_type=element_type, raw=raw)
+
+
+class IndexExpr(Expression):
+    """
+    AST node representing indexing: target[index].
+
+    Works on arrays (integer index, Python semantics including negatives)
+    and dictionaries (any hashable key).
+
+    Attributes:
+        target (Expression): Expression resolving to the indexed container.
+        index (Expression): Expression resolving to the index or key.
+    """
+
+    def __init__(self, target: Expression, index: Expression) -> None:
+        """
+        Initializes the IndexExpr instance.
+
+        Args:
+            target (Expression): Expression resolving to the container.
+            index (Expression): Expression resolving to the index or key.
+        """
+
+        self.target: Expression = target
+        self.index: Expression = index
+
+    def evaluate(self, scope: ExecutionScope) -> Value:
+        """
+        Evaluates target and index, returning the indexed element as a Value.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            Value: The indexed element wrapped in its declared type.
+
+        Raises:
+            IndexError: If an array index is out of range.
+            KeyError: If a dictionary key is missing.
+            TypeError: If the target is not an indexable container or the
+                index has an invalid kind.
+        """
+
+        target_obj: Any = self.target.evaluate(scope=scope)
+        index_val: Value = self.index.evaluate(scope=scope)
+
+        if isinstance(target_obj, ValueArray):
+            return self._index_array(array=target_obj, index=index_val)
+
+        if isinstance(target_obj, ValueDict):
+            return self._index_dict(mapping=target_obj, index=index_val)
+
+        # Raw Python containers inside external payloads
+        raw_target: Any = (
+            target_obj.get() if isinstance(target_obj, Value) else target_obj
+        )
+
+        if isinstance(raw_target, list):
+            element: Any = self._index_raw_sequence(sequence=raw_target, index=index_val)
+
+            if isinstance(element, Value):
+                return element
+
+            return ValueExternal(payload=element)
+
+        if isinstance(raw_target, dict):
+            element = self._index_raw_mapping(mapping=raw_target, index=index_val)
+
+            if isinstance(element, Value):
+                return element
+
+            return ValueExternal(payload=element)
+
+        raise TypeError(f"Cannot index into '{repr(target_obj)}'")
+
+    def _index_array(self, array: ValueArray, index: Value) -> Value:
+        """
+        Indexes a typed array Value.
+
+        Args:
+            array (ValueArray): The array to index.
+            index (Value): The index Value (must be an integer).
+
+        Returns:
+            Value: The wrapped element.
+
+        Raises:
+            TypeError: If the index is not an integer.
+            IndexError: If the index is out of range.
+        """
+
+        raw_index: Any = index.get()
+
+        if not isinstance(raw_index, int):
+            raise TypeError(
+                f"Array index must be an integer, got '{repr(raw_index)}'"
+            )
+
+        if not -len(array.elements) <= raw_index < len(array.elements):
+            raise IndexError(
+                f"Array index {raw_index} out of range for "
+                f"{len(array.elements)} element(s)"
+            )
+
+        element: Any = array.elements[raw_index]
+
+        return _wrap_indexed_element(
+            raw=element,
+            element_type=array.value_type.value_type,
+        )
+
+    def _index_dict(self, mapping: ValueDict, index: Value) -> Value:
+        """
+        Indexes a typed dictionary Value.
+
+        Args:
+            mapping (ValueDict): The dictionary to index.
+            index (Value): The key Value.
+
+        Returns:
+            Value: The wrapped value.
+
+        Raises:
+            KeyError: If the key is missing.
+        """
+
+        raw_key: Any = index.get()
+
+        if raw_key not in mapping.entries:
+            raise KeyError(f"Key '{repr(raw_key)}' not found in dictionary")
+
+        element: Any = mapping.entries[raw_key]
+
+        return _wrap_indexed_element(
+            raw=element,
+            element_type=mapping.value_type.value_type,
+        )
+
+    @staticmethod
+    def _index_raw_sequence(sequence: list[Any], index: Value) -> Any:
+        """
+        Indexes a raw Python list with bounds checking.
+
+        Args:
+            sequence (list[Any]): The list to index.
+            index (Value): The index Value.
+
+        Returns:
+            Any: The element.
+
+        Raises:
+            TypeError: If the index is not an integer.
+            IndexError: If the index is out of range.
+        """
+
+        raw_index: Any = index.get()
+
+        if not isinstance(raw_index, int):
+            raise TypeError(
+                f"Array index must be an integer, got '{repr(raw_index)}'"
+            )
+
+        if not -len(sequence) <= raw_index < len(sequence):
+            raise IndexError(
+                f"Array index {raw_index} out of range for "
+                f"{len(sequence)} element(s)"
+            )
+
+        return sequence[raw_index]
+
+    @staticmethod
+    def _index_raw_mapping(mapping: dict[Any, Any], index: Value) -> Any:
+        """
+        Indexes a raw Python dictionary.
+
+        Args:
+            mapping (dict[Any, Any]): The dictionary to index.
+            index (Value): The key Value.
+
+        Returns:
+            Any: The value.
+
+        Raises:
+            KeyError: If the key is missing.
+        """
+
+        raw_key: Any = index.get()
+
+        if raw_key not in mapping:
+            raise KeyError(f"Key '{repr(raw_key)}' not found in dictionary")
+
+        return mapping[raw_key]
+
+    def __repr__(self) -> str:
+        """
+        Returns the indexed target representation.
+
+        Returns:
+            str: Bracketed index representation.
+        """
+
+        return f"{repr(self.target)}[{repr(self.index)}]"
 
 
 class CallExpr(Expression):

@@ -17,6 +17,7 @@ from src.core.expressions.expression import (
     DictLiteralExpr,
     Expression,
     IdentifierExpr,
+    IndexExpr,
     LiteralExpr,
     MemberAccessExpr,
     UnaryOpExpr,
@@ -75,6 +76,12 @@ def _collect_from(
     # Member access: recurse into the target only, the member is not free
     if isinstance(node, MemberAccessExpr):
         _collect_from(node=node.target, dependencies=dependencies)
+        return
+
+    # Indexing: recurse into the target and the index expression
+    if isinstance(node, IndexExpr):
+        _collect_from(node=node.target, dependencies=dependencies)
+        _collect_from(node=node.index, dependencies=dependencies)
         return
 
     # Calls: the callee and every argument (positional and named)

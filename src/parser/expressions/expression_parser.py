@@ -17,6 +17,7 @@ from src.core.expressions.expression import (
     DictLiteralExpr,
     Expression,
     IdentifierExpr,
+    IndexExpr,
     LambdaExpr,
     LiteralExpr,
     MemberAccessExpr,
@@ -317,6 +318,14 @@ class ExpressionParser:
                 expression = MemberAccessExpr(
                     target=expression, member=member_token.value
                 )
+
+            # Indexing '[index]' — arrays and dictionaries, chainable
+            elif self._match_punctuation("["):
+                index_expr: Expression = self._parse_or()
+
+                self._expect_punctuation("]")
+
+                expression = IndexExpr(target=expression, index=index_expr)
 
             # Call '(...)' with positional or named arguments
             elif self._match_punctuation("("):

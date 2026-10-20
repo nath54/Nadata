@@ -148,7 +148,7 @@ class StatementParser:
 
     def _parse_if(self) -> IfStmt:
         """
-        Parses an if statement with an optional else block.
+        Parses an if statement with an optional else / elif chain.
 
         Returns:
             IfStmt: The parsed if statement.
@@ -159,6 +159,20 @@ class StatementParser:
 
         # Consume the 'if' keyword
         self.cursor += 1
+
+        return self._parse_if_body()
+
+    def _parse_if_body(self) -> IfStmt:
+        """
+        Parses the condition, body, and optional else / elif of an if whose
+        leading keyword is already consumed.
+
+        Returns:
+            IfStmt: The parsed if statement.
+
+        Raises:
+            SyntaxError: On missing condition, body, or malformed else.
+        """
 
         # Parse the parenthesized condition
         self._expect_punctuation("(")
@@ -173,15 +187,28 @@ class StatementParser:
         # Parse the then block
         then_block: BlockStmt = self._parse_block()
 
-        # Parse the optional else block
+        # Parse the optional else block ('elif' chains recurse here)
         else_block: Optional[BlockStmt] = None
 
-        if (
-            self._current().token_type == TokenType.KEYWORD
-            and self._current().value == "else"
-        ):
+        next_token: Token = self._current()
+
+        if next_token.token_type == TokenType.KEYWORD and next_token.value == "else":
             self.cursor += 1
-            else_block = self._parse_block()
+
+            # 'else if (cond) { ... }' is sugar for a nested if in the else
+            if (
+                self._current().token_type == TokenType.KEYWORD
+                and self._current().value == "if"
+            ):
+                else_block = BlockStmt(statements=[self._parse_if_body()])
+
+            else:
+                else_block = self._parse_block()
+
+        elif next_token.token_type == TokenType.KEYWORD and next_token.value == "elif":
+            self.cursor += 1
+
+            else_block = BlockStmt(statements=[self._parse_if_body()])
 
         return IfStmt(condition=condition, then_block=then_block, else_block=else_block)
 

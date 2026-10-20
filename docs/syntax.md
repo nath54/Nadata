@@ -21,7 +21,7 @@ the canonical acceptance material for the parsers.
 | Case sensitivity | Fully case-sensitive (`Human` ≠ `human`) |
 | Whitespace | Spaces, tabs and newlines are insignificant except inside strings and comments |
 | Identifiers | `[A-Za-z_][A-Za-z0-9_]*` (letters, digits, underscore; cannot start with a digit) |
-| Keywords | `class`, `fn`, `if`, `else`, `return`, `true`, `false`, `and`, `or`, `xor`, `nand` |
+| Keywords | `class`, `fn`, `if`, `elif`, `else`, `return`, `true`, `false`, `and`, `or`, `xor`, `nand` |
 
 ---
 
@@ -257,15 +257,33 @@ fn name(h1: Human, now: DateTime = DateTime.now()) -> DateTime {
 ```text
 Float32 scaled = x * self.scale_factor;   // typed variable declaration
 broken = true;                            // assignment
-if (condition) { ... } else { ... }       // conditionals (if / else)
+if (condition) { ... } elif (cond2) { ... } else { ... }   // conditionals
 return result;                            // return (mandatory last expression)
 ```
 
 - Conditions are parenthesized: `if ((flag_a and not flag_b) or flag_c) { ... }`.
+- `elif` chains (any count) and a final `else` are allowed; `else if (...)`
+  is accepted as an alias for `elif (...)`.
 - Operators: `+ - * / %`, comparisons `== != < <= > >=`,
   logic (keyword only): `and`, `or`, `xor`, `nand`.
+  - `+` on two `Str` operands is **string concatenation**; mixing `Str` with
+    any other operand kind is a resolution error (strict typing).
 - Local variable declarations may be typed (`Float32 result = scaled + self.bias;`).
 - Member access with `.`; method calls with `()`.
+- **Indexing** with postfix `[...]` on arrays and dictionaries (chainable and
+  freely mixed with member access and calls):
+
+  ```text
+  tom.parents[0].name            // array index, then member access
+  matrix[0][1]                   // chained index into nested arrays
+  config["floor"]                // dictionary index by key
+  tags[index + 1]                // index may be any expression
+  ```
+
+  - Array indices are integers; Python semantics apply for negatives
+    (`[-1]` is the last element). Out-of-range raises `IndexError`.
+  - Dictionary keys must exist, otherwise `KeyError`.
+  - Index assignment (`arr[0] = x`) is not supported yet.
 - Instance state is reached only through `self.` (see §6.3): bare names resolve
   to parameters, locals, and global functions — never attributes.
 
@@ -406,7 +424,7 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 | `{ }` | Class / function bodies, block comments (`"""`), dict literals |
 | `{ }` (literal) | Dict literals — **entries separated by `,`** |
 | `( )` | Parameter lists, inheritance, call arguments, query lambdas — **arguments separated by `,`** |
-| `[ ]` | Array literals and generic type arguments — **elements separated by `,`** |
+| `[ ]` | Array literals, generic type arguments, and **postfix indexing** — elements separated by `,` |
 | `;` | Ends attribute declarations and statements (never a separator inside brackets) |
 | `,` | Separates arguments, array elements, dict entries, and generic type arguments inside any bracket |
 | `,` | Separates array elements, dict entries, and generic type arguments inside `[ ]` and `{ }` |
@@ -420,14 +438,14 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 
 ## 9. Open points (to be decided)
 
-1. **`elif`**: not present in examples; `else { if ... }` nesting is the current form.
-2. **Loops**: no `for` / `while` syntax defined yet.
-3. **Indexing**: no `arr[i]` / `dict["k"]` expression syntax yet (dict/array literals
-   exist, element access does not).
-4. **String concatenation**: no `+` semantics for `Str` defined yet.
-5. **`'...'` strings**: reserved, currently a syntax error.
-6. **Exponent numeric literals** (`1e6`): not supported yet.
-7. **Multiple assignment targets / augmented assignment** (`+=`): not supported yet.
+1. **Loops**: no `for` / `while` syntax defined yet (a fuel-guarded design is
+   planned to prevent runaway loops).
+2. **`'...'` strings**: reserved, currently a syntax error.
+3. **Exponent numeric literals** (`1e6`): not supported yet.
+4. **Multiple assignment targets / augmented assignment** (`+=`): not
+   supported yet.
+5. **Index assignment** (`arr[0] = x`, `dict["k"] = v`): reading is supported
+   (§6.6), writing is not yet.
 
 ---
 

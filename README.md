@@ -29,7 +29,7 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   methods and computed properties, standalone functions
 - **Rich type system** — sized integers/floats (`Int32`, `UFloat16`, ...),
   `Str`, `Bool`, `DateTime`, `Color`, `Array[T]`, `Dict[K, V]`, entity
-  references
+  references; indexing (`arr[0]`, `dict["k"]`) and string concatenation
 - **Declarative data files** — forward and circular references, script
   statements, `print`, chained polymorphic queries
 - **Runtime introspection** — `elt.id`, `type(x)`, `elt.list_attr()` /
