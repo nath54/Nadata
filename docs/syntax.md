@@ -5,6 +5,9 @@ This document specifies the exact syntax of the two Nadata source file formats:
 - **`.nastruct`** — schema files: struct (class) definitions and standalone functions.
 - **`.nadata`** — data files: instance declarations, named symbols, and script statements.
 
+New to Nadata? Start with the [tutorial](tutorial.md); for the engine internals
+see [architecture.md](architecture.md).
+
 The reference examples live in `examples/` (`ex0_simple` to `ex5_edge_cases`) and are
 the canonical acceptance material for the parsers.
 

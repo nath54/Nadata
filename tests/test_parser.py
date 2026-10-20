@@ -77,7 +77,7 @@ class TestCommentsRemover:
     def test_string_cannot_contain_triple_quote(self) -> None:
         """
         Tests that ' triple quote immediately after a string leads to an error
-        (greedy left-to-right rule documented in SYNTAX.md).
+        (greedy left-to-right rule documented in docs/syntax.md).
         """
 
         with pytest.raises(SyntaxError, match="Unterminated string"):

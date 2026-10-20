@@ -1,5 +1,8 @@
-*.pyc
+__pycache__/
 *venv*
-.*nadata.egg-info/
+.venv/
 *.egg-info/
 .coverage
+.mypy_cache/
+.pytest_cache/
+*.ndb
