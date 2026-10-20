@@ -18,6 +18,11 @@ python -m mypy src/               # strict type check must stay clean
 ```
 
 Both gates run quickly (the suite is unit-fast; nothing spawns processes).
+The same gates run automatically on every push and pull request via GitHub
+Actions (`.github/workflows/ci.yml`), on Linux and Windows across Python
+3.10 and 3.13, together with an end-to-end smoke job that exercises the
+installed console script against every example project. Run the smoke test
+locally with `python scripts/smoke.py`.
 
 ## Project layout
 

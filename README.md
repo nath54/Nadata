@@ -1,5 +1,7 @@
 # Nadata
 
+[![CI](https://github.com/nath54/Nadata/actions/workflows/ci.yml/badge.svg)](https://github.com/nath54/Nadata/actions/workflows/ci.yml)
+
 **Nadata** is a declarative data schema and object-graph framework with its own
 language. You describe your data model in `.nastruct` schema files, populate it
 in `.nadata` data files, and get a typed, queryable, persistent object graph —
