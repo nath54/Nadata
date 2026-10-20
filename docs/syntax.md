@@ -269,6 +269,52 @@ return result;                            // return (mandatory last expression)
 - Instance state is reached only through `self.` (see §6.3): bare names resolve
   to parameters, locals, and global functions — never attributes.
 
+### 6.7 Built-in members and functions
+
+A small set of built-ins is always available in method bodies and scripts.
+
+**Entity id** — every instance exposes its per-struct instance index:
+
+```text
+print(tom.id);                    // 0 (the index shown in <Human id=0>)
+```
+
+**`type()`** — returns the schema type of its argument, as a type handle:
+
+```text
+print(type(tom));                 // <Type Human>
+print(type(42));                  // <Type Int64>
+print(type(Human.birthday));      // <Type DateTime>
+print(type(Human.pages));         // <Type Int32>
+```
+
+**Member access on a struct type** — `Struct.attribute` is itself the
+attribute's declared type (see the last two lines above).
+
+**Introspection members** — available on instances *and* on struct types:
+
+```text
+tom.list_attr();                  // ['name', 'gender', ..., 'size', ...]
+Human.list_attr();                // same, from the schema side
+Human.list_methods();             // ['age', 'older'] (inherited included)
+Human.getattr("size");            // <Type UFloat16> (on a type: the declared type)
+tom.getattr("birthplace");        // current value of the attribute
+tom.setattr("birthplace", "Lyon"); // schema-constrained write
+```
+
+- `getattr` / `setattr` are **constrained to the class schema**: the name must
+  be a declared attribute of the struct or one of its parents, otherwise an
+  `AttributeError` is raised. `setattr` additionally validates the value
+  against the declared attribute type.
+- `list_attr()` / `list_methods()` include everything inherited.
+
+**Schema introspection** — database-wide, callable from scripts and bodies:
+
+```text
+print(schema_classes());          // [<Type Entity>, <Type Human>, ...]
+print(schema_functions());        // [calculate_age_difference, is_adult, ...]
+```
+
 ---
 
 ## 7. `.nadata` files — data and scripts

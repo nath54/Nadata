@@ -120,6 +120,25 @@ class Struct:
 
         return combined
 
+    def get_all_methods(self) -> dict[str, StructMethod]:
+        """
+        Collects all inherited and locally defined methods.
+
+        Returns:
+            dict[str, StructMethod]: Dictionary of all combined methods.
+        """
+
+        combined: dict[str, StructMethod] = {}
+
+        # Merge parent methods first
+        if self.parent is not None:
+            combined.update(self.parent.get_all_methods())
+
+        # Local methods take precedence or add to the collection
+        combined.update(self.methods)
+
+        return combined
+
     def get_method(self, name: str) -> Optional[StructMethod]:
         """
         Resolves a method by name, looking in this struct and its parents.

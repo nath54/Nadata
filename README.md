@@ -32,6 +32,9 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   references
 - **Declarative data files** — forward and circular references, script
   statements, `print`, chained polymorphic queries
+- **Runtime introspection** — `elt.id`, `type(x)`, `elt.list_attr()` /
+  `list_methods()`, schema-constrained `getattr`/`setattr`, and database-wide
+  `schema_classes()` / `schema_functions()`
 - **Persistence** — whole-database dumps and incremental delta appends to a
   single `.ndb` file
 - **Python API** — load, query, mutate, execute raw source, persist

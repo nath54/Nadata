@@ -35,6 +35,11 @@ from src.core.values.values import (
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
+from src.core.expressions.builtins import (
+    _is_struct_instance,
+    _struct_from_object,
+    resolve_virtual_callable,
+)
 from src.core.expressions.scope import ExecutionScope
 
 
@@ -526,6 +531,29 @@ class MemberAccessExpr(Expression):
         # (e.g. a ValueDateTime wrapping a DateTime exposes 'year')
         raw_target: Any = target_obj.get() if isinstance(target_obj, Value) else target_obj
 
+        # Virtual member on an instance: the entity id (per-struct index)
+        if self.member == "id" and hasattr(raw_target, "entity_id"):
+            return LiteralExpr(value=raw_target.entity_id.local_id).evaluate(scope=scope)
+
+        # Member access on a struct type: the attribute's declared type
+        # (instances are excluded: their member access resolves to values)
+        struct_from_type: Optional[Any] = (
+            None
+            if _is_struct_instance(obj=raw_target)
+            else _struct_from_object(obj=raw_target)
+        )
+
+        if struct_from_type is not None:
+            attr_def: Any = struct_from_type.get_attribute(name=self.member)
+
+            if attr_def is not None:
+                return ValueExternal(payload=attr_def.attr_type)
+
+            raise AttributeError(
+                f"'{self.member}' is not declared in the schema of "
+                f"'{struct_from_type.name}'"
+            )
+
         # Check dictionary-backed attributes on struct instances
         if hasattr(raw_target, "attributes"):
             attrs: dict[str, Any] = getattr(raw_target, "attributes")
@@ -602,6 +630,15 @@ class MemberAccessExpr(Expression):
                         kwargs=kwargs,
                         globals_dict=scope.globals_dict
                     )
+
+        # Virtual members: introspection and schema-constrained access
+        virtual: Optional[Any] = resolve_virtual_callable(
+            target_obj=target_obj,
+            member=self.member,
+        )
+
+        if virtual is not None:
+            return virtual
 
         raise AttributeError(f"Target '{target_obj}' has no callable member '{self.member}'")
 

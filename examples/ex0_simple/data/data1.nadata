@@ -46,6 +46,8 @@ print("Age difference between Tom and Jean:", age_diff);
 print("Is Tom an adult:", is_adult(tom));
 print("Is Jean an adult:", is_adult(jean));
 
+print("Tom id:", tom.id);
+
 # Using standalone function in a chained where query!
 Array[Human] adults = Human.where((h: Human) -> is_adult(h));
 Array[Human] parisians_adults = adults.where((h: Human) -> h.birthplace == "Paris");

@@ -17,6 +17,7 @@ from src.core.expressions.scope import ExecutionScope
 from src.core.expressions.statement import AssignStmt, Statement, VarDeclStmt
 from src.core.database.database import NaDataDatabase
 from src.core.database.instance import StructInstance
+from src.core.expressions.builtins import SchemaClassesFunction, SchemaFunctionsFunction
 from src.core.database.queryset import QuerySet
 from src.core.expressions.expression import CallExpr, Expression, IdentifierExpr
 from src.parser.expressions.type_parser import TmpType, TypeParser
@@ -178,6 +179,10 @@ def format_runtime_value(val: Any) -> str:
     # Duck-typed query results render as instance lists
     if hasattr(raw, "to_list") and hasattr(raw, "where"):
         return "[" + ", ".join(repr(inst) for inst in raw.to_list()) + "]"
+
+    # External wrappers render through their own repr (e.g. type handles)
+    if isinstance(val, ValueExternal):
+        return repr(val)
 
     return str(raw)
 
@@ -501,7 +506,8 @@ class NaDataLoader:
         Builds the global symbol table for evaluation.
 
         Contains home types, struct runtime bindings, standalone functions,
-        instance symbol bindings, and the print builtin.
+        instance symbol bindings, the print builtin, and the database-bound
+        schema introspection functions.
 
         Args:
             database (NaDataDatabase): Database whose symbols are exposed.
@@ -513,6 +519,8 @@ class NaDataLoader:
         globals_dict: dict[str, Any] = build_type_globals()
 
         globals_dict["print"] = print_runtime_values
+        globals_dict["schema_classes"] = SchemaClassesFunction(database=database)
+        globals_dict["schema_functions"] = SchemaFunctionsFunction(database=database)
 
         for struct_name, table in database.tables_by_struct_name.items():
             globals_dict[struct_name] = StructRuntimeBinding(

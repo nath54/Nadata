@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, cast
 
 from src.core.database.database import NaDataDatabase
+from src.core.expressions.builtins import builtin_type
 from src.core.expressions.expression import ArrayLiteralExpr, DictLiteralExpr, Expression
 from src.core.expressions.scope import ExecutionScope
 from src.core.expressions.statement import BlockStmt, IfStmt, Statement, VarDeclStmt
@@ -112,6 +113,7 @@ def build_type_globals() -> dict[str, Any]:
     return {
         "DateTime": DateTime,
         "Color": Color,
+        "type": builtin_type,
     }
 
 

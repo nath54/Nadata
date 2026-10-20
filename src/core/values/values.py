@@ -669,4 +669,12 @@ class ValueExternal(Value):
             str: Wrapper representation.
         """
 
+        # Struct schemas render as type handles (e.g. from type(x))
+        if hasattr(self.payload, "get_all_attributes") and hasattr(self.payload, "name"):
+            return f"<Type {self.payload.name}>"
+
+        # Schema types render as type handles (e.g. from type(x.field))
+        if hasattr(self.payload, "check_value"):
+            return f"<Type {repr(self.payload)}>"
+
         return f"ValueExternal({repr(self.payload)})"
