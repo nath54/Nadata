@@ -121,6 +121,7 @@ nadata <command> ...
 | `nadata run <path>` | project folder, `.nastruct`, or `.ndb` | Loads everything and executes the data scripts |
 | `nadata info <path>` | same | Prints the database summary |
 | `nadata dump <source> <dest>` | source project, destination `.ndb` | Loads and persists a full snapshot |
+| `nadata compact <path> [output]` | an `.ndb` file, optional output path | Rewrites the file to its live state (defaults to in place) |
 | `nadata console <path>` | same | Opens an interactive console over the loaded database (see below) |
 
 Exit code is `0` on success, `1` on error (the error message goes to

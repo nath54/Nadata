@@ -14,8 +14,11 @@ from src.core.expressions.expression import LiteralExpr
 from src.core.types.types import TypeArray
 from src.core.values.values import Value, ValueArray
 
+from src.api import Nadata
 from src.core.database.persistence import (
     append_database_changes,
+    compact_database,
+    count_documents,
     dump_database,
     load_database,
 )
@@ -502,8 +505,6 @@ class TestIncrementalPersistence:
         Tests the full pipeline: dump, execute data text, append, reload.
         """
 
-        from src.api import Nadata
-
         app: Nadata = Nadata.load(path="./examples/ex0_simple")
         storage_path: str = str(tmp_path / "pipeline.ndb")
 
@@ -517,3 +518,152 @@ class TestIncrementalPersistence:
 
         assert final.get_attribute(symbol="bob", name="name") == "Bob"
         assert final.count("Human") == 4
+
+
+class TestCompaction:
+    """
+    Tests rewriting a database file into a minimal snapshot.
+    """
+
+    def _build_history(self, storage_path: str) -> None:
+        """
+        Creates a database file with several appended deltas.
+
+        Args:
+            storage_path (str): Target .ndb path (must not exist).
+        """
+
+        app: Nadata = Nadata.load(path="./examples/ex0_simple")
+
+        app.dump(storage_path=storage_path)
+
+        opened: Nadata = Nadata.open(storage_path=storage_path)
+        opened.execute_data(data_text='zoe = Human(name = "Zoe")')
+        opened.set_attribute(symbol="tom", name="birthplace", value="Lyon")
+        opened.save_changes(storage_path=storage_path)
+
+        opened.execute_data(data_text='bob = Human(name = "Bob")')
+        opened.save_changes(storage_path=storage_path)
+
+    def test_compact_in_place_reduces_documents(self, tmp_path: Any) -> None:
+        """
+        Tests that in-place compaction shrinks the document count.
+        """
+
+        storage_path: str = str(tmp_path / "db.ndb")
+
+        self._build_history(storage_path=storage_path)
+        before: int = count_documents(storage_path=storage_path)
+
+        compact_database(storage_path=storage_path)
+        after: int = count_documents(storage_path=storage_path)
+
+        assert after < before
+
+    def test_compact_preserves_state(self, tmp_path: Any) -> None:
+        """
+        Tests that the compacted file holds the exact same logical state.
+        """
+
+        storage_path: str = str(tmp_path / "db.ndb")
+
+        self._build_history(storage_path=storage_path)
+        compact_database(storage_path=storage_path)
+
+        final: Nadata = Nadata.open(storage_path=storage_path)
+
+        assert "zoe" in final.symbol_names
+        assert "bob" in final.symbol_names
+        assert final.get_attribute(symbol="tom", name="birthplace") == "Lyon"
+        assert final.get_attribute(symbol="zoe", name="name") == "Zoe"
+        assert final.count("Human") == 5
+
+        # Methods still execute from the reloaded file
+        assert final.call_method("tom", "older", final.get("jean")) is False
+
+    def test_compact_to_new_file_keeps_source(self, tmp_path: Any) -> None:
+        """
+        Tests that compacting to another path leaves the source untouched.
+        """
+
+        storage_path: str = str(tmp_path / "db.ndb")
+        output_path: str = str(tmp_path / "compact.ndb")
+
+        self._build_history(storage_path=storage_path)
+        before: int = count_documents(storage_path=storage_path)
+
+        compact_database(storage_path=storage_path, output_path=output_path)
+
+        assert count_documents(storage_path=storage_path) == before
+        assert count_documents(storage_path=output_path) < before
+
+        final: Nadata = Nadata.open(storage_path=output_path)
+
+        assert final.get_attribute(symbol="zoe", name="name") == "Zoe"
+
+    def test_compact_missing_file_raises(self, tmp_path: Any) -> None:
+        """
+        Tests that compacting a missing file raises ValueError.
+        """
+
+        import pytest
+
+        with pytest.raises(ValueError, match="does not exist"):
+            compact_database(storage_path=str(tmp_path / "missing.ndb"))
+
+    def test_compact_equals_fresh_dump(self, tmp_path: Any) -> None:
+        """
+        Tests that the compacted document count matches a fresh full dump
+        of the same logical state.
+        """
+
+        storage_path: str = str(tmp_path / "db.ndb")
+        reference_path: str = str(tmp_path / "reference.ndb")
+
+        self._build_history(storage_path=storage_path)
+        compact_database(storage_path=storage_path)
+
+        app: Nadata = Nadata.open(storage_path=storage_path)
+
+        # Re-dump the reloaded state: compaction must be idempotent
+        app.dump(storage_path=reference_path)
+
+        assert count_documents(storage_path=storage_path) == count_documents(
+            storage_path=reference_path
+        )
+
+    def test_facade_compact_in_place_and_continue(self, tmp_path: Any) -> None:
+        """
+        Tests the facade in-place compaction, including continued use.
+        """
+
+        storage_path: str = str(tmp_path / "db.ndb")
+
+        self._build_history(storage_path=storage_path)
+
+        app: Nadata = Nadata.open(storage_path=storage_path)
+        before: int
+        after: int
+        before, after = app.compact()
+
+        assert after < before
+
+        # The facade reloaded: subsequent operations hit the fresh file
+        app.execute_data(data_text='carl = Human(name = "Carl")')
+        app.save_changes(storage_path=storage_path)
+
+        final: Nadata = Nadata.open(storage_path=storage_path)
+
+        assert final.get_attribute(symbol="carl", name="name") == "Carl"
+
+    def test_facade_compact_without_file_raises(self) -> None:
+        """
+        Tests that compacting a project-loaded facade requires a path.
+        """
+
+        import pytest
+
+        app: Nadata = Nadata.load(path="./examples/ex0_simple")
+
+        with pytest.raises(ValueError, match="No database file to compact"):
+            app.compact()

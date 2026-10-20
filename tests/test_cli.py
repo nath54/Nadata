@@ -109,3 +109,62 @@ class TestCli:
 
         with pytest.raises(SystemExit):
             main(argv=[])
+
+
+class TestCompactCommand:
+    """
+    Tests the 'nadata compact' command.
+    """
+
+    def test_compact_in_place(self, tmp_path: Any, capsys: Any) -> None:
+        """
+        Tests compacting a database file in place via the CLI.
+        """
+
+        from src.api import Nadata
+
+        storage_path: str = str(tmp_path / "db.ndb")
+
+        app: Nadata = Nadata.load(path="./examples/ex0_simple")
+        app.dump(storage_path=storage_path)
+
+        # Append a delta so compaction has something to remove
+        opened: Nadata = Nadata.open(storage_path=storage_path)
+        opened.execute_data(data_text='zoe = Human(name = "Zoe")')
+        opened.save_changes(storage_path=storage_path)
+
+        exit_code: int = main(argv=["compact", storage_path])
+
+        assert exit_code == 0
+        assert "->" in capsys.readouterr().out
+
+    def test_compact_to_output(self, tmp_path: Any, capsys: Any) -> None:
+        """
+        Tests compacting to an explicit output path via the CLI.
+        """
+
+        from src.api import Nadata
+
+        storage_path: str = str(tmp_path / "db.ndb")
+        output_path: str = str(tmp_path / "compact.ndb")
+
+        app: Nadata = Nadata.load(path="./examples/ex0_simple")
+        app.dump(storage_path=storage_path)
+
+        exit_code: int = main(argv=["compact", storage_path, output_path])
+
+        assert exit_code == 0
+
+        reopened: Nadata = Nadata.open(storage_path=output_path)
+
+        assert "tom" in reopened.symbol_names
+
+    def test_compact_project_folder_fails(self, capsys: Any) -> None:
+        """
+        Tests that compacting a project folder prints a helpful error.
+        """
+
+        exit_code: int = main(argv=["compact", "./examples/ex0_simple"])
+
+        assert exit_code == 1
+        assert "dump it first" in capsys.readouterr().err

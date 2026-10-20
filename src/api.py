@@ -17,6 +17,7 @@ from src.core.database.database import NaDataDatabase
 from src.core.database.instance import StructInstance
 from src.core.database.persistence import (
     append_database_changes,
+    compact_database,
     dump_database,
     load_database,
 )
@@ -598,6 +599,58 @@ class Nadata:
         self._globals = None
 
         return written
+
+    def compact(self, output_path: Optional[str] = None) -> tuple[int, int]:
+        """
+        Rewrites a database file into a minimal snapshot of the current state.
+
+        Incremental saves append deltas that accumulate as replay history;
+        compaction rewrites the file so it holds only live documents. The
+        output is written to a temporary file and atomically renamed, so a
+        crash mid-compaction never damages the source.
+
+        When compacting in place over the file this facade was opened from,
+        the database is reloaded afterwards so subsequent operations see the
+        fresh file. When compacting to a different path, the facade keeps
+        working on its current state.
+
+        Args:
+            output_path (Optional[str], optional): Where to write the
+                compacted file. Defaults to None (compact in place using
+                the file this facade was opened from).
+
+        Returns:
+            tuple[int, int]: Document counts (before, after).
+
+        Raises:
+            ValueError: If no target file is known (compact a project by
+                dumping it first), or the source is missing or invalid.
+        """
+
+        default_target: Optional[str] = self.database.page_manager.storage_path
+        target: str = output_path if output_path is not None else (default_target or "")
+
+        if not target:
+            raise ValueError(
+                "No database file to compact: this facade was loaded from a "
+                "project (pass output_path, or dump it first)"
+            )
+
+        in_place: bool = output_path is None or output_path == default_target
+
+        before: int
+        after: int
+        before, after = compact_database(
+            storage_path=target,
+            output_path=output_path,
+        )
+
+        if in_place and default_target is not None:
+            # Reload so cached pages of the pre-compaction file are dropped
+            self.database = load_database(storage_path=default_target)
+            self._globals = None
+
+        return before, after
 
     # --- Code execution ---
 

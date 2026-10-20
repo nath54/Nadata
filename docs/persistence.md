@@ -98,15 +98,56 @@ Because loading replays in order, the file after an append contains, e.g.:
 ```
 
 The loader applies the delta *over* the snapshot — later documents win for
-instances and symbols, and merge for structs. There is no compaction step
-yet: repeated appends grow the file, and a `dump` to a new file is the
-current way to compact.
+instances and symbols, and merge for structs.
+
+## Compaction
+
+The cost of the replay model is that **the file only grows**: every append
+leaves superseded documents behind (old instance snapshots, obsolete symbol
+bindings, extra meta headers), and every load replays the whole history.
+Load time becomes proportional to the *edit history* rather than the
+*current data size*.
+
+Compaction rewrites the file so it contains only the current state:
+
+```python
+app = nadata.Nadata.open("store.ndb")
+# ... work, save_changes ... 
+before, after = app.compact()              # in place
+before, after = app.compact("clean.ndb")   # or to a new file
+```
+
+```bash
+nadata compact store.ndb                   # in place
+nadata compact store.ndb clean.ndb         # explicit output
+nadata compact examples/ex0_simple         # error: dump it first
+```
+
+Mechanically it is a load followed by a dump of the reloaded state — every
+document in the result is live, entity ids and type ids are unchanged, and
+compacting twice is a no-op (the document count equals a fresh full dump).
+
+Safety properties:
+
+- The output is written to a **temporary file next to the target and
+  atomically renamed** — a crash mid-compaction never damages the source,
+  and stale temporary files from interrupted runs are cleaned up.
+- When compacting **in place** over a file the facade was opened from, the
+  database is **reloaded afterwards**, so cached pages of the pre-compaction
+  file are dropped and the facade keeps working on the fresh file.
+- When to compact: not after every save — amortize it (e.g. when the file
+  size exceeds a few times the live-state size, after N appends, or on a
+  schedule). Cost is one full read of the history plus one write of the
+  current state.
+- Single-writer, as everywhere else in Nadata: do not compact while another
+  process appends.
 
 ## Python surface
 
 ```python
 app.dump("store.ndb")              # full snapshot
 n = app.save_changes("store.ndb")  # append delta, returns document count
+before, after = app.compact()      # rewrite to a minimal snapshot (in place)
 ```
 
 ## CLI surface

@@ -7,11 +7,13 @@ Provides the run, info, and dump commands over the Nadata high level API.
 # Import Modules
 from __future__ import annotations
 import argparse
+import os
 import sys
 from typing import Optional
 
 from src.api import Nadata
 from src.console import NadataConsole
+from src.core.database.persistence import compact_database
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -63,6 +65,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Project folder, schema file, or .ndb file.",
     )
 
+    compact_parser: argparse.ArgumentParser = sub_parsers.add_parser(
+        "compact",
+        help="Rewrite a .ndb file into a minimal snapshot of its current state.",
+    )
+    compact_parser.add_argument("path", help="The .ndb file to compact.")
+    compact_parser.add_argument(
+        "output",
+        nargs="?",
+        default=None,
+        help="Optional output path (defaults to compacting in place).",
+    )
+
     args = arg_parser.parse_args(argv)
 
     try:
@@ -74,6 +88,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         if args.command == "console":
             return _console_command(path=args.path)
+
+        if args.command == "compact":
+            return _compact_command(path=args.path, output=args.output)
 
         return _dump_command(source=args.source, destination=args.destination)
 
@@ -139,6 +156,42 @@ def _console_command(path: str) -> int:
     console: NadataConsole = NadataConsole(app=nadata)
 
     return console.run()
+
+
+def _compact_command(path: str, output: Optional[str]) -> int:
+    """
+    Handles the compact command: rewrites a database file to its live state.
+
+    Args:
+        path (str): The .ndb file to compact.
+        output (Optional[str]): Optional output path (in place when None).
+
+    Returns:
+        int: Exit code.
+    """
+
+    if os.path.isdir(path):
+        print(
+            "error: cannot compact a project folder: "
+            "dump it first with 'nadata dump'",
+            file=sys.stderr,
+        )
+
+        return 1
+
+    documents_before: int
+    documents_after: int
+    documents_before, documents_after = compact_database(
+        storage_path=path,
+        output_path=output,
+    )
+
+    print(
+        f"Compacted '{path}': {documents_before} -> {documents_after} "
+        f"document(s)."
+    )
+
+    return 0
 
 
 def _dump_command(source: str, destination: str) -> int:
