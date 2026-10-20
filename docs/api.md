@@ -121,6 +121,7 @@ nadata <command> ...
 | `nadata run <path>` | project folder, `.nastruct`, or `.ndb` | Loads everything and executes the data scripts |
 | `nadata info <path>` | same | Prints the database summary |
 | `nadata dump <source> <dest>` | source project, destination `.ndb` | Loads and persists a full snapshot |
+| `nadata console <path>` | same | Opens an interactive console over the loaded database (see below) |
 
 Exit code is `0` on success, `1` on error (the error message goes to
 stderr). The console script is installed as `nadata` via `pip install -e .`;
@@ -135,6 +136,55 @@ nadata info examples/ex3_collections
 nadata dump examples/ex0_simple store.ndb
 nadata info store.ndb
 ```
+
+---
+
+## Interactive console
+
+`nadata console <path>` loads a project or database and opens a
+read-eval-print loop over it — works identically over a project folder and
+a persisted `.ndb` file:
+
+```text
+$ nadata console examples/ex0_simple
+Nadata console - 6 struct(s), 6 instance(s), 2 function(s).
+nadata> tom.name
+Tom
+nadata> tom.id
+0
+nadata> adults = Human.where((h: Human) -> h.birthplace == "Paris");
+nadata> adults.count()
+3
+nadata> zoe = Human(name = "Zoe")
+nadata> zoe.setattr("birthplace", "Lyon")
+nadata> print(zoe.list_attr());
+['name', 'gender', ..., 'size', 'weight', 'pets', 'objects']
+nadata> :quit
+```
+
+- A line holding a **bare expression** echoes its formatted value (type
+  handles render as `<Type ...>`, instances as `<Struct id=N>`).
+- **Declarations and statements** execute against the live database — created
+  instances become queryable symbols.
+- **All state persists across lines**: script variables, new instances, and
+  schema changes.
+- `print(...)` and other None-returning calls (e.g. `setattr`) stay silent.
+- Meta commands: `:help`, `:info`, `:classes`, `:symbols`, `:quit` (also
+  `:q`, `exit`, `quit`). Ctrl-D / Ctrl-C exit gracefully.
+- Errors print as `error: ...` and keep the session alive.
+
+The same loop is available from Python:
+
+```python
+import nadata
+from src.console import NadataConsole
+
+app = nadata.Nadata.load("store.ndb")
+NadataConsole(app=app).run()
+```
+
+Or drive it programmatically line by line with `console.execute_line(line)`,
+which returns the echoed value for expression lines and `None` otherwise.
 
 ---
 

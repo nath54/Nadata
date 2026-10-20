@@ -271,6 +271,19 @@ class NaDataLoader:
 
     # --- Pass 0: parsing and classification ---
 
+    def parse_statements(self, content: str) -> list[Statement]:
+        """
+        Parses .nadata source content into statements without executing it.
+
+        Args:
+            content (str): Raw .nadata source text.
+
+        Returns:
+            list[Statement]: Parsed statements in source order.
+        """
+
+        return self._parse(content=content)
+
     def _parse(self, content: str) -> list[Statement]:
         """
         Strips comments and parses the source into statements.
@@ -544,13 +557,21 @@ class NaDataLoader:
     def _run_passes(self) -> None:
         """
         Runs the declare, populate, and execute passes in order.
+
+        Variables from a previous load (e.g. an earlier load_file call in a
+        console session) are carried into the fresh scope so that script
+        locals persist across loads.
         """
 
         self._declare_instances()
 
+        previous_variables: dict[str, Value] = dict(self.scope.variables)
+
         self.globals_dict = self.build_runtime_globals(database=self.database)
 
         self.scope = ExecutionScope(globals_dict=self.globals_dict)
+
+        self.scope.variables.update(previous_variables)
 
         self._populate_instances()
         self._execute_scripts()

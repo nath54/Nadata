@@ -37,6 +37,8 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   `schema_classes()` / `schema_functions()`
 - **Persistence** — whole-database dumps and incremental delta appends to a
   single `.ndb` file
+- **Interactive console** — `nadata console <path>` REPL over any loaded
+  database, with persistent state and expression echoing
 - **Python API** — load, query, mutate, execute raw source, persist
 - **Zero dependencies** — pure Python 3.10+
 
@@ -61,6 +63,10 @@ nadata info store.ndb
 
 # Persist a project to a single database file
 nadata dump examples/ex0_simple store.ndb
+
+# Explore it interactively (works on folders and .ndb files)
+nadata console examples/ex0_simple
+nadata console store.ndb
 ```
 
 Or from Python:

@@ -11,6 +11,7 @@ import sys
 from typing import Optional
 
 from src.api import Nadata
+from src.console import NadataConsole
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -53,6 +54,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     dump_parser.add_argument("source", help="Project folder or schema file.")
     dump_parser.add_argument("destination", help="Target .ndb database file.")
 
+    console_parser: argparse.ArgumentParser = sub_parsers.add_parser(
+        "console",
+        help="Open an interactive console over a loaded project or database.",
+    )
+    console_parser.add_argument(
+        "path",
+        help="Project folder, schema file, or .ndb file.",
+    )
+
     args = arg_parser.parse_args(argv)
 
     try:
@@ -61,6 +71,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         if args.command == "info":
             return _info_command(path=args.path)
+
+        if args.command == "console":
+            return _console_command(path=args.path)
 
         return _dump_command(source=args.source, destination=args.destination)
 
@@ -108,6 +121,24 @@ def _info_command(path: str) -> int:
     print(nadata.summary())
 
     return 0
+
+
+def _console_command(path: str) -> int:
+    """
+    Handles the console command: loads the source and opens the REPL.
+
+    Args:
+        path (str): Project folder, schema file, or .ndb file.
+
+    Returns:
+        int: Exit code.
+    """
+
+    nadata: Nadata = Nadata.load(path=path)
+
+    console: NadataConsole = NadataConsole(app=nadata)
+
+    return console.run()
 
 
 def _dump_command(source: str, destination: str) -> int:
