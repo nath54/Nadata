@@ -1,0 +1,84 @@
+# ==============================================================================
+# Example 6: Collections, Loops, and Fuel Guards - data and scripts
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+# --- Instances with typed collections ---
+boiler = Sensor(
+    name = "boiler",
+    readings = [20.5, 21.0, 19.8, 22.3, 20.9],
+    calibration = {"gain": 1.05, "drift": 0.98}
+);
+
+reactor = Sensor(
+    name = "reactor",
+    readings = [301.2, 299.8, 305.0],
+    calibration = {"gain": 1.10}
+);
+
+# --- Methods that loop internally ---
+print("boiler total:", boiler.total());
+print("boiler average:", boiler.average());
+print("boiler max:", boiler.max_reading());
+print("boiler above 21:", boiler.above(threshold = 21.0));
+print("boiler gain:", boiler.gain());
+print("reactor total:", reactor.total());
+
+# --- Indexing into arrays and dicts ---
+print("first reading:", boiler.readings[0]);
+print("last reading:", boiler.readings[-1]);
+print("drift factor:", boiler.calibration["drift"]);
+
+# --- C-style loop with compound assignment: sum 1..100 ---
+sum: Int32 = 0;
+for(i: Int32 = 0 :: i < 100 :: i++){ sum += i; }
+print("sum 1..100:", sum);
+
+# --- Two-variable update lists ---
+x: Int32 = 1;
+y: Int32 = 1;
+for(step: Int32 = 0 :: step < 10 :: step++, x += y, y += x){}
+print("fib pair:", x, y);
+
+# --- while with break / continue: count even numbers up to 10 ---
+n: Int32 = 0;
+evens: Int32 = 0;
+while(true){
+    n++;
+    if(n > 10){ break; }
+    if(n % 2 == 1){ continue; }
+    evens++;
+}
+print("evens found:", evens);
+
+# --- Nested loops: sum of the 3x3 multiplication table ---
+table: Int32 = 0;
+for(a: Int32 = 1 :: a < 4 :: a++){
+    for(b: Int32 = 1 :: b < 4 :: b++){
+        table = table + a * b;
+    }
+}
+print("table sum:", table);
+
+# --- Dictionary iteration: keys concatenated, values summed ---
+stock: Dict[Str, Int32] = {"bolts": 120, "nuts": 80, "washers": 200};
+labels: Str = "";
+for(k: Str in stock.keys()){ labels = labels + k + " "; }
+print("stock items:", labels);
+units: Int32 = 0;
+for(v: Int32 in stock.values()){ units += v; }
+print("stock units:", units);
+
+# --- Loop over an array attribute of an instance ---
+adjusted: Float32 = 0.0;
+for(r: Float32 in boiler.readings){ adjusted += r * boiler.calibration["drift"]; }
+print("adjusted total:", adjusted);
+
+# --- Fuel guards: infinite loops fail fast instead of hanging ---
+# NOTE: every loop is capped by the fuel limit (default 10000 iterations);
+# an unbounded condition raises LoopLimitError rather than hanging the
+# engine. Raise the budget from a script with set_loop_limit(n).
+set_loop_limit(50);
+guarded: Int32 = 0;
+for(i: Int32 = 0 :: i < 40 :: i++){ guarded++; }
+print("guarded runs:", guarded);

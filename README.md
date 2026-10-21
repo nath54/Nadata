@@ -93,6 +93,7 @@ app.dump("store.ndb")                            # persist
 | [docs/architecture.md](docs/architecture.md) | How the engine works, stage by stage |
 | [docs/api.md](docs/api.md) | Python API and CLI reference |
 | [docs/persistence.md](docs/persistence.md) | The `.ndb` format, dumps and incremental saves |
+| [docs/benchmarks.md](docs/benchmarks.md) | Engine stage profiling, synthetic benchmarks, SQLite comparison |
 | [docs/development.md](docs/development.md) | Code style, testing, contributing |
 
 ## Examples

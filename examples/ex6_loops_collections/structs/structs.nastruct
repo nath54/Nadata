@@ -1,0 +1,56 @@
+# ==============================================================================
+# Example 6: Collections, Loops, and Fuel Guards
+# Exercises arrays, dictionaries, indexing, for-in / C-style / while loops,
+# break / continue, compound assignment, and schema methods that loop.
+# ==============================================================================
+
+class Sensor {
+    name: Str;
+    readings: Array[Float32] = [];
+    calibration: Dict[Str, Float32] = {};
+
+    # Sum of every reading, via a for-in loop
+    @total() -> Float32 {
+        sum: Float32 = 0.0;
+        for(r: Float32 in self.readings){ sum += r; }
+        return sum;
+    }
+
+    # Average reading: loop + compound update on a Float32 counter
+    @average() -> Float32 {
+        sum: Float32 = 0.0;
+        n: Float32 = 0.0;
+        for(r: Float32 in self.readings){
+            sum += r;
+            n += 1.0;
+        }
+        if(n == 0.0){ return 0.0; }
+        return sum / n;
+    }
+
+    # Highest reading, tracking the running maximum
+    @max_reading() -> Float32 {
+        best: Float32 = 0.0;
+        for(r: Float32 in self.readings){
+            if(r > best){ best = r; }
+        }
+        return best;
+    }
+
+    # Count readings above a threshold (continue-style filtering)
+    @above(threshold: Float32) -> Int32 {
+        hits: Int32 = 0;
+        for(r: Float32 in self.readings){
+            if(r <= threshold){ continue; }
+            hits++;
+        }
+        return hits;
+    }
+
+    # Product of every calibration factor in the dictionary
+    @gain() -> Float32 {
+        gain: Float32 = 1.0;
+        for(v: Float32 in self.calibration.values()){ gain *= v; }
+        return gain;
+    }
+}

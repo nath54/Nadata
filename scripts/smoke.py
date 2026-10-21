@@ -20,18 +20,25 @@ from pathlib import Path
 # Project root (the folder containing examples/ and nadata.py)
 ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Bundled example projects, run in order
-EXAMPLES: list[str] = [
-    "ex0_simple",
-    "ex1_primitives",
-    "ex2_inheritance",
-    "ex3_collections",
-    "ex4_expressions",
-    "ex5_edge_cases",
-]
-
 # Hard cap per subprocess, so a hang can never stall the smoke run
 COMMAND_TIMEOUT: int = 60
+
+
+def discover_examples() -> list[str]:
+    """
+    Lists every bundled example project folder.
+
+    Returns:
+        list[str]: Example folder names under examples/, sorted.
+    """
+
+    examples_dir: Path = ROOT / "examples"
+
+    return sorted(
+        entry.name
+        for entry in examples_dir.iterdir()
+        if entry.is_dir() and entry.name.startswith("ex")
+    )
 
 
 def resolve_nadata() -> str:
@@ -79,7 +86,7 @@ def run_examples() -> None:
     Runs every bundled example project.
     """
 
-    for name in EXAMPLES:
+    for name in discover_examples():
         print(f"Running example {name}...")
         run_command(args=["run", str(ROOT / "examples" / name)])
 
