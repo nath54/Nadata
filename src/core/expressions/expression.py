@@ -69,6 +69,29 @@ class Expression:
 
         raise NotImplementedError("evaluate must be implemented by subclasses.")
 
+    def assign_to(self, scope: ExecutionScope, value: Value) -> None:
+        """
+        Assigns a Value through this expression as an assignment target.
+
+        Args:
+            scope (ExecutionScope): Current execution environment.
+            value (Value): Value to assign.
+
+        Raises:
+            TypeError: If this expression cannot be an assignment target.
+        """
+
+        raise TypeError(f"Cannot assign to '{repr(self)}'")
+
+    def ensure_materialized(self, scope: ExecutionScope) -> None:
+        """
+        Prepares the target chain for mutation by materializing lazy
+        defaults along the access path.
+
+        Args:
+            scope (ExecutionScope): Current execution environment.
+        """
+
 
 class LiteralExpr(Expression):
     """
@@ -672,6 +695,52 @@ class MemberAccessExpr(Expression):
 
         raise AttributeError(f"Target '{target_obj}' has no callable member '{self.member}'")
 
+    def assign_to(self, scope: ExecutionScope, value: Value) -> None:
+        """
+        Assigns a Value to the member of the resolved source object.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+            value (Value): Value to assign.
+
+        Raises:
+            TypeError: If the source object does not support member
+                assignment.
+        """
+
+        target_obj: Any = self._resolve_target(scope=scope)
+
+        # Unwrap Value containers to the raw object (e.g. an instance ref
+        # stored in an attribute resolves to a ValueExternal wrapper)
+        raw_target: Any = target_obj.get() if isinstance(target_obj, Value) else target_obj
+
+        # Struct instances validate the value against the declared type
+        if hasattr(raw_target, "attributes") and hasattr(raw_target, "set_attribute"):
+            raw_target.set_attribute(name=self.member, value=value)
+
+            return None
+
+        raise TypeError(
+            f"Cannot assign to member '{self.member}' of '{repr(raw_target)}'"
+        )
+
+    def ensure_materialized(self, scope: ExecutionScope) -> None:
+        """
+        Materializes the member on the resolved source instance.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+        """
+
+        self.target.ensure_materialized(scope=scope)
+
+        target_obj: Any = self._resolve_target(scope=scope)
+
+        raw_target: Any = target_obj.get() if isinstance(target_obj, Value) else target_obj
+
+        if hasattr(raw_target, "ensure_attribute"):
+            raw_target.ensure_attribute(name=self.member)
+
     def __repr__(self) -> str:
         """
         Returns string representation of the MemberAccessExpr.
@@ -893,6 +962,161 @@ class IndexExpr(Expression):
 
         return mapping[raw_key]
 
+    def assign_to(self, scope: ExecutionScope, value: Value) -> None:
+        """
+        Assigns a Value to the indexed slot of the resolved container.
+
+        Supports typed arrays (element type validated, negative indices
+        allowed), typed dictionaries, and raw Python lists/dicts inside
+        opaque payloads.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+            value (Value): Value to assign.
+
+        Raises:
+            IndexError: If an array index is out of range.
+            KeyError: If a dictionary key is missing.
+            TypeError: If the container or index is invalid.
+        """
+
+        # Materialize lazy defaults along the access path before mutating
+        self.target.ensure_materialized(scope=scope)
+
+        container: Any = self.target.evaluate(scope=scope)
+        index_val: Value = self.index.evaluate(scope=scope)
+
+        if isinstance(container, ValueArray):
+            self._assign_array(array=container, index=index_val, value=value)
+
+            return None
+
+        if isinstance(container, ValueDict):
+            self._assign_dict(mapping=container, index=index_val, value=value)
+
+            return None
+
+        # Raw Python containers inside external payloads
+        raw_container: Any = (
+            container.get() if isinstance(container, Value) else container
+        )
+
+        if isinstance(raw_container, list):
+            normalized: int = self._raw_sequence_index(
+                sequence=raw_container,
+                index=index_val,
+            )
+
+            raw_container[normalized] = value.get()
+
+            return None
+
+        if isinstance(raw_container, dict):
+            raw_container[index_val.get()] = value.get()
+
+            return None
+
+        raise TypeError(f"Cannot assign into '{repr(container)}'")
+
+    def _assign_array(
+        self,
+        array: ValueArray,
+        index: Value,
+        value: Value,
+    ) -> None:
+        """
+        Assigns into a typed array after validating index and element type.
+
+        Args:
+            array (ValueArray): The array to update.
+            index (Value): The index Value (must be an integer).
+            value (Value): The new element Value.
+
+        Raises:
+            TypeError: If the index is not an integer or the element
+                violates the array element type.
+            IndexError: If the index is out of range.
+        """
+
+        raw_index: Any = index.get()
+
+        if not isinstance(raw_index, int):
+            raise TypeError(f"Array index must be an integer, got '{repr(raw_index)}'")
+
+        if not -len(array.elements) <= raw_index < len(array.elements):
+            raise IndexError(
+                f"Array index {raw_index} out of range for "
+                f"{len(array.elements)} element(s)"
+            )
+
+        element_type: Type = array.value_type.value_type
+
+        # Validate the raw payload against the declared element type
+        element_type.check_value(value=value.get())
+
+        array.elements[raw_index] = value.get()
+
+    def _assign_dict(
+        self,
+        mapping: ValueDict,
+        index: Value,
+        value: Value,
+    ) -> None:
+        """
+        Assigns into a typed dictionary after validating value type.
+
+        Args:
+            mapping (ValueDict): The dictionary to update.
+            index (Value): The key Value.
+            value (Value): The new value Value.
+
+        Raises:
+            KeyError: If the key is missing.
+            TypeError: If the value violates the declared value type.
+        """
+
+        raw_key: Any = index.get()
+
+        # Validate both key and value against the declared types; new keys
+        # are inserted (Python dict semantics)
+        mapping.value_type.key_type.check_value(value=raw_key)
+
+        value_type: Type = mapping.value_type.value_type
+
+        # Validate the raw payload against the declared value type
+        value_type.check_value(value=value.get())
+
+        mapping.entries[raw_key] = value.get()
+
+    def _raw_sequence_index(self, sequence: list[Any], index: Value) -> int:
+        """
+        Normalizes an index for a raw Python sequence assignment.
+
+        Args:
+            sequence (list[Any]): The target sequence.
+            index (Value): The index Value.
+
+        Returns:
+            int: Normalized (non-negative) index.
+
+        Raises:
+            TypeError: If the index is not an integer.
+            IndexError: If the index is out of range.
+        """
+
+        raw_index: Any = index.get()
+
+        if not isinstance(raw_index, int):
+            raise TypeError(f"Sequence index must be an integer, got '{repr(raw_index)}'")
+
+        if not -len(sequence) <= raw_index < len(sequence):
+            raise IndexError(
+                f"Sequence index {raw_index} out of range for "
+                f"{len(sequence)} element(s)"
+            )
+
+        return raw_index % len(sequence)
+
     def __repr__(self) -> str:
         """
         Returns the indexed target representation.
@@ -1031,6 +1255,10 @@ class CallExpr(Expression):
             # Native callables returning None (e.g. print) yield an empty opaque Value
             if res is None:
                 return ValueExternal(payload=None)
+
+            # Raw lists (e.g. QuerySet.to_list()) stay iterable in for-in
+            if isinstance(res, list):
+                return ValueExternal(payload=res)
 
             # Wrap query-like results (duck-typed QuerySet API) as opaque Values
             if hasattr(res, "to_list") and hasattr(res, "where"):

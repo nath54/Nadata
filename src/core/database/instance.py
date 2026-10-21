@@ -71,6 +71,36 @@ class StructInstance:
 
         raise AttributeError(f"Instance of '{self.struct.name}' has no attribute '{name}'")
 
+    def ensure_attribute(self, name: str) -> None:
+        """
+        Materializes a lazily-defaulted attribute onto this instance.
+
+        Copies container defaults (lists, dicts) so mutation through an
+        assignment target never aliases the schema's shared default value.
+
+        Args:
+            name (str): Attribute name.
+        """
+
+        if name in self.attributes:
+            return None
+
+        attr_def: Any = self.struct.get_attribute(name=name)
+
+        if attr_def is None or not attr_def.has_default:
+            return None
+
+        raw_default: Any = attr_def.default_value
+
+        # Copy container defaults to avoid mutating the schema's shared value
+        if isinstance(raw_default, (list, dict)):
+            raw_default = raw_default.copy()
+
+        self.attributes[name] = make_value(
+            value_type=attr_def.attr_type,
+            raw=raw_default,
+        )
+
     def set_attribute(self, name: str, value: Value) -> None:
         """
         Sets an attribute Value by name after verifying schema constraints.

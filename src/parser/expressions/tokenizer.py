@@ -282,6 +282,11 @@ class Tokenizer:
         """
         Scans an integer or float numeric literal.
 
+        Floats include fractional parts ('1.5') and scientific notation
+        ('1e6', '3.5e-2', '1.5E+3'). The exponent is only consumed when a
+        complete 'e[+|-]<digits>' sequence follows, so '1.5e' keeps the
+        float and leaves 'e' for later postfix handling.
+
         Returns:
             Token: The INT or FLOAT token.
 
@@ -296,22 +301,63 @@ class Tokenizer:
             self.cursor += 1
 
         # Check for a fractional part (a '.' followed by a digit)
-        if (
+        has_fraction: bool = (
             self.cursor + 1 < len(self.content)
             and self.content[self.cursor] == "."
             and self.content[self.cursor + 1].isdigit()
-        ):
+        )
+
+        if has_fraction:
             self.cursor += 1
 
             # Consume fractional digits
             while self.cursor < len(self.content) and self.content[self.cursor].isdigit():
                 self.cursor += 1
 
+        # Check for a complete exponent ('e'/'E', optional sign, digits)
+        has_exponent: bool = self._scan_exponent()
+
+        if has_fraction or has_exponent:
             return self._make_token(token_type=TokenType.FLOAT)
 
         # A '.' not followed by a digit belongs to a later postfix token
         # (e.g. member access on a float literal like '1.5.method()')
         return self._make_token(token_type=TokenType.INT)
+
+    def _scan_exponent(self) -> bool:
+        """
+        Scans an optional scientific-notation exponent at the cursor.
+
+        Consumes 'e'/'E', an optional sign, and at least one digit only
+        when the full sequence is present; otherwise leaves the cursor
+        untouched.
+
+        Returns:
+            bool: True if a complete exponent was consumed.
+        """
+
+        cursor: int = self.cursor
+
+        # Exponent marker
+        if cursor >= len(self.content) or self.content[cursor] not in "eE":
+            return False
+
+        cursor += 1
+
+        # Optional sign
+        if cursor < len(self.content) and self.content[cursor] in "+-":
+            cursor += 1
+
+        # At least one digit is required for a valid exponent
+        if cursor >= len(self.content) or not self.content[cursor].isdigit():
+            return False
+
+        while cursor < len(self.content) and self.content[cursor].isdigit():
+            cursor += 1
+
+        self.cursor = cursor
+
+        return True
 
     def _scan_identifier(self) -> Token:
         """

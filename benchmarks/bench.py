@@ -262,6 +262,16 @@ def run_nadata_benchmark(instances: int, query_repetitions: int, temp_dir: str) 
     full_scan()
     scan_ms: float = _avg_ms(function=full_scan, repetitions=query_repetitions)
 
+    def aggregate() -> Any:
+        """
+        Sums every age through the query engine.
+        """
+
+        return app.query(struct_name="Person").sum_of(attribute="age")
+
+    aggregate()
+    sum_ms: float = _avg_ms(function=aggregate, repetitions=query_repetitions)
+
     # Runtime micro-bench: language loop over 100k iterations
     app.set_loop_limit(1000000)
 
@@ -326,6 +336,7 @@ def run_nadata_benchmark(instances: int, query_repetitions: int, temp_dir: str) 
         "load_ms": load_ms,
         "filtered_query_ms": query_ms,
         "full_scan_ms": scan_ms,
+        "sum_ms": sum_ms,
         "loop_100k_ms": loop_ms,
         "method_1000_calls_ms": call_ms,
         "delta_save_ms": delta_ms,
@@ -531,10 +542,10 @@ def report(nadata_results: dict[str, Any], sqlite_results: Any) -> None:
         ),
     )
 
-    if sqlite_results and "sum_ms" in sqlite_results:
+    if sqlite_results and "sum_ms" in sqlite_results and "sum_ms" in nadata_results:
         _row(
             operation="aggregate SUM(age)",
-            nadata="(see notes)",
+            nadata=f"{nadata_results['sum_ms']:.1f} ms",
             sqlite_result=f"{sqlite_results['sum_ms']:.2f} ms",
         )
 

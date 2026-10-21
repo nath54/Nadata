@@ -74,6 +74,19 @@ app.query("Human")    # QuerySet — chainable
 `QuerySet.where(...)` accepts a plain Python callable
 (`lambda h: h.get_attribute("name").get() == "Tom"`) and supports chaining.
 
+```python
+qs = app.query("Person")
+qs.order_by("age", descending=True).limit(5)   # sorted window
+qs.where(lambda p: p.attributes["city"].get() == "Paris").exists()
+qs.pluck("name")                     # raw payloads, in instance order
+qs.sum_of("age")                     # min_of / max_of / average_of too
+```
+
+`order_by` validates the attribute against the schema and sorts stably by
+the raw payload; aggregation helpers require numeric attributes. Attribute
+names may be passed as plain strings (Python) or string values (language
+side) — both are accepted.
+
 ### Executing raw source
 
 ```python

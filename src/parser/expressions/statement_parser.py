@@ -22,10 +22,18 @@ from src.core.expressions.statement import (
     IfStmt,
     ReturnStmt,
     Statement,
+    TargetAssignStmt,
     VarDeclStmt,
     WhileStmt,
 )
-from src.core.expressions.expression import BinaryOpExpr, Expression, IdentifierExpr, LiteralExpr
+from src.core.expressions.expression import (
+    BinaryOpExpr,
+    Expression,
+    IdentifierExpr,
+    IndexExpr,
+    LiteralExpr,
+    MemberAccessExpr,
+)
 from src.parser.expressions.expression_parser import ExpressionParser
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
 
@@ -146,6 +154,22 @@ class StatementParser:
             in ("++", "--", "+=", "-=", "*=", "/=", "%=")
         ):
             update: Statement = self._parse_for_update_entry()
+
+            self._consume_statement_end()
+
+            return update
+
+        # Compound assignment / increment on a member or index target
+        # ('self.count += 1;', 'arr[i]++;', ...)
+        if (
+            token.token_type == TokenType.IDENTIFIER
+            and self.tokens[self.cursor + 1].value in (".", "[")
+            and self._find_top_level_compound_op() != -1
+        ):
+            target: Expression
+            target, self.cursor = self._parse_assignment_target()
+
+            update = self._parse_for_update_entry_from_target(target=target)
 
             self._consume_statement_end()
 
@@ -538,9 +562,11 @@ class StatementParser:
         """
         Parses one update entry of a C-style for header.
 
-        Supported forms: 'x = expr', 'x += expr' (and -= *= /= %=), and the
-        increments 'x++' / 'x--'. Compound forms desugar into plain
-        assignments over the existing binary operators.
+        Supported forms: 'x = expr', 'x += expr' (and -= *= /= %=), the
+        increments 'x++' / 'x--', and the same forms over member or index
+        targets ('self.count += 1', 'arr[i]++', 'self.a[0] = y'). Compound
+        forms desugar into plain assignments over the existing binary
+        operators.
 
         Returns:
             Statement: The desugared assignment statement.
@@ -549,14 +575,25 @@ class StatementParser:
             SyntaxError: On malformed update entries.
         """
 
-        name_token: Token = self._current()
+        target: Expression
+        target, self.cursor = self._parse_assignment_target()
 
-        if name_token.token_type != TokenType.IDENTIFIER:
-            raise SyntaxError(
-                f"Expected update target name at index {name_token.position}"
-            )
+        return self._parse_for_update_entry_from_target(target=target)
 
-        self.cursor += 1
+    def _parse_for_update_entry_from_target(self, target: Expression) -> Statement:
+        """
+        Parses the operator and right hand side of an update entry whose
+        target expression has already been consumed.
+
+        Args:
+            target (Expression): The already-parsed target expression.
+
+        Returns:
+            Statement: The desugared assignment statement.
+
+        Raises:
+            SyntaxError: On malformed update entries.
+        """
 
         token: Token = self._current()
 
@@ -569,7 +606,7 @@ class StatementParser:
                 cursor=self.cursor
             )
 
-            return AssignStmt(target_name=name_token.value, value_expr=value)
+            return self._target_or_plain_assign(target=target, value_expr=value)
 
         # Compound assignments and increments desugar into binary operations
         binary_op: Optional[str] = None
@@ -592,24 +629,135 @@ class StatementParser:
 
         # 'x++' / 'x--' imply a literal step of 1
         if token.value in ("++", "--"):
-            value_expr: Expression = LiteralExpr(value=1)
+            rhs: Expression = LiteralExpr(value=1)
 
         else:
-            value_expr_parsed: Expression
-            value_expr_parsed, self.cursor = (
-                self.expression_parser.parse_expression_at(cursor=self.cursor)
+            rhs_parsed: Expression
+            rhs_parsed, self.cursor = self.expression_parser.parse_expression_at(
+                cursor=self.cursor
             )
 
-            value_expr = value_expr_parsed
+            rhs = rhs_parsed
 
-        return AssignStmt(
-            target_name=name_token.value,
-            value_expr=BinaryOpExpr(
-                op=binary_op,
-                left=IdentifierExpr(name=name_token.value),
-                right=value_expr,
-            ),
+        return self._desugar_compound(
+            target=target,
+            binary_op=binary_op,
+            rhs=rhs,
         )
+
+    def _parse_assignment_target(self) -> tuple[Expression, int]:
+        """
+        Parses an assignment target expression at the cursor.
+
+        Args:
+            (none)
+
+        Returns:
+            tuple[Expression, int]: The target expression and the new cursor
+                position (after the target).
+
+        Raises:
+            SyntaxError: If the expression at the cursor is not a valid
+                assignment target.
+        """
+
+        target: Expression
+        target, new_cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        if not isinstance(target, (IdentifierExpr, MemberAccessExpr, IndexExpr)):
+            raise SyntaxError(
+                f"Unsupported assignment target '{repr(target)}' "
+                f"at index {self.cursor}"
+            )
+
+        return target, new_cursor
+
+    def _target_or_plain_assign(
+        self,
+        target: Expression,
+        value_expr: Expression,
+    ) -> Statement:
+        """
+        Builds an assignment statement for a parsed target.
+
+        Args:
+            target (Expression): The parsed target expression.
+            value_expr (Expression): Expression producing the new Value.
+
+        Returns:
+            Statement: AssignStmt for identifier targets, TargetAssignStmt
+                for member or index targets.
+        """
+
+        if isinstance(target, IdentifierExpr):
+            return AssignStmt(target_name=target.name, value_expr=value_expr)
+
+        return TargetAssignStmt(target=target, value_expr=value_expr)
+
+    def _desugar_compound(
+        self,
+        target: Expression,
+        binary_op: str,
+        rhs: Expression,
+    ) -> Statement:
+        """
+        Desugars a compound assignment into an assignment over a binary op.
+
+        Args:
+            target (Expression): The assignment target expression.
+            binary_op (str): The binary operator ('+', '-', '*', '/', '%').
+            rhs (Expression): The right hand side expression.
+
+        Returns:
+            Statement: The desugared assignment statement.
+        """
+
+        return self._target_or_plain_assign(
+            target=target,
+            value_expr=BinaryOpExpr(op=binary_op, left=target, right=rhs),
+        )
+
+    def _find_top_level_compound_op(self) -> int:
+        """
+        Finds the offset of a top-level compound operator relative to the
+        cursor, for standalone statements like 'self.count += 1;'.
+
+        Returns:
+            int: Token offset of the compound operator, or -1 if none
+                before statement end.
+        """
+
+        depth: int = 0
+
+        # Single left-to-right scan from the cursor
+        for offset in range(self.cursor, len(self.tokens)):
+            token: Token = self.tokens[offset]
+
+            # Stop at the EOF sentinel
+            if token.token_type == TokenType.EOF:
+                return -1
+
+            # A call argument list is never part of a target
+            if depth == 0 and token.value in ("(", ")"):
+                return -1
+
+            # Track bracket nesting
+            if token.value in "([{":
+                depth += 1
+
+            elif token.value in ")]}":
+                depth -= 1
+            elif depth == 0 and token.token_type == TokenType.OPERATOR:
+                # A plain '=' means the statement is handled elsewhere
+                if token.value == "=":
+                    return -1
+
+                if token.value in ("+=", "-=", "*=", "/=", "%=", "++", "--"):
+                    return offset - self.cursor
+
+        return -1
 
     def _parse_break(self) -> BreakStmt:
         """
@@ -796,6 +944,13 @@ class StatementParser:
 
         lhs_tokens: list[Token] = self.tokens[self.cursor:self.cursor + equals_offset]
 
+        # A leading '=' (e.g. after an already-consumed expression statement)
+        # has no left hand side at all
+        if not lhs_tokens:
+            raise SyntaxError(
+                f"Unsupported assignment target '=' at index {self.cursor}"
+            )
+
         # Colon form: 'name: Type = ...' (annotation starts after ':')
         if len(lhs_tokens) >= 3 and lhs_tokens[1].value == ":":
             if lhs_tokens[0].token_type != TokenType.IDENTIFIER:
@@ -829,6 +984,8 @@ class StatementParser:
             return self._finish_assignment(target_name=lhs_tokens[0].value)
 
         # Type annotation followed by an identifier: typed declaration
+        # (checked first, so 'Array[Int32] items = ...' is not mistaken
+        # for an index assignment target)
         last_token: Token = lhs_tokens[-1]
         before_last: Token = lhs_tokens[-2]
 
@@ -840,25 +997,63 @@ class StatementParser:
             )
         )
 
-        # Anything else is not a valid left hand side
-        if not is_declaration:
-            raise SyntaxError(
-                f"Unsupported assignment target before '=' at index {last_token.position}"
+        if is_declaration:
+            # Move the cursor onto the '=' before consuming it
+            self.cursor += equals_offset
+
+            # Rebuild the raw type annotation from the source span
+            type_name: str = self._slice_text(
+                start_token=lhs_tokens[0],
+                end_token=lhs_tokens[-2]
             )
 
-        # Move the cursor onto the '=' before consuming it
-        self.cursor += equals_offset
+            return self._finish_declaration(
+                target_name=last_token.value,
+                type_name=type_name
+            )
 
-        # Rebuild the raw type annotation from the source span
-        type_name: str = self._slice_text(
-            start_token=lhs_tokens[0],
-            end_token=lhs_tokens[-2]
+        # Member or index target ('self.count = x', 'arr[0] = y'): the LHS
+        # starts with an identifier and contains a top-level '.' or '['
+        is_target: bool = (
+            lhs_tokens[0].token_type == TokenType.IDENTIFIER
+            and any(token.value in (".", "[") for token in lhs_tokens)
         )
 
-        return self._finish_declaration(
-            target_name=last_token.value,
-            type_name=type_name
+        if is_target:
+            target: Expression
+            target, self.cursor = self._parse_assignment_target()
+
+            # The helper consumes the '=' before parsing the right hand side
+            return self._target_or_plain_assign(
+                target=target,
+                value_expr=self._parse_rhs_after_equals(),
+            )
+
+        # Anything else is not a valid left hand side
+        raise SyntaxError(
+            f"Unsupported assignment target before '=' at index {last_token.position}"
         )
+
+    def _parse_rhs_after_equals(self) -> Expression:
+        """
+        Consumes a top-level '=' and parses the right hand side expression.
+
+        Args:
+            (none)
+
+        Returns:
+            Expression: The parsed right hand side.
+        """
+
+        # Consume the '=' (guaranteed by the caller)
+        self.cursor += 1
+
+        value: Expression
+        value, self.cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        return value
 
     def _finish_assignment(self, target_name: str) -> AssignStmt:
         """

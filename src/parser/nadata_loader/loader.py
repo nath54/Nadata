@@ -106,6 +106,101 @@ class StructRuntimeBinding:
 
         return instance
 
+    def order_by(
+        self,
+        attribute: Value,
+        descending: Optional[Value] = None,
+    ) -> QuerySet:
+        """
+        Returns all instances of the struct sorted by an attribute.
+
+        Args:
+            attribute (Value): Wrapped attribute name to sort by.
+            descending (Value, optional): Wrapped descending flag.
+                Defaults to ascending.
+
+        Returns:
+            QuerySet: Sorted query set over the polymorphic instance list.
+        """
+
+        return self._base_queryset().order_by(
+            attribute=attribute,
+            descending=bool(descending.get()) if descending is not None else False,
+        )
+
+    def sum_of(self, attribute: Value) -> Any:
+        """
+        Sums a numeric attribute over all instances of the struct.
+
+        Args:
+            attribute (Value): Wrapped attribute name.
+
+        Returns:
+            Any: The sum payload.
+        """
+
+        return self._base_queryset().sum_of(attribute=attribute)
+
+    def min_of(self, attribute: Value) -> Any:
+        """
+        Returns the minimum of a numeric attribute over all instances.
+
+        Args:
+            attribute (Value): Wrapped attribute name.
+
+        Returns:
+            Any: The minimum payload.
+        """
+
+        return self._base_queryset().min_of(attribute=attribute)
+
+    def max_of(self, attribute: Value) -> Any:
+        """
+        Returns the maximum of a numeric attribute over all instances.
+
+        Args:
+            attribute (Value): Wrapped attribute name.
+
+        Returns:
+            Any: The maximum payload.
+        """
+
+        return self._base_queryset().max_of(attribute=attribute)
+
+    def average_of(self, attribute: Value) -> Any:
+        """
+        Returns the mean of a numeric attribute over all instances.
+
+        Args:
+            attribute (Value): Wrapped attribute name.
+
+        Returns:
+            Any: The mean payload.
+        """
+
+        return self._base_queryset().average_of(attribute=attribute)
+
+    def _base_queryset(self) -> QuerySet:
+        """
+        Builds the unfiltered polymorphic query set for this struct.
+
+        Args:
+            (none)
+
+        Returns:
+            QuerySet: Query set over every instance (subclasses included).
+        """
+
+        return QuerySet(
+            struct=self.struct,
+            instances=collect_polymorphic_instances(
+                struct=self.struct,
+                database=self.database
+            ),
+            database=self.database,
+            query_executor=self.database.query_executor,
+        )
+
     def where(self, predicate: Value) -> QuerySet:
         """
         Filters all instances of the struct (including subclasses) by a predicate.

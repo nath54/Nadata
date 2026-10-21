@@ -458,6 +458,10 @@ class ForInStmt(Statement):
         iterable_value: Value = self.iterable.evaluate(scope=scope)
         raw_iterable: Any = iterable_value.get()
 
+        # Query-like containers (e.g. QuerySet) expose their elements
+        if hasattr(raw_iterable, "to_list"):
+            raw_iterable = raw_iterable.to_list()
+
         if not isinstance(raw_iterable, list):
             raise TypeError(
                 f"Cannot iterate over '{repr(iterable_value)}': "
@@ -716,3 +720,52 @@ class ContinueStmt(Statement):
         """
 
         return "continue;"
+
+
+class TargetAssignStmt(Statement):
+    """
+    AST statement assigning a Value through a member or index target.
+
+    Covers targets such as 'self.count = x', 'self.readings[0] = y', and
+    nested chains like 'self.child.name = z'. Compound forms ('+=', '++',
+    ...) are desugared at parse time into a plain TargetAssignStmt whose
+    value expression re-reads the target.
+
+    Attributes:
+        target (Expression): MemberAccessExpr or IndexExpr to assign through.
+        value_expr (Expression): Expression producing the new Value.
+    """
+
+    def __init__(self, target: Expression, value_expr: Expression) -> None:
+        """
+        Initializes the TargetAssignStmt instance.
+
+        Args:
+            target (Expression): Member or index target to assign through.
+            value_expr (Expression): Expression producing the new Value.
+        """
+
+        self.target: Expression = target
+        self.value_expr: Expression = value_expr
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Evaluates the value and assigns it through the target expression.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+        """
+
+        val: Value = self.value_expr.evaluate(scope=scope)
+
+        self.target.assign_to(scope=scope, value=val)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the target assignment statement.
+
+        Returns:
+            str: Assignment statement string.
+        """
+
+        return f"{repr(self.target)} = {repr(self.value_expr)};"

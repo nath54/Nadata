@@ -85,8 +85,9 @@ empty_str = ""
 ## 4. Numbers and booleans
 
 - **Integers**: decimal digits, optional leading `-`. No hex/octal/binary literals yet.
-- **Floats**: decimal notation with a fractional part (`21.5`, `0.90`). No exponent
-  notation (`1e6`) yet.
+- **Floats**: decimal notation with a fractional part (`21.5`, `0.90`) and
+  scientific notation (`1e6`, `3.5e-2`, `1.5E+3`). Exponents require at least one
+  digit; `1e` is not a float.
 - **Booleans**: the keywords `true` and `false` (lowercase only).
 - Unary minus is an operator, not part of the literal: `x = -0`, `tiny_val = -128`.
 
@@ -282,8 +283,13 @@ return result;                            // return (mandatory last expression)
 
   - Array indices are integers; Python semantics apply for negatives
     (`[-1]` is the last element). Out-of-range raises `IndexError`.
-  - Dictionary keys must exist, otherwise `KeyError`.
-  - Index assignment (`arr[0] = x`) is not supported yet.
+  - Dictionary keys are validated against the declared key type; assigning
+    to a new key inserts it, assigning to a wrong-typed key raises
+    `TypeError`.
+  - **Index and member assignment** is supported: `arr[0] = x`,
+    `config["floor"] = v`, `self.count = n`, and nested chains such as
+    `self.children[0].name = s`. Array elements and dict values are
+    validated against their declared element types on every write.
 - Instance state is reached only through `self.` (see §6.3): bare names resolve
   to parameters, locals, and global functions — never attributes.
 - **Compound assignments and increments** (statements, not expressions):
@@ -291,7 +297,8 @@ return result;                            // return (mandatory last expression)
   desugars into a plain assignment over the existing binary operator
   (`x += e` is `x = x + e`), so the strict operand rules of §6.6 apply
   (`s += "!"` concatenates; `x++` requires Int/Float). Compound forms target
-  plain identifiers only.
+  plain identifiers, members (`self.count += 1`), and indices (`arr[i]++`,
+  `self.items[0] += 1`) — the target is re-read as the left operand.
 - **Loops** (see §6.8): `for (...) { ... }`, `while (...) { ... }`, with
   `break` / `continue` confined to loop bodies (syntax error outside).
 
@@ -464,7 +471,15 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 ```
 
 - Syntax: `StructName.where((var: StructName) -> boolean_expression)`
-- Returns a queryable collection: `.count()`, `.first()`, chained `.where(...)`.
+- Returns a queryable collection: `.count()`, `.first()`, `.last()`, `.exists()`,
+  chained `.where(...)`, `.limit(n)`, `.to_list()`, and iteration via for-in.
+- **Ordering**: `StructName.order_by("age")` (ascending) or
+  `StructName.order_by("age", descending = true)`. The sort is stable.
+- **Aggregation**: `StructName.sum_of("age")`, `.min_of(...)`, `.max_of(...)`,
+  `.average_of(...)` — numeric attributes only; `StructName.pluck("name")`
+  extracts raw payloads.
+- All of the above are also available on query results:
+  `Person.where(...).order_by("age").limit(5)`.
 - The lambda parameter shadows struct members of the same name.
 - The query engine pre-evaluates loop-invariant sub-expressions once
   (e.g. `now` in `h.age(now)` is computed a single time, not per candidate).
@@ -493,14 +508,12 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 
 ## 9. Open points (to be decided)
 
-1. **`'...'` strings**: reserved, currently a syntax error.
-2. **Exponent numeric literals** (`1e6`): not supported yet.
-3. **Index assignment** (`arr[0] = x`, `dict["k"] = v`, `self.attr += 1`):
-   reading is supported (§6.6), writing is not yet — compound assignments
-   (§6.6) currently target plain identifiers only.
-4. **Iterating struct types** (`for(h: Human in Human)`) — queryset
-   iteration is not yet supported; build an array first.
-5. **`dict.items()`** — deferred until a pair/tuple type exists.
+1. **`'...'` strings**: reserved, currently a syntax error (double quotes only,
+   by design).
+2. **Iterating struct types** (`for(h: Human in Human)`) — supported:
+   struct symbols expose `where`, `order_by`, and aggregation helpers
+   (§6.7); `for(h: Human in Human.where(...))` iterates the result.
+3. **`dict.items()`** — deferred until a pair/tuple type exists.
 
 ---
 
