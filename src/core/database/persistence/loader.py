@@ -148,6 +148,10 @@ def load_database(storage_path: str) -> NaDataDatabase:
     # Restore the type id counter for future registrations
     database.next_type_id = meta_docs[0]["next_type_id"]
 
+    # Settings merge in replay order: later meta documents win per key
+    for meta_doc in meta_docs:
+        database.settings.update(meta_doc.get("settings", {}))
+
     return database
 
 

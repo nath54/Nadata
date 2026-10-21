@@ -7,12 +7,15 @@ conditional if blocks, return statements, and statement blocks managing typed Va
 
 # Import Modules
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 
 from src.core.types.types import Type
 from src.core.values.values import Value
-from src.core.expressions.expression import Expression
+from src.core.expressions.expression import Expression, _wrap_indexed_element
 from src.core.expressions.scope import (
+    BreakSignal,
+    ContinueSignal,
+    LoopLimitError,
     ReturnSignal,
     ExecutionScope,
 )
@@ -373,3 +376,343 @@ class ExprStmt(Statement):
         """
 
         return f"{repr(self.expression)};"
+
+
+def _check_fuel(scope: ExecutionScope, iteration: int, loop_repr: str) -> None:
+    """
+    Validates that a loop iteration is still within the fuel budget.
+
+    Args:
+        scope (ExecutionScope): Scope the loop executes in.
+        iteration (int): Zero-based index of the iteration about to run.
+        loop_repr (str): Representation of the loop for the error message.
+
+    Raises:
+        LoopLimitError: If the shared fuel limit is exhausted.
+    """
+
+    if iteration >= scope.fuel.limit:
+        raise LoopLimitError(
+            f"Loop '{loop_repr}' exceeded the fuel limit of {scope.fuel.limit} "
+            f"iterations"
+        )
+
+
+class ForInStmt(Statement):
+    """
+    AST statement iterating a typed loop variable over an array's elements.
+
+    Attributes:
+        var_name (str): Loop variable name (scoped to the loop body).
+        var_type (Optional[Type]): Resolved declared type of the loop variable.
+        var_type_name (Optional[str]): Raw type annotation, awaiting resolution.
+        iterable (Expression): Expression evaluating to the iterated array.
+        body (BlockStmt): Block executed once per element.
+    """
+
+    def __init__(
+        self,
+        var_name: str,
+        var_type: Optional[Type],
+        var_type_name: Optional[str],
+        iterable: Expression,
+        body: BlockStmt
+    ) -> None:
+        """
+        Initializes the ForInStmt instance.
+
+        Args:
+            var_name (str): Loop variable name.
+            var_type (Optional[Type]): Resolved loop variable type.
+            var_type_name (Optional[str]): Raw type annotation name.
+            iterable (Expression): Iterable expression.
+            body (BlockStmt): Loop body block.
+        """
+
+        self.var_name: str = var_name
+        self.var_type: Optional[Type] = var_type
+        self.var_type_name: Optional[str] = var_type_name
+        self.iterable: Expression = iterable
+        self.body: BlockStmt = body
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Iterates over the array elements, checking each against the declared
+        loop variable type.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            RuntimeError: If the loop variable type was not resolved.
+            TypeError: If the iterable is not an array or an element violates
+                the declared loop variable type.
+            LoopLimitError: If the fuel limit is exhausted.
+        """
+
+        if self.var_type is None:
+            raise RuntimeError(
+                f"Loop variable '{self.var_name}' has no resolved type"
+            )
+
+        iterable_value: Value = self.iterable.evaluate(scope=scope)
+        raw_iterable: Any = iterable_value.get()
+
+        if not isinstance(raw_iterable, list):
+            raise TypeError(
+                f"Cannot iterate over '{repr(iterable_value)}': "
+                f"only arrays are iterable (use .keys() / .values() for dicts)"
+            )
+
+        iteration: int = 0
+
+        for element in raw_iterable:
+            _check_fuel(scope=scope, iteration=iteration, loop_repr=repr(self))
+
+            # Strict per-element check against the declared type
+            self.var_type.check_value(value=element)
+
+            child_scope: ExecutionScope = scope.create_child_scope()
+            child_scope.define(
+                name=self.var_name,
+                value=_wrap_indexed_element(raw=element, element_type=self.var_type),
+            )
+
+            try:
+                self.body.execute(scope=child_scope)
+            except BreakSignal:
+                break
+            except ContinueSignal:
+                pass
+
+            iteration += 1
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ForInStmt.
+
+        Returns:
+            str: For-in loop representation.
+        """
+
+        type_name: str = (
+            self.var_type_name
+            if self.var_type_name is not None
+            else repr(self.var_type)
+        )
+
+        return f"for ({self.var_name}: {type_name} in {repr(self.iterable)}) {{ ... }}"
+
+
+class ForStmt(Statement):
+    """
+    AST statement executing a C-style loop with typed init declarations, a
+    condition, and update statements.
+
+    Attributes:
+        init_statements (list[Statement]): Typed declarations run once in
+            the loop scope (all with initializers).
+        condition (Expression): Boolean condition evaluated before each
+            iteration.
+        update_statements (list[Statement]): Statements run after each
+            iteration (assignments, compound assignments, or increments).
+        body (BlockStmt): Block executed once per iteration.
+    """
+
+    def __init__(
+        self,
+        init_statements: list[Statement],
+        condition: Expression,
+        update_statements: list[Statement],
+        body: BlockStmt
+    ) -> None:
+        """
+        Initializes the ForStmt instance.
+
+        Args:
+            init_statements (list[Statement]): Init declarations.
+            condition (Expression): Loop condition.
+            update_statements (list[Statement]): Update statements.
+            body (BlockStmt): Loop body block.
+        """
+
+        self.init_statements: list[Statement] = init_statements
+        self.condition: Expression = condition
+        self.update_statements: list[Statement] = update_statements
+        self.body: BlockStmt = body
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Executes the C-style loop with per-iteration child scopes.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            LoopLimitError: If the fuel limit is exhausted.
+        """
+
+        loop_scope: ExecutionScope = scope.create_child_scope()
+
+        for init_statement in self.init_statements:
+            init_statement.execute(scope=loop_scope)
+
+        iteration: int = 0
+
+        while True:
+            _check_fuel(scope=scope, iteration=iteration, loop_repr=repr(self))
+
+            condition_value: Value = self.condition.evaluate(scope=loop_scope)
+
+            if not bool(condition_value.get()):
+                break
+
+            child_scope: ExecutionScope = loop_scope.create_child_scope()
+
+            try:
+                self.body.execute(scope=child_scope)
+            except BreakSignal:
+                break
+            except ContinueSignal:
+                pass
+
+            for update_statement in self.update_statements:
+                update_statement.execute(scope=loop_scope)
+
+            iteration += 1
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ForStmt.
+
+        Returns:
+            str: C-style loop representation.
+        """
+
+        inits: str = ", ".join(repr(init) for init in self.init_statements)
+        updates: str = ", ".join(repr(update) for update in self.update_statements)
+
+        return f"for ({inits} :: {repr(self.condition)} :: {updates}) {{ ... }}"
+
+
+class WhileStmt(Statement):
+    """
+    AST statement executing a block while a condition holds.
+
+    Attributes:
+        condition (Expression): Boolean condition evaluated before each
+            iteration.
+        body (BlockStmt): Block executed once per iteration.
+    """
+
+    def __init__(self, condition: Expression, body: BlockStmt) -> None:
+        """
+        Initializes the WhileStmt instance.
+
+        Args:
+            condition (Expression): Loop condition.
+            body (BlockStmt): Loop body block.
+        """
+
+        self.condition: Expression = condition
+        self.body: BlockStmt = body
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Executes the loop body while the condition holds.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            LoopLimitError: If the fuel limit is exhausted.
+        """
+
+        iteration: int = 0
+
+        while True:
+            _check_fuel(scope=scope, iteration=iteration, loop_repr=repr(self))
+
+            condition_value: Value = self.condition.evaluate(scope=scope)
+
+            if not bool(condition_value.get()):
+                break
+
+            child_scope: ExecutionScope = scope.create_child_scope()
+
+            try:
+                self.body.execute(scope=child_scope)
+            except BreakSignal:
+                break
+            except ContinueSignal:
+                pass
+
+            iteration += 1
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the WhileStmt.
+
+        Returns:
+            str: While loop representation.
+        """
+
+        return f"while ({repr(self.condition)}) {{ ... }}"
+
+
+class BreakStmt(Statement):
+    """
+    AST statement exiting the innermost enclosing loop.
+    """
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Raises a BreakSignal to unwind to the innermost loop.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            BreakSignal: Always, to exit the innermost loop.
+        """
+
+        raise BreakSignal()
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the BreakStmt.
+
+        Returns:
+            str: Break statement representation.
+        """
+
+        return "break;"
+
+
+class ContinueStmt(Statement):
+    """
+    AST statement skipping to the next iteration of the innermost loop.
+    """
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Raises a ContinueSignal to unwind to the innermost loop.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            ContinueSignal: Always, to skip the iteration.
+        """
+
+        raise ContinueSignal()
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ContinueStmt.
+
+        Returns:
+            str: Continue statement representation.
+        """
+
+        return "continue;"

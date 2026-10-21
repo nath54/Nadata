@@ -14,13 +14,18 @@ from typing import Optional
 from src.core.expressions.statement import (
     AssignStmt,
     BlockStmt,
+    BreakStmt,
+    ContinueStmt,
     ExprStmt,
+    ForInStmt,
+    ForStmt,
     IfStmt,
     ReturnStmt,
     Statement,
     VarDeclStmt,
+    WhileStmt,
 )
-from src.core.expressions.expression import Expression
+from src.core.expressions.expression import BinaryOpExpr, Expression, IdentifierExpr, LiteralExpr
 from src.parser.expressions.expression_parser import ExpressionParser
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
 
@@ -43,6 +48,9 @@ class StatementParser:
         self.tokens: list[Token] = tokens
         self.raw_text: str = raw_text
         self.cursor: int = 0
+
+        # Nesting depth of loop bodies, for break / continue validation
+        self.loop_depth: int = 0
 
         # Shared expression parser over the same token stream
         self.expression_parser: ExpressionParser = ExpressionParser(tokens=tokens)
@@ -112,6 +120,36 @@ class StatementParser:
         # If / else block
         if token.token_type == TokenType.KEYWORD and token.value == "if":
             return self._parse_if()
+
+        # While loop
+        if token.token_type == TokenType.KEYWORD and token.value == "while":
+            return self._parse_while()
+
+        # For loops (for-in and C-style)
+        if token.token_type == TokenType.KEYWORD and token.value == "for":
+            return self._parse_for()
+
+        # Break statement
+        if token.token_type == TokenType.KEYWORD and token.value == "break":
+            return self._parse_break()
+
+        # Continue statement
+        if token.token_type == TokenType.KEYWORD and token.value == "continue":
+            return self._parse_continue()
+
+        # Postfix increment / decrement and compound assignment statements
+        # ('count++;', 'total += 2;', ...)
+        if (
+            token.token_type == TokenType.IDENTIFIER
+            and self.tokens[self.cursor + 1].token_type == TokenType.OPERATOR
+            and self.tokens[self.cursor + 1].value
+            in ("++", "--", "+=", "-=", "*=", "/=", "%=")
+        ):
+            update: Statement = self._parse_for_update_entry()
+
+            self._consume_statement_end()
+
+            return update
 
         # Declaration or assignment (both contain a top-level '=')
         declaration: Optional[Statement] = self._try_parse_declaration()
@@ -211,6 +249,527 @@ class StatementParser:
             else_block = BlockStmt(statements=[self._parse_if_body()])
 
         return IfStmt(condition=condition, then_block=then_block, else_block=else_block)
+
+    def _parse_while(self) -> WhileStmt:
+        """
+        Parses a while loop with its condition and body block.
+
+        Returns:
+            WhileStmt: The parsed while loop.
+
+        Raises:
+            SyntaxError: On missing condition or body.
+        """
+
+        # Consume the 'while' keyword
+        self.cursor += 1
+
+        # Parse the parenthesized condition
+        self._expect_punctuation("(")
+
+        condition: Expression
+        condition, self.cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        self._expect_punctuation(")")
+
+        self.loop_depth += 1
+
+        try:
+            body: BlockStmt = self._parse_block()
+        finally:
+            self.loop_depth -= 1
+
+        return WhileStmt(condition=condition, body=body)
+
+    def _parse_for(self) -> Statement:
+        """
+        Parses a for loop, detecting the for-in and C-style forms.
+
+        Returns:
+            Statement: The parsed ForInStmt or ForStmt.
+
+        Raises:
+            SyntaxError: On malformed headers.
+        """
+
+        # Consume the 'for' keyword
+        self.cursor += 1
+
+        self._expect_punctuation("(")
+
+        kind: str = self._detect_for_kind()
+
+        if kind == "in":
+            return self._parse_for_in()
+
+        return self._parse_c_style_for()
+
+    def _detect_for_kind(self) -> str:
+        """
+        Detects whether the for header is a for-in or a C-style loop.
+
+        Scans forward from the cursor for the first top-level 'in' keyword or
+        '=' operator: 'in' means for-in, '=' means C-style (its init always
+        declares with an initializer).
+
+        Returns:
+            str: 'in' or 'cstyle'.
+
+        Raises:
+            SyntaxError: If neither marker appears before the closing paren.
+        """
+
+        depth: int = 0
+
+        for offset in range(self.cursor, len(self.tokens)):
+            token: Token = self.tokens[offset]
+
+            if token.token_type == TokenType.EOF:
+                break
+
+            if token.token_type == TokenType.PUNCTUATION and token.value in "([{":
+                depth += 1
+
+            elif token.token_type == TokenType.PUNCTUATION and token.value in ")]}":
+                if depth == 0 and token.value == ")":
+                    break
+
+                depth -= 1
+
+            elif (
+                depth == 0
+                and token.token_type == TokenType.KEYWORD
+                and token.value == "in"
+            ):
+                return "in"
+
+            elif depth == 0 and token.token_type == TokenType.OPERATOR and token.value == "=":
+                return "cstyle"
+
+            elif depth == 0 and token.token_type == TokenType.OPERATOR and token.value == "::":
+                # No '=' before the separator: C-style with a missing
+                # initializer (the init parser reports the exact error)
+                return "cstyle"
+
+        raise SyntaxError(
+            f"Malformed for header: expected 'for (x: Type in iterable)' or "
+            f"'for (x: Type = init :: condition :: update)' near index "
+            f"{self._current().position}"
+        )
+
+    def _parse_for_in(self) -> ForInStmt:
+        """
+        Parses a for-in loop: 'for (x: Type in iterable) { ... }'.
+
+        Returns:
+            ForInStmt: The parsed loop.
+
+        Raises:
+            SyntaxError: On malformed header or body.
+        """
+
+        # Loop variable name
+        name_token: Token = self._current()
+
+        if name_token.token_type != TokenType.IDENTIFIER:
+            raise SyntaxError(
+                f"Expected loop variable name at index {name_token.position}"
+            )
+
+        self.cursor += 1
+
+        # Type annotation
+        self._expect_punctuation(":")
+
+        # Raw type annotation: slice up to the 'in' keyword
+        in_offset: int = self._find_top_level_keyword(keyword="in")
+
+        if in_offset == -1:
+            raise SyntaxError(
+                f"Missing 'in' in for loop header at index {self._current().position}"
+            )
+
+        type_name: str = self._slice_text(
+            start_token=self.tokens[self.cursor],
+            end_token=self.tokens[self.cursor + in_offset - 1],
+        ).strip()
+
+        # Skip the type tokens and the 'in' keyword
+        self.cursor += in_offset + 1
+
+        iterable: Expression
+        iterable, self.cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        self._expect_punctuation(")")
+
+        self.loop_depth += 1
+
+        try:
+            body: BlockStmt = self._parse_block()
+        finally:
+            self.loop_depth -= 1
+
+        return ForInStmt(
+            var_name=name_token.value,
+            var_type=None,
+            var_type_name=type_name,
+            iterable=iterable,
+            body=body,
+        )
+
+    def _parse_c_style_for(self) -> ForStmt:
+        """
+        Parses a C-style loop:
+        'for (x: T = init, y: T = init :: condition :: update, update) { ... }'.
+
+        Returns:
+            ForStmt: The parsed loop.
+
+        Raises:
+            SyntaxError: On malformed header or body.
+        """
+
+        # Init declarations (comma separated, all typed with initializers)
+        init_statements: list[Statement] = []
+
+        while True:
+            init_statements.append(self._parse_for_init_declaration())
+
+            if self._match_operator("::"):
+                break
+
+            if self._match_punctuation(","):
+                continue
+
+            raise SyntaxError(
+                f"Expected ',' or '::' in for init at index {self._current().position}"
+            )
+
+        # Condition
+        condition: Expression
+        condition, self.cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        self._expect_operator("::")
+
+        # Update statements (comma separated)
+        update_statements: list[Statement] = []
+
+        while True:
+            update_statements.append(self._parse_for_update_entry())
+
+            if self._match_punctuation(","):
+                continue
+
+            break
+
+        self._expect_punctuation(")")
+
+        self.loop_depth += 1
+
+        try:
+            body: BlockStmt = self._parse_block()
+        finally:
+            self.loop_depth -= 1
+
+        return ForStmt(
+            init_statements=init_statements,
+            condition=condition,
+            update_statements=update_statements,
+            body=body,
+        )
+
+    def _parse_for_init_declaration(self) -> VarDeclStmt:
+        """
+        Parses one typed init declaration of a C-style for header.
+
+        Returns:
+            VarDeclStmt: The parsed declaration (type resolved at execution).
+
+        Raises:
+            SyntaxError: On malformed declarations or missing initializers.
+        """
+
+        name_token: Token = self._current()
+
+        if name_token.token_type != TokenType.IDENTIFIER:
+            raise SyntaxError(
+                f"Expected loop variable name at index {name_token.position}"
+            )
+
+        self.cursor += 1
+
+        self._expect_punctuation(":")
+
+        # Raw type annotation: slice up to the mandatory '='
+        equals_offset: int = self._find_top_level_operator(operator="=")
+
+        if equals_offset == -1:
+            raise SyntaxError(
+                f"For init declaration of '{name_token.value}' requires an "
+                f"initializer at index {self._current().position}"
+            )
+
+        type_name: str = self._slice_text(
+            start_token=self.tokens[self.cursor],
+            end_token=self.tokens[self.cursor + equals_offset - 1],
+        ).strip()
+
+        # Skip the type tokens and consume the '='
+        self.cursor += equals_offset + 1
+
+        init_expr: Expression
+        init_expr, self.cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        return VarDeclStmt(
+            name=name_token.value,
+            init_expr=init_expr,
+            var_type_name=type_name,
+        )
+
+    def _parse_for_update_entry(self) -> Statement:
+        """
+        Parses one update entry of a C-style for header.
+
+        Supported forms: 'x = expr', 'x += expr' (and -= *= /= %=), and the
+        increments 'x++' / 'x--'. Compound forms desugar into plain
+        assignments over the existing binary operators.
+
+        Returns:
+            Statement: The desugared assignment statement.
+
+        Raises:
+            SyntaxError: On malformed update entries.
+        """
+
+        name_token: Token = self._current()
+
+        if name_token.token_type != TokenType.IDENTIFIER:
+            raise SyntaxError(
+                f"Expected update target name at index {name_token.position}"
+            )
+
+        self.cursor += 1
+
+        token: Token = self._current()
+
+        # Plain assignment
+        if token.token_type == TokenType.OPERATOR and token.value == "=":
+            self.cursor += 1
+
+            value: Expression
+            value, self.cursor = self.expression_parser.parse_expression_at(
+                cursor=self.cursor
+            )
+
+            return AssignStmt(target_name=name_token.value, value_expr=value)
+
+        # Compound assignments and increments desugar into binary operations
+        binary_op: Optional[str] = None
+
+        if token.token_type == TokenType.OPERATOR and token.value in ("+=", "-=", "*=", "/=", "%="):
+            binary_op = token.value[0]
+
+        elif token.token_type == TokenType.OPERATOR and token.value == "++":
+            binary_op = "+"
+
+        elif token.token_type == TokenType.OPERATOR and token.value == "--":
+            binary_op = "-"
+
+        if binary_op is None:
+            raise SyntaxError(
+                f"Unsupported update entry '{token.value}' at index {token.position}"
+            )
+
+        self.cursor += 1
+
+        # 'x++' / 'x--' imply a literal step of 1
+        if token.value in ("++", "--"):
+            value_expr: Expression = LiteralExpr(value=1)
+
+        else:
+            value_expr_parsed: Expression
+            value_expr_parsed, self.cursor = (
+                self.expression_parser.parse_expression_at(cursor=self.cursor)
+            )
+
+            value_expr = value_expr_parsed
+
+        return AssignStmt(
+            target_name=name_token.value,
+            value_expr=BinaryOpExpr(
+                op=binary_op,
+                left=IdentifierExpr(name=name_token.value),
+                right=value_expr,
+            ),
+        )
+
+    def _parse_break(self) -> BreakStmt:
+        """
+        Parses a break statement.
+
+        Returns:
+            BreakStmt: The parsed statement.
+
+        Raises:
+            SyntaxError: If break appears outside of a loop body.
+        """
+
+        self.cursor += 1
+
+        if self.loop_depth == 0:
+            raise SyntaxError("'break' outside of a loop body")
+
+        self._consume_statement_end()
+
+        return BreakStmt()
+
+    def _parse_continue(self) -> ContinueStmt:
+        """
+        Parses a continue statement.
+
+        Returns:
+            ContinueStmt: The parsed statement.
+
+        Raises:
+            SyntaxError: If continue appears outside of a loop body.
+        """
+
+        self.cursor += 1
+
+        if self.loop_depth == 0:
+            raise SyntaxError("'continue' outside of a loop body")
+
+        self._consume_statement_end()
+
+        return ContinueStmt()
+
+    def _expect_operator(self, operator: str) -> None:
+        """
+        Consumes the current token, which must be the given operator.
+
+        Args:
+            operator (str): Expected operator value.
+
+        Raises:
+            SyntaxError: If the current token does not match.
+        """
+
+        token: Token = self._current()
+
+        if not (token.token_type == TokenType.OPERATOR and token.value == operator):
+            raise SyntaxError(
+                f"Expected '{operator}' but found '{token.value}' "
+                f"at index {token.position}"
+            )
+
+        self.cursor += 1
+
+    def _match_operator(self, operator: str) -> bool:
+        """
+        Consumes the current token if it is the given operator.
+
+        Args:
+            operator (str): Operator value to match.
+
+        Returns:
+            bool: True if the operator was matched and consumed.
+        """
+
+        token: Token = self._current()
+
+        if token.token_type == TokenType.OPERATOR and token.value == operator:
+            self.cursor += 1
+            return True
+
+        return False
+
+    def _find_top_level_keyword(self, keyword: str) -> int:
+        """
+        Finds the offset of a top-level keyword relative to the cursor.
+
+        Args:
+            keyword (str): Keyword value to locate.
+
+        Returns:
+            int: Token offset of the keyword, or -1 if none before the
+                closing parenthesis or EOF.
+        """
+
+        depth: int = 0
+
+        for offset in range(self.cursor, len(self.tokens)):
+            token: Token = self.tokens[offset]
+
+            if token.token_type == TokenType.EOF:
+                return -1
+
+            if token.token_type == TokenType.PUNCTUATION and token.value in "([{":
+                depth += 1
+
+            elif token.token_type == TokenType.PUNCTUATION and token.value in ")]}":
+                if depth == 0 and token.value == ")":
+                    return -1
+
+                depth -= 1
+
+            elif (
+                depth == 0
+                and token.token_type == TokenType.KEYWORD
+                and token.value == keyword
+            ):
+                return offset - self.cursor
+
+        return -1
+
+    def _find_top_level_operator(self, operator: str) -> int:
+        """
+        Finds the offset of a top-level operator relative to the cursor.
+
+        Args:
+            operator (str): Operator value to locate.
+
+        Returns:
+            int: Token offset of the operator, or -1 if none before the
+                closing parenthesis, a '::' separator, or EOF.
+        """
+
+        depth: int = 0
+
+        for offset in range(self.cursor, len(self.tokens)):
+            token: Token = self.tokens[offset]
+
+            if token.token_type == TokenType.EOF:
+                return -1
+
+            if token.token_type == TokenType.PUNCTUATION and token.value in "([{":
+                depth += 1
+
+            elif token.token_type == TokenType.PUNCTUATION and token.value in ")]}":
+                if depth == 0 and token.value == ")":
+                    return -1
+
+                depth -= 1
+
+            elif token.token_type == TokenType.OPERATOR and token.value == "::":
+                if depth == 0:
+                    return -1
+
+            elif (
+                depth == 0
+                and token.token_type == TokenType.OPERATOR
+                and token.value == operator
+            ):
+                return offset - self.cursor
+
+        return -1
 
     def _try_parse_declaration(self) -> Optional[Statement]:
         """

@@ -31,10 +31,15 @@ from src.core.expressions.expression import (
 from src.core.expressions.statement import (
     AssignStmt,
     BlockStmt,
+    BreakStmt,
+    ContinueStmt,
     ExprStmt,
+    ForInStmt,
+    ForStmt,
     IfStmt,
     ReturnStmt,
     VarDeclStmt,
+    WhileStmt,
 )
 from src.core.struct.struct import Struct
 from src.core.struct.struct_method import StructMethod
@@ -72,12 +77,16 @@ DECODABLE_CLASSES: dict[str, type] = {
     "AssignStmt": AssignStmt,
     "BinaryOpExpr": BinaryOpExpr,
     "BlockStmt": BlockStmt,
+    "BreakStmt": BreakStmt,
     "CallExpr": CallExpr,
+    "ContinueStmt": ContinueStmt,
     "Color": Color,
     "DateTime": DateTime,
     "DictLiteralExpr": DictLiteralExpr,
     "EntityId": EntityId,
     "ExprStmt": ExprStmt,
+    "ForInStmt": ForInStmt,
+    "ForStmt": ForStmt,
     "IdentifierExpr": IdentifierExpr,
     "IfStmt": IfStmt,
     "LambdaExpr": LambdaExpr,
@@ -105,6 +114,7 @@ DECODABLE_CLASSES: dict[str, type] = {
     "ValueInt": ValueInt,
     "ValueStr": ValueStr,
     "VarDeclStmt": VarDeclStmt,
+    "WhileStmt": WhileStmt,
 }
 
 # Constructor parameter cache per class (excludes self and var args)

@@ -2,9 +2,11 @@
 Interactive console mode for Nadata.
 
 After loading a project folder or a persisted .ndb database, the console
-evaluates one statement batch per line: bare expressions echo their value,
-declarations and scripts execute against the live database, and all state
-(instances, symbols, and script variables) persists across lines.
+evaluates one statement batch per request: source lines accumulate until a
+blank line (double ENTER), then execute as a whole — bare expressions echo
+their value, declarations and scripts (including multi-line loop bodies)
+execute against the live database, and all state (instances, symbols, and
+script variables) persists across requests.
 """
 
 # Import Modules
@@ -14,6 +16,7 @@ from typing import Optional
 from src.api import Nadata
 from src.core.expressions.expression import Expression
 from src.core.expressions.statement import ExprStmt, Statement
+from src.core.expressions.scope import LoopLimitError
 from src.core.values.values import Value, ValueExternal
 from src.parser.nadata_loader.loader import NaDataLoader, format_runtime_value
 
@@ -66,44 +69,87 @@ class NadataConsole:
             f"Nadata console - {len(self.app.struct_names)} struct(s), "
             f"{instance_count} instance(s), {len(self.app.function_names)} function(s)."
         )
-        print("Type an expression, a statement, or :help for commands.")
+        print(
+            "Type an expression or statement, then a blank line to run it "
+            "(:help for commands)."
+        )
+
+        buffer: list[str] = []
 
         while True:
             try:
-                line: str = input("nadata> ").strip()
-            except (EOFError, KeyboardInterrupt):
+                prompt: str = "nadata> " if not buffer else "      ... "
+                line: str = input(prompt).strip()
+
+            except KeyboardInterrupt:
+                # Cancel the current request, keep the session alive
+                if buffer:
+                    buffer = []
+                    print("(input cancelled)")
+                    continue
+
                 print()
+
                 return 0
 
-            if not line:
-                continue
+            except EOFError:
+                print()
 
+                return 0
+
+            # Quit commands work immediately, even mid-request
             if line in (":quit", ":q", "exit", "quit"):
                 return 0
 
-            try:
-                output: Optional[str] = self.execute_line(line=line)
+            # Commands execute immediately on a single ENTER
+            if not buffer and line in CONSOLE_COMMANDS:
+                print(self._execute_command(command=line))
 
-                if output is not None:
-                    print(output)
+                continue
 
-            except (NameError, AttributeError, TypeError, KeyError, SyntaxError) as error:
-                print(f"error: {error}")
+            # Blank line: run the accumulated request (if any)
+            if not line:
+                if not buffer:
+                    continue
+
+                source: str = "\n".join(buffer)
+                buffer = []
+
+                try:
+                    output: Optional[str] = self.execute_line(line=source)
+
+                    if output is not None:
+                        print(output)
+
+                except (
+                    NameError,
+                    AttributeError,
+                    TypeError,
+                    KeyError,
+                    SyntaxError,
+                    LoopLimitError,
+                ) as error:
+                    print(f"error: {error}")
+
+                continue
+
+            buffer.append(line)
 
     def execute_line(self, line: str) -> Optional[str]:
         """
-        Executes a single console line against the live database.
+        Executes one request (single or multi line source) against the
+        live database.
 
-        A line holding exactly one bare expression echoes its formatted
-        value; anything else (declarations, assignments, multi statements)
+        A request holding exactly one bare expression echoes its formatted
+        value; anything else (declarations, assignments, loop bodies)
         executes through the loader. print() and other None-returning calls
         stay silent.
 
         Args:
-            line (str): The source line to execute.
+            line (str): The source request (lines joined with newlines).
 
         Returns:
-            Optional[str]: The echoed value for expression lines, None
+            Optional[str]: The echoed value for expression requests, None
             otherwise.
         """
 

@@ -286,6 +286,60 @@ return result;                            // return (mandatory last expression)
   - Index assignment (`arr[0] = x`) is not supported yet.
 - Instance state is reached only through `self.` (see §6.3): bare names resolve
   to parameters, locals, and global functions — never attributes.
+- **Compound assignments and increments** (statements, not expressions):
+  `x += e`, `x -= e`, `x *= e`, `x /= e`, `x %= e`, `x++`, `x--`. Each
+  desugars into a plain assignment over the existing binary operator
+  (`x += e` is `x = x + e`), so the strict operand rules of §6.6 apply
+  (`s += "!"` concatenates; `x++` requires Int/Float). Compound forms target
+  plain identifiers only.
+- **Loops** (see §6.8): `for (...) { ... }`, `while (...) { ... }`, with
+  `break` / `continue` confined to loop bodies (syntax error outside).
+
+### 6.8 Loops
+
+All loops are **fuel-guarded**: each loop may run at most `loop_limit`
+iterations (default **10,000**), then a `LoopLimitError` aborts execution.
+The limit is a database setting — change it with the native
+`set_loop_limit(n)` from script code or `app.set_loop_limit(n)` from Python;
+the value persists in the `.ndb` meta document.
+
+**For-in** — iterate an array's elements (or a dict's keys / values). The
+loop variable is **always typed** and scoped to the loop body:
+
+```text
+for(x: Int32 in numbers) { total = total + x; }
+for(h: Human in adults) { print(h.name); }
+for(k: Str in config.keys()) { ... }
+for(v: Int32 in config.values()) { ... }
+```
+
+- Each element is checked against the declared type as it is bound
+  (subtypes pass; a mismatch raises `TypeError` naming the element).
+- Only arrays are iterable; `for(k in d)` (direct dict iteration) is
+  rejected as ambiguous — use `.keys()` / `.values()`.
+- The loop variable must be **fresh**: it may not shadow a parameter,
+  attribute, or local visible at the loop (resolution error). Sequential
+  loops may reuse a name, since loop variables go out of scope.
+
+**While**:
+
+```text
+while(count < 10) { count++; }
+```
+
+**C-style** — sections separated by `::` (commas stay free for the
+comma-separated init / update lists). All three sections are mandatory and
+every init declaration is typed with a mandatory initializer:
+
+```text
+for(i: Int32 = 0 :: i < 10 :: i++) { ... }
+for(x: Int32 = 0, y: Int32 = 10 :: x + y < 100 :: x += 1, y *= 2) { ... }
+```
+
+- Init declarations and the loop variable live in the loop scope and vanish
+  after the loop (same freshness rule as for-in).
+- Update entries may be assignments, compound assignments, or `++` / `--`.
+- `break` exits the innermost loop; `continue` skips to its next iteration.
 
 ### 6.7 Built-in members and functions
 
@@ -429,6 +483,7 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 | `,` | Separates arguments, array elements, dict entries, and generic type arguments inside any bracket |
 | `,` | Separates array elements, dict entries, and generic type arguments inside `[ ]` and `{ }` |
 | `:` | Type annotations, dict key/value separation |
+| `::` | Separates the init / condition / update sections of a C-style `for` header |
 | `=` | Assignments, default values, named arguments |
 | `->` | Return types (methods, functions, query lambdas) |
 | `@` | Method and computed property declarations (parameter list `()` mandatory) |
@@ -438,14 +493,14 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 
 ## 9. Open points (to be decided)
 
-1. **Loops**: no `for` / `while` syntax defined yet (a fuel-guarded design is
-   planned to prevent runaway loops).
-2. **`'...'` strings**: reserved, currently a syntax error.
-3. **Exponent numeric literals** (`1e6`): not supported yet.
-4. **Multiple assignment targets / augmented assignment** (`+=`): not
-   supported yet.
-5. **Index assignment** (`arr[0] = x`, `dict["k"] = v`): reading is supported
-   (§6.6), writing is not yet.
+1. **`'...'` strings**: reserved, currently a syntax error.
+2. **Exponent numeric literals** (`1e6`): not supported yet.
+3. **Index assignment** (`arr[0] = x`, `dict["k"] = v`, `self.attr += 1`):
+   reading is supported (§6.6), writing is not yet — compound assignments
+   (§6.6) currently target plain identifiers only.
+4. **Iterating struct types** (`for(h: Human in Human)`) — queryset
+   iteration is not yet supported; build an array first.
+5. **`dict.items()`** — deferred until a pair/tuple type exists.
 
 ---
 

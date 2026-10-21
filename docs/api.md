@@ -103,10 +103,13 @@ calls and queries.
 ```python
 app.dump("store.ndb")          # full snapshot (file must not exist)
 n = app.save_changes("store.ndb")   # incremental: append only the delta
+app.set_loop_limit(100000)     # raise the per-loop fuel limit (persisted)
 ```
 
 `save_changes` returns the number of delta documents appended (1 when nothing
-but the meta header is written). See [persistence.md](persistence.md).
+but the meta header is written). `set_loop_limit` raises `LoopLimitError`
+protection from 10,000 to the given per-loop iteration cap and persists the
+value in the database settings. See [persistence.md](persistence.md).
 
 ---
 
@@ -150,28 +153,33 @@ a persisted `.ndb` file:
 $ nadata console examples/ex0_simple
 Nadata console - 6 struct(s), 6 instance(s), 2 function(s).
 nadata> tom.name
+      ... 
 Tom
-nadata> tom.id
-0
 nadata> adults = Human.where((h: Human) -> h.birthplace == "Paris");
-nadata> adults.count()
-3
-nadata> zoe = Human(name = "Zoe")
-nadata> zoe.setattr("birthplace", "Lyon")
-nadata> print(zoe.list_attr());
-['name', 'gender', ..., 'size', 'weight', 'pets', 'objects']
+      ... 
+nadata> for(h: Human in adults){
+      ...   print(h.name);
+      ... }
+      ... 
+Tom
+Jean
+Kate
 nadata> :quit
 ```
 
-- A line holding a **bare expression** echoes its formatted value (type
+- Requests end with a **blank line** (double ENTER): source lines accumulate
+  in a buffer, and the blank line runs the whole request — this is what
+  makes multi-line loop and if bodies possible. `:commands` and `:quit`
+  stay immediate on a single ENTER; Ctrl-C cancels the current request.
+- A request holding a **bare expression** echoes its formatted value (type
   handles render as `<Type ...>`, instances as `<Struct id=N>`).
 - **Declarations and statements** execute against the live database — created
   instances become queryable symbols.
-- **All state persists across lines**: script variables, new instances, and
-  schema changes.
+- **All state persists across requests**: script variables, new instances,
+  and schema changes.
 - `print(...)` and other None-returning calls (e.g. `setattr`) stay silent.
 - Meta commands: `:help`, `:info`, `:classes`, `:symbols`, `:quit` (also
-  `:q`, `exit`, `quit`). Ctrl-D / Ctrl-C exit gracefully.
+  `:q`, `exit`, `quit`). Ctrl-D exits gracefully.
 - Errors print as `error: ...` and keep the session alive.
 
 The same loop is available from Python:

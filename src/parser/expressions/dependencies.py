@@ -25,11 +25,16 @@ from src.core.expressions.expression import (
 from src.core.expressions.statement import (
     AssignStmt,
     BlockStmt,
+    BreakStmt,
+    ContinueStmt,
     ExprStmt,
+    ForInStmt,
+    ForStmt,
     IfStmt,
     ReturnStmt,
     Statement,
     VarDeclStmt,
+    WhileStmt,
 )
 from src.parser.utils.identifiers import IdentifierExtractor
 
@@ -177,6 +182,18 @@ def collect_declared_names(statements: list[Statement]) -> set[str]:
                     statements=statement.else_block.statements
                 )
 
+        # Loop variables and loop body declarations
+        elif isinstance(statement, ForInStmt):
+            names.add(statement.var_name)
+            names |= collect_declared_names(statements=statement.body.statements)
+
+        elif isinstance(statement, ForStmt):
+            names |= collect_declared_names(statements=statement.init_statements)
+            names |= collect_declared_names(statements=statement.body.statements)
+
+        elif isinstance(statement, WhileStmt):
+            names |= collect_declared_names(statements=statement.body.statements)
+
         # Nested blocks bind their own names
         elif isinstance(statement, BlockStmt):
             names |= collect_declared_names(statements=statement.statements)
@@ -235,6 +252,48 @@ def _collect_statement_from(
             for inner in statement.else_block.statements:
                 _collect_statement_from(statement=inner, dependencies=dependencies)
 
+        return
+
+    # For-in loops: the iterable, the annotation, and the body
+    if isinstance(statement, ForInStmt):
+        _collect_from(node=statement.iterable, dependencies=dependencies)
+
+        if statement.var_type_name is not None:
+            dependencies |= IdentifierExtractor.extract_identifiers(
+                text=statement.var_type_name
+            )
+
+        for inner in statement.body.statements:
+            _collect_statement_from(statement=inner, dependencies=dependencies)
+
+        return
+
+    # C-style loops: inits, condition, updates, and the body
+    if isinstance(statement, ForStmt):
+        for init in statement.init_statements:
+            _collect_statement_from(statement=init, dependencies=dependencies)
+
+        _collect_from(node=statement.condition, dependencies=dependencies)
+
+        for update in statement.update_statements:
+            _collect_statement_from(statement=update, dependencies=dependencies)
+
+        for inner in statement.body.statements:
+            _collect_statement_from(statement=inner, dependencies=dependencies)
+
+        return
+
+    # While loops: the condition and the body
+    if isinstance(statement, WhileStmt):
+        _collect_from(node=statement.condition, dependencies=dependencies)
+
+        for inner in statement.body.statements:
+            _collect_statement_from(statement=inner, dependencies=dependencies)
+
+        return
+
+    # Break / continue reference nothing
+    if isinstance(statement, (BreakStmt, ContinueStmt)):
         return
 
     # Nested blocks

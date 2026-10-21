@@ -15,7 +15,17 @@ from src.core.database.database import NaDataDatabase
 from src.core.expressions.builtins import builtin_type
 from src.core.expressions.expression import ArrayLiteralExpr, DictLiteralExpr, Expression
 from src.core.expressions.scope import ExecutionScope
-from src.core.expressions.statement import BlockStmt, IfStmt, Statement, VarDeclStmt
+from src.core.expressions.statement import (
+    BlockStmt,
+    BreakStmt,
+    ContinueStmt,
+    ForInStmt,
+    ForStmt,
+    IfStmt,
+    Statement,
+    VarDeclStmt,
+    WhileStmt,
+)
 from src.core.struct.struct import Struct
 from src.core.struct.struct_attribute import StructAttribute
 from src.core.struct.struct_method import StructMethod
@@ -54,7 +64,7 @@ from src.core.types.types import (
     UFloat32,
     UFloat64,
 )
-from src.parser.expressions.type_parser import TmpType
+from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.nastruct_parser.parser_state import NaStructParserState
 from src.parser.nastruct_parser.tmp_structs import TmpAttribute, TmpFunction, TmpStruct
 
@@ -334,6 +344,12 @@ class SchemaResolver:
             parent = parent.parent
 
         for tmp_function in tmp_struct.methods.values():
+            self._resolve_body_statement_types(
+                statements=tmp_function.fn_body,
+                fn_name=tmp_function.fn_name,
+                struct_name=struct.name,
+            )
+
             declared_names: list[str] = list(tmp_function.fn_argument.keys())
 
             for statement in tmp_function.fn_body:
@@ -347,6 +363,223 @@ class SchemaResolver:
                         f"access attributes through 'self'"
                     )
 
+            # Loop variables must be fresh in their lexical scope
+            self._check_loop_variable_freshness(
+                statements=tmp_function.fn_body,
+                visible=set(tmp_function.fn_argument.keys()),
+                fn_name=tmp_function.fn_name,
+                struct_name=struct.name,
+            )
+
+    def _resolve_body_statement_types(
+        self,
+        statements: list[Statement],
+        fn_name: str,
+        struct_name: str,
+    ) -> None:
+        """
+        Resolves the raw type annotations inside a method body statement tree.
+
+        Covers typed local declarations and loop variables (recursing into
+        nested blocks, branches, and loop bodies).
+
+        Args:
+            statements (list[Statement]): Statement tree to resolve in place.
+            fn_name (str): Method name, for error messages.
+            struct_name (str): Struct name, for error messages.
+
+        Raises:
+            SyntaxError: If a type annotation cannot be resolved.
+        """
+
+        for statement in statements:
+            if isinstance(statement, VarDeclStmt) and statement.var_type is None:
+                if statement.var_type_name is not None:
+                    statement.var_type = self._resolve_annotation(
+                        type_name=statement.var_type_name,
+                        fn_name=fn_name,
+                        struct_name=struct_name,
+                    )
+
+            elif isinstance(statement, ForInStmt) and statement.var_type is None:
+                if statement.var_type_name is not None:
+                    statement.var_type = self._resolve_annotation(
+                        type_name=statement.var_type_name,
+                        fn_name=fn_name,
+                        struct_name=struct_name,
+                    )
+
+                self._resolve_body_statement_types(
+                    statements=statement.body.statements,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+            elif isinstance(statement, ForStmt):
+                self._resolve_body_statement_types(
+                    statements=statement.init_statements,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+                self._resolve_body_statement_types(
+                    statements=statement.body.statements,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+            elif isinstance(statement, WhileStmt):
+                self._resolve_body_statement_types(
+                    statements=statement.body.statements,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+            elif isinstance(statement, IfStmt):
+                self._resolve_body_statement_types(
+                    statements=statement.then_block.statements,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+                if statement.else_block is not None:
+                    self._resolve_body_statement_types(
+                        statements=statement.else_block.statements,
+                        fn_name=fn_name,
+                        struct_name=struct_name,
+                    )
+
+            elif isinstance(statement, BlockStmt):
+                self._resolve_body_statement_types(
+                    statements=statement.statements,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+    def _resolve_annotation(self, type_name: str, fn_name: str, struct_name: str) -> Type:
+        """
+        Resolves a raw type annotation from a method body.
+
+        Args:
+            type_name (str): Raw annotation text.
+            fn_name (str): Method name, for error messages.
+            struct_name (str): Struct name, for error messages.
+
+        Returns:
+            Type: The resolved schema type.
+
+        Raises:
+            SyntaxError: If the annotation cannot be parsed or resolved.
+        """
+
+        try:
+            tmp_type: TmpType = TypeParser.parse_text(text=type_name)
+
+            return self.type_resolver.resolve(tmp_type=tmp_type)
+
+        except SyntaxError as error:
+            raise SyntaxError(
+                f"Unknown type '{type_name}' for local in method '{fn_name}' "
+                f"of struct '{struct_name}': {error}"
+            )
+
+    def _check_loop_variable_freshness(
+        self,
+        statements: list[Statement],
+        visible: set[str],
+        fn_name: str,
+        struct_name: str,
+    ) -> None:
+        """
+        Rejects loop variables that shadow a name visible at the loop.
+
+        The walk is flow sensitive: only parameters and locals declared
+        lexically before the loop are in scope. Loop variables themselves go
+        out of scope after their loop, so sequential loops may reuse a name.
+
+        Args:
+            statements (list[Statement]): Statement sequence to walk.
+            visible (set[str]): Names visible at the current position.
+            fn_name (str): Method name, for error messages.
+            struct_name (str): Struct name, for error messages.
+
+        Raises:
+            SyntaxError: If a loop variable shadows a visible name.
+        """
+
+        for statement in statements:
+            if isinstance(statement, VarDeclStmt):
+                visible.add(statement.name)
+
+            elif isinstance(statement, ForInStmt):
+                if statement.var_name in visible:
+                    raise SyntaxError(
+                        f"Loop variable '{statement.var_name}' in method "
+                        f"'{fn_name}' of struct '{struct_name}' shadows an "
+                        f"existing variable in scope"
+                    )
+
+                self._check_loop_variable_freshness(
+                    statements=statement.body.statements,
+                    visible=visible | {statement.var_name},
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+            elif isinstance(statement, ForStmt):
+                init_names: set[str] = {
+                    init.name
+                    for init in statement.init_statements
+                    if isinstance(init, VarDeclStmt)
+                }
+
+                for init_name in init_names:
+                    if init_name in visible:
+                        raise SyntaxError(
+                            f"Loop variable '{init_name}' in method "
+                            f"'{fn_name}' of struct '{struct_name}' shadows an "
+                            f"existing variable in scope"
+                        )
+
+                self._check_loop_variable_freshness(
+                    statements=statement.body.statements,
+                    visible=visible | init_names,
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+            elif isinstance(statement, WhileStmt):
+                self._check_loop_variable_freshness(
+                    statements=statement.body.statements,
+                    visible=set(visible),
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+            elif isinstance(statement, IfStmt):
+                self._check_loop_variable_freshness(
+                    statements=statement.then_block.statements,
+                    visible=set(visible),
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
+                if statement.else_block is not None:
+                    self._check_loop_variable_freshness(
+                        statements=statement.else_block.statements,
+                        visible=set(visible),
+                        fn_name=fn_name,
+                        struct_name=struct_name,
+                    )
+
+            elif isinstance(statement, BlockStmt):
+                self._check_loop_variable_freshness(
+                    statements=statement.statements,
+                    visible=set(visible),
+                    fn_name=fn_name,
+                    struct_name=struct_name,
+                )
+
     def _collect_declared_names(self, statement: Statement, names: list[str]) -> None:
         """
         Appends the names of variables declared by a statement tree.
@@ -359,6 +592,29 @@ class SchemaResolver:
 
         if isinstance(statement, VarDeclStmt):
             names.append(statement.name)
+
+            return
+
+        if isinstance(statement, ForInStmt):
+            names.append(statement.var_name)
+
+            for nested in statement.body.statements:
+                self._collect_declared_names(statement=nested, names=names)
+
+            return
+
+        if isinstance(statement, ForStmt):
+            for init in statement.init_statements:
+                self._collect_declared_names(statement=init, names=names)
+
+            for nested in statement.body.statements:
+                self._collect_declared_names(statement=nested, names=names)
+
+            return
+
+        if isinstance(statement, WhileStmt):
+            for nested in statement.body.statements:
+                self._collect_declared_names(statement=nested, names=names)
 
             return
 

@@ -14,8 +14,16 @@ imports the core struct classes (which import expressions).
 from __future__ import annotations
 from typing import Any, Optional, cast
 
-from src.core.types.types import TypeArray, TypeStr
-from src.core.values.values import TYPE_EXTERNAL, Value, ValueArray, ValueExternal, ValueStr
+from src.core.expressions.scope import ScopeAwareFunction
+from src.core.types.types import TypeArray, TypeDict, TypeStr
+from src.core.values.values import (
+    TYPE_EXTERNAL,
+    Value,
+    ValueArray,
+    ValueDict,
+    ValueExternal,
+    ValueStr,
+)
 
 # Members resolved virtually on instances and struct types
 VIRTUAL_MEMBERS: set[str] = {"list_attr", "list_methods", "getattr", "setattr"}
@@ -372,3 +380,117 @@ class SchemaFunctionsFunction:
         """
 
         return _externals_array(payloads=list(self.database.functions.values()))
+
+
+class SetLoopLimitFunction(ScopeAwareFunction):
+    """
+    Native set_loop_limit(n): raises or lowers the loop fuel limit.
+
+    Updates the shared fuel object of the current execution immediately and
+    records the new limit in the database settings, so the next dump or
+    incremental save persists it.
+    """
+
+    def __init__(self, database: Any) -> None:
+        """
+        Initializes the SetLoopLimitFunction instance.
+
+        Args:
+            database (Any): Database whose settings record the limit.
+        """
+
+        self.database: Any = database
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Any],
+        kwargs: dict[str, Any]
+    ) -> None:
+        """
+        Sets the loop fuel limit for the current execution and the database.
+
+        Args:
+            scope (Any): Live execution scope of the call site.
+            args (list[Any]): Marshaled positional arguments (the new limit).
+            kwargs (dict[str, Any]): Marshaled keyword arguments (ignored).
+
+        Raises:
+            TypeError: If the limit is not an integer.
+            ValueError: If the limit is below 1.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("set_loop_limit takes exactly one argument")
+
+        limit: Any = args[0]
+
+        if isinstance(limit, Value):
+            limit = limit.get()
+
+        if not isinstance(limit, int) or isinstance(limit, bool):
+            raise TypeError(f"Loop limit must be an integer, got '{type(limit).__name__}'")
+
+        if limit < 1:
+            raise ValueError(f"Loop limit must be at least 1, got {limit}")
+
+        # Immediate effect on the running execution
+        scope.fuel.limit = limit
+
+        # Persistent effect: recorded in the database settings
+        self.database.settings["loop_limit"] = limit
+
+
+class DictCollectionCallable:
+    """
+    Callable bound to the keys() or values() helper of a typed dict value.
+
+    Attributes:
+        value_dict (ValueDict): Receiver dict value.
+        member (str): Helper name ('keys' or 'values').
+    """
+
+    def __init__(self, value_dict: ValueDict, member: str) -> None:
+        """
+        Initializes the DictCollectionCallable instance.
+
+        Args:
+            value_dict (ValueDict): Receiver dict value.
+            member (str): Helper name.
+        """
+
+        self.value_dict: ValueDict = value_dict
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Returns the dict keys or values as a typed array.
+
+        Args:
+            *args (Value): Must be empty.
+
+        Returns:
+            Value: Array of the declared key or value type.
+
+        Raises:
+            TypeError: If any argument is passed.
+        """
+
+        _require_arg_count(args=args, count=0, member=self.member)
+
+        if self.member == "keys":
+            element_type: Any = self.value_dict.value_type.key_type
+
+        else:
+            element_type = self.value_dict.value_type.value_type
+
+        elements: list[Any] = (
+            list(self.value_dict.entries.keys())
+            if self.member == "keys"
+            else list(self.value_dict.entries.values())
+        )
+
+        return ValueArray(
+            value_type=TypeArray(value_type=element_type),
+            elements=elements,
+        )

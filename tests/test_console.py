@@ -113,7 +113,7 @@ class TestConsoleRun:
         app: Nadata = Nadata.load(path="./examples/ex0_simple")
         console: NadataConsole = NadataConsole(app=app)
 
-        lines: list[str] = ["tom.name", ":quit"]
+        lines: list[str] = ["tom.name", "", ":quit"]
 
         monkeypatch.setattr(
             "builtins.input",
@@ -133,7 +133,7 @@ class TestConsoleRun:
         app: Nadata = Nadata.load(path="./examples/ex0_simple")
         console: NadataConsole = NadataConsole(app=app)
 
-        lines: list[str] = ["no_such_symbol.field", "tom.name", ":quit"]
+        lines: list[str] = ["no_such_symbol.field", "", "tom.name", "", ":quit"]
 
         monkeypatch.setattr(
             "builtins.input",

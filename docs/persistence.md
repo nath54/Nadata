@@ -142,6 +142,17 @@ Safety properties:
 - Single-writer, as everywhere else in Nadata: do not compact while another
   process appends.
 
+## Database settings
+
+The meta document carries a `settings` dict of database-wide parameters,
+replayed in insertion order on load (later documents win per key) and
+rewritten verbatim by a full dump. Today it holds one key:
+
+- `loop_limit` — maximum iterations per loop (default 10,000; loops beyond
+  it raise `LoopLimitError`). Change it with `app.set_loop_limit(n)` from
+  Python or `set_loop_limit(n)` from script code — the next dump or
+  incremental save persists it.
+
 ## Python surface
 
 ```python

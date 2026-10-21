@@ -41,11 +41,12 @@ def dump_database(database: NaDataDatabase, storage_path: str) -> None:
     record_store: RecordStore = RecordStore(page_manager=page_manager)
     codec: ObjectCodec = ObjectCodec()
 
-    # Meta document: format version and type id counter
+    # Meta document: format version, type id counter, and settings
     meta_doc: dict[str, Any] = {
         "kind": "meta",
         "format_version": 1,
         "next_type_id": database.next_type_id,
+        "settings": dict(database.settings),
     }
     record_store.put_document(payload=_json_bytes(doc=meta_doc))
 
@@ -198,11 +199,12 @@ def append_database_changes(database: NaDataDatabase, storage_path: str) -> int:
     codec: ObjectCodec = ObjectCodec()
     written: int = 0
 
-    # Meta document: the loader takes the latest one
+    # Meta document: the loader takes the latest one (settings included)
     meta_doc: dict[str, Any] = {
         "kind": "meta",
         "format_version": 1,
         "next_type_id": database.next_type_id,
+        "settings": dict(database.settings),
     }
     record_store.put_document(payload=_json_bytes(doc=meta_doc))
     written += 1

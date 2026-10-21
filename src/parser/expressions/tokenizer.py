@@ -50,10 +50,14 @@ class Token:
 KEYWORDS: frozenset[str] = frozenset({
     "class", "fn", "if", "elif", "else", "return",
     "true", "false", "and", "or", "xor", "nand", "not",
+    "for", "while", "break", "continue", "in",
 })
 
 # Two-character operators, checked before single-character ones
-MULTI_CHAR_OPERATORS: tuple[str, ...] = ("==", "!=", "<=", ">=", "->")
+MULTI_CHAR_OPERATORS: tuple[str, ...] = (
+    "==", "!=", "<=", ">=", "->",
+    "::", "+=", "-=", "*=", "/=", "%=", "++", "--",
+)
 
 # Single-character operator symbols
 SINGLE_CHAR_OPERATORS: str = "+-*/%<>=!"

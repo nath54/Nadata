@@ -13,11 +13,24 @@ from typing import Any, Optional, cast
 
 from src.core.struct.struct import Struct
 from src.core.values.values import Value, ValueExternal
-from src.core.expressions.scope import ExecutionScope
-from src.core.expressions.statement import AssignStmt, Statement, VarDeclStmt
+from src.core.expressions.scope import DEFAULT_LOOP_LIMIT, LOOP_FUEL_KEY, ExecutionScope, LoopFuel
+from src.core.expressions.statement import (
+    AssignStmt,
+    BlockStmt,
+    ForInStmt,
+    ForStmt,
+    IfStmt,
+    Statement,
+    VarDeclStmt,
+    WhileStmt,
+)
 from src.core.database.database import NaDataDatabase
 from src.core.database.instance import StructInstance
-from src.core.expressions.builtins import SchemaClassesFunction, SchemaFunctionsFunction
+from src.core.expressions.builtins import (
+    SchemaClassesFunction,
+    SchemaFunctionsFunction,
+    SetLoopLimitFunction,
+)
 from src.core.database.queryset import QuerySet
 from src.core.expressions.expression import CallExpr, Expression, IdentifierExpr
 from src.parser.expressions.type_parser import TmpType, TypeParser
@@ -432,6 +445,8 @@ class NaDataLoader:
         """
 
         for stmt in self.script_statements:
+            self._resolve_script_statement_types(statement=stmt)
+
             if isinstance(stmt, VarDeclStmt):
                 self._execute_var_decl(stmt=stmt)
 
@@ -440,6 +455,84 @@ class NaDataLoader:
 
             else:
                 stmt.execute(scope=self.scope)
+
+    def _resolve_script_statement_types(self, statement: Statement) -> None:
+        """
+        Resolves raw type annotations inside a script statement tree.
+
+        Covers typed local declarations and loop variables (recursing into
+        nested blocks, branches, and loop bodies). Resolution is idempotent:
+        already resolved types are kept.
+
+        Args:
+            statement (Statement): Statement tree to resolve in place.
+        """
+
+        if isinstance(statement, VarDeclStmt) and statement.var_type is None:
+            if statement.var_type_name is not None:
+                statement.var_type = self._resolve_var_type(
+                    type_name=statement.var_type_name
+                )
+
+            return
+
+        if isinstance(statement, ForInStmt):
+            if statement.var_type is None and statement.var_type_name is not None:
+                statement.var_type = self._resolve_var_type(
+                    type_name=statement.var_type_name
+                )
+
+            self._resolve_script_statement_types_list(
+                statements=statement.body.statements
+            )
+
+            return
+
+        if isinstance(statement, ForStmt):
+            self._resolve_script_statement_types_list(
+                statements=statement.init_statements
+            )
+
+            self._resolve_script_statement_types_list(
+                statements=statement.body.statements
+            )
+
+            return
+
+        if isinstance(statement, WhileStmt):
+            self._resolve_script_statement_types_list(
+                statements=statement.body.statements
+            )
+
+            return
+
+        if isinstance(statement, IfStmt):
+            self._resolve_script_statement_types_list(
+                statements=statement.then_block.statements
+            )
+
+            if statement.else_block is not None:
+                self._resolve_script_statement_types_list(
+                    statements=statement.else_block.statements
+                )
+
+            return
+
+        if isinstance(statement, BlockStmt):
+            self._resolve_script_statement_types_list(
+                statements=statement.statements
+            )
+
+    def _resolve_script_statement_types_list(self, statements: list[Statement]) -> None:
+        """
+        Resolves raw type annotations over a statement list.
+
+        Args:
+            statements (list[Statement]): Statements to resolve in place.
+        """
+
+        for statement in statements:
+            self._resolve_script_statement_types(statement=statement)
 
     def _execute_var_decl(self, stmt: VarDeclStmt) -> None:
         """
@@ -534,6 +627,14 @@ class NaDataLoader:
         globals_dict["print"] = print_runtime_values
         globals_dict["schema_classes"] = SchemaClassesFunction(database=database)
         globals_dict["schema_functions"] = SchemaFunctionsFunction(database=database)
+        globals_dict["set_loop_limit"] = SetLoopLimitFunction(database=database)
+
+        # Shared loop fuel, seeded from the persisted settings
+        globals_dict[LOOP_FUEL_KEY] = LoopFuel(
+            limit=int(
+                database.settings.get("loop_limit", DEFAULT_LOOP_LIMIT)
+            )
+        )
 
         for struct_name, table in database.tables_by_struct_name.items():
             globals_dict[struct_name] = StructRuntimeBinding(

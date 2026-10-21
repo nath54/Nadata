@@ -8,7 +8,7 @@ and parallel/optimized queries.
 
 # Import Modules
 from __future__ import annotations
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from src.core.values.values import Value
 from src.core.struct.struct import Struct
@@ -134,6 +134,9 @@ class NaDataDatabase:
         self.functions: dict[str, StructMethod] = {}
         self.query_executor: QueryExecutor = QueryExecutor()
         self.next_type_id: int = 0
+
+        # Database-wide settings (persisted in the meta document of .ndb files)
+        self.settings: dict[str, Any] = {}
 
     def register_function(self, function: StructMethod) -> None:
         """

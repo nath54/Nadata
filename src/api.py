@@ -600,6 +600,35 @@ class Nadata:
 
         return written
 
+    def set_loop_limit(self, limit: int) -> None:
+        """
+        Sets the maximum number of iterations allowed per loop.
+
+        The limit is recorded in the database settings, so the next dump or
+        incremental save persists it, and future executions read it from
+        there. The default fuel limit is 10,000 iterations per loop; loops
+        exceeding it raise LoopLimitError. The new limit applies to
+        subsequent executions (call sites rebuild their scope lazily).
+
+        Args:
+            limit (int): New per-loop iteration limit (at least 1).
+
+        Raises:
+            TypeError: If the limit is not an integer.
+            ValueError: If the limit is below 1.
+        """
+
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError(f"Loop limit must be an integer, got '{type(limit).__name__}'")
+
+        if limit < 1:
+            raise ValueError(f"Loop limit must be at least 1, got {limit}")
+
+        self.database.settings["loop_limit"] = limit
+
+        # Rebuild globals on next use: the fuel object is seeded from settings
+        self._globals = None
+
     def compact(self, output_path: Optional[str] = None) -> tuple[int, int]:
         """
         Rewrites a database file into a minimal snapshot of the current state.

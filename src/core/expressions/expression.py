@@ -39,11 +39,12 @@ from src.core.values.values import (
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
 from src.core.expressions.builtins import (
+    DictCollectionCallable,
     _is_struct_instance,
     _struct_from_object,
     resolve_virtual_callable,
 )
-from src.core.expressions.scope import ExecutionScope
+from src.core.expressions.scope import ScopeAwareFunction, ExecutionScope
 
 
 
@@ -632,6 +633,11 @@ class MemberAccessExpr(Expression):
 
         target_obj: Any = self._resolve_target(scope=scope)
 
+        # Typed collection helpers on dict values (before the Python attr
+        # fallback, which would return untyped builtin dict methods)
+        if isinstance(target_obj, ValueDict) and self.member in ("keys", "values"):
+            return DictCollectionCallable(value_dict=target_obj, member=self.member)
+
         # Unwrap Value containers to expose the payload object
         if isinstance(target_obj, Value):
             target_obj = target_obj.get()
@@ -979,6 +985,25 @@ class CallExpr(Expression):
         eval_kwargs: dict[str, Value] = {
             k: v.evaluate(scope=scope) for k, v in self.kwargs.items()
         }
+
+        # Scope-aware natives (e.g. set_loop_limit) receive the live scope
+        if isinstance(callable_obj, ScopeAwareFunction):
+            native_args: list[Any] = [a.get() for a in eval_args]
+            native_kwargs: dict[str, Any] = {k: v.get() for k, v in eval_kwargs.items()}
+
+            native_res: Any = callable_obj.invoke(
+                scope=scope,
+                args=native_args,
+                kwargs=native_kwargs,
+            )
+
+            if isinstance(native_res, Value):
+                return native_res
+
+            if native_res is None:
+                return ValueExternal(payload=None)
+
+            return LiteralExpr(value=native_res).evaluate(scope=scope)
 
         # Invoke callable
         if callable(callable_obj):
