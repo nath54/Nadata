@@ -33,7 +33,7 @@ from src.core.database.persistence.serialization import (
 from src.core.struct.struct import Struct
 from src.core.struct.struct_attribute import StructAttribute
 from src.core.struct.struct_method import StructMethod
-from src.core.types.types import Type
+from src.core.types.types import Type, TypeSet
 
 
 def _is_json_document(payload: bytes) -> bool:
@@ -327,14 +327,27 @@ def _decode_struct(
         struct.parent = context.structs[parent_name]
 
     for attribute_doc in struct_doc["attributes"]:
+        attribute_type: Type = cast(
+            Type, codec.decode(data=attribute_doc["attr_type"], context=context)
+        )
+
+        default_value: Any = (
+            codec.decode(data=attribute_doc["default_value"], context=context)
+            if attribute_doc["has_default"]
+            else None
+        )
+
+        # JSON has no set type: set defaults decode as lists
+        if (
+            isinstance(attribute_type, TypeSet)
+            and isinstance(default_value, list)
+        ):
+            default_value = set(default_value)
+
         attribute: StructAttribute = StructAttribute(
             name=attribute_doc["name"],
-            attr_type=cast(Type, codec.decode(data=attribute_doc["attr_type"], context=context)),
-            default_value=(
-                codec.decode(data=attribute_doc["default_value"], context=context)
-                if attribute_doc["has_default"]
-                else None
-            ),
+            attr_type=attribute_type,
+            default_value=default_value,
             has_default=attribute_doc["has_default"],
         )
 

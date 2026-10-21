@@ -11,6 +11,7 @@ from src.core.types.types import (
     TypeBool,
     TypeArray,
     TypeDict,
+    TypeSet,
     Int2,
     Int4,
     Int8,

@@ -19,6 +19,7 @@ from src.core.types.types import (
     TypeFloat,
     TypeArray,
     TypeDict,
+    TypeSet,
     Float64,
     UInt64,
 )
@@ -34,6 +35,7 @@ from src.core.values.values import (
     ValueDict,
     ValueDateTime,
     ValueExternal,
+    ValueSet,
     make_value,
 )
 from src.core.types.home_types.color import Color
@@ -1640,3 +1642,74 @@ class DictLiteralExpr(Expression):
         ]
 
         return f"{{{', '.join(entry_strs)}}}"
+
+
+class SetLiteralExpr(Expression):
+    """
+    AST node representing a set literal (e.g. {'a', 'b'}).  
+
+    Attributes:
+        elements (list[Expression]): Element expressions in source order.
+        declared_type (Optional[TypeSet]): Declared element type, when known
+            from the surrounding declaration (empty literals require it).
+    """
+
+    def __init__(
+        self,
+        elements: Optional[list[Expression]] = None,
+        declared_type: Optional[TypeSet] = None
+    ) -> None:
+        """
+        Initializes the SetLiteralExpr instance.
+
+        Args:
+            elements (Optional[list[Expression]], optional): Element
+                expressions. Defaults to None (empty set).
+            declared_type (Optional[TypeSet], optional): Declared set type.
+                Defaults to None (type inferred from elements).
+        """
+
+        self.elements: list[Expression] = elements if elements is not None else []
+        self.declared_type: Optional[TypeSet] = declared_type
+
+    def evaluate(self, scope: ExecutionScope) -> Value:
+        """
+        Evaluates all elements and builds the typed set Value.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            Value: Typed ValueSet result.
+
+        Raises:
+            ValueError: If the element type cannot be determined.
+        """
+
+        evaluated: list[Value] = [
+            element.evaluate(scope=scope) for element in self.elements
+        ]
+
+        # Resolve the set type: declared type first, else infer from elements
+        if self.declared_type is not None:
+            set_type: TypeSet = self.declared_type
+
+        elif evaluated:
+            set_type = TypeSet(value_type=evaluated[0].value_type)
+
+        else:
+            raise ValueError("Cannot infer the type of an empty set literal")
+
+        raw_elements: set[Any] = {element.get() for element in evaluated}
+
+        return ValueSet(value_type=set_type, elements=raw_elements)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the SetLiteralExpr.
+
+        Returns:
+            str: Braced comma separated element representation.
+        """
+
+        return f"{{{', '.join(repr(element) for element in self.elements)}}}"

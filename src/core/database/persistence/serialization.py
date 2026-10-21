@@ -27,6 +27,7 @@ from src.core.expressions.expression import (
     LambdaExpr,
     LiteralExpr,
     MemberAccessExpr,
+    SetLiteralExpr,
     UnaryOpExpr,
 )
 from src.core.expressions.statement import (
@@ -56,6 +57,7 @@ from src.core.types.types import (
     TypeDict,
     TypeFloat,
     TypeInt,
+    TypeSet,
     TypeStr,
 )
 from src.core.values.values import (
@@ -69,6 +71,7 @@ from src.core.values.values import (
     ValueExternal,
     ValueFloat,
     ValueInt,
+    ValueSet,
     ValueStr,
 )
 
@@ -96,6 +99,7 @@ DECODABLE_CLASSES: dict[str, type] = {
     "LiteralExpr": LiteralExpr,
     "MemberAccessExpr": MemberAccessExpr,
     "ReturnStmt": ReturnStmt,
+    "SetLiteralExpr": SetLiteralExpr,
     "StructMethod": StructMethod,
     "TypeArray": TypeArray,
     "TypeBool": TypeBool,
@@ -105,6 +109,7 @@ DECODABLE_CLASSES: dict[str, type] = {
     "TypeExternal": TypeExternal,
     "TypeFloat": TypeFloat,
     "TypeInt": TypeInt,
+    "TypeSet": TypeSet,
     "TypeStr": TypeStr,
     "TargetAssignStmt": TargetAssignStmt,
     "UnaryOpExpr": UnaryOpExpr,
@@ -116,6 +121,7 @@ DECODABLE_CLASSES: dict[str, type] = {
     "ValueExternal": ValueExternal,
     "ValueFloat": ValueFloat,
     "ValueInt": ValueInt,
+    "ValueSet": ValueSet,
     "ValueStr": ValueStr,
     "VarDeclStmt": VarDeclStmt,
     "WhileStmt": WhileStmt,
@@ -246,10 +252,7 @@ class ObjectCodec:
         if isinstance(obj, Struct):
             return {"__struct_type__": obj.name}
 
-        if isinstance(obj, list):
-            return [self.encode(obj=element) for element in obj]
-
-        if isinstance(obj, tuple):
+        if isinstance(obj, (list, tuple, set, frozenset)):
             return [self.encode(obj=element) for element in obj]
 
         if isinstance(obj, dict):
@@ -471,6 +474,13 @@ def resolve_instance_refs(
         value.entries = {
             key: _resolve_raw(raw=raw, instances=instances)
             for key, raw in value.entries.items()
+        }
+
+        return value
+
+    if isinstance(value, ValueSet):
+        value.elements = {
+            _resolve_raw(raw=raw, instances=instances) for raw in value.elements
         }
 
         return value

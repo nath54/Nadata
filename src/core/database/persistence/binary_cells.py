@@ -52,6 +52,7 @@ from src.core.types.types import (
     TypeDict,
     TypeFloat,
     TypeInt,
+    TypeSet,
     TypeStr,
 )
 from src.core.values.values import Value
@@ -244,6 +245,18 @@ def encode_value(raw: Any, value_type: Any) -> bytes:
 
         return bytes(out)
 
+    if isinstance(value_type, TypeSet):
+        # Sort for deterministic bytes: sets iterate in hash order, which is
+        # unstable across runs for strings
+        ordered: list[Any] = _ordered_elements(raw=raw)
+
+        out = bytearray(encode_varint(value=len(ordered)))
+
+        for element in ordered:
+            out += encode_value(raw=element, value_type=value_type.value_type)
+
+        return bytes(out)
+
     raise TypeError(f"No binary encoding for declared type '{repr(value_type)}'")
 
 
@@ -361,7 +374,48 @@ def decode_value(
 
         return entries, offset
 
+    if isinstance(value_type, TypeSet):
+        set_count: int
+        set_count, offset = decode_varint(payload=payload, offset=offset)
+
+        decoded_elements: set[Any] = set()
+
+        for _ in range(set_count):
+            decoded_element: Any
+            decoded_element, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.value_type,
+                resolver=resolver,
+            )
+
+            decoded_elements.add(decoded_element)
+
+        return decoded_elements, offset
+
     raise TypeError(f"No binary decoding for declared type '{repr(value_type)}'")
+
+
+def _ordered_elements(raw: Any) -> list[Any]:
+    """
+    Returns set elements in a deterministic order for encoding.
+
+    Uses natural ordering when elements are comparable, falling back to
+    their repr (e.g. DateTime, struct instances) so the same logical set
+    always encodes to the same bytes.
+
+    Args:
+        raw (Any): The raw set payload.
+
+    Returns:
+        list[Any]: Elements sorted by a stable key.
+    """
+
+    try:
+        return sorted(raw)
+
+    except TypeError:
+        return sorted(raw, key=repr)
 
 
 def _bitmaps_size(column_count: int) -> int:

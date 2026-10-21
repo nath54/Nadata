@@ -419,6 +419,61 @@ class TypeDict(Type):
         return f"Dict[{repr(self.key_type)}, {repr(self.value_type)}]"
 
 
+class TypeSet(Type):
+    """
+    Schema type representing a typed set of unique elements.
+
+    Attributes:
+        value_type (Type): Type of elements stored in the set.
+        default_value (set[Any]): Default empty set.
+    """
+
+    def __init__(self, value_type: Type) -> None:
+        """
+        Initializes the TypeSet instance.
+
+        Args:
+            value_type (Type): Type of elements allowed in this set.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        self.value_type: Type = value_type
+
+        # Default value of the set type
+        self.default_value: set[Any] = set()
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a set and each item matches value_type.
+
+        Args:
+            value (Any): Set value to validate.
+
+        Raises:
+            TypeError: If value is not a set or an item violates value_type.
+        """
+
+        # Verify container type
+        if not isinstance(value, (set, frozenset)):
+            raise TypeError(f"Expected set, got {type(value).__name__}")
+
+        # Check each item against element type
+        for item in value:
+            self.value_type.check_value(value=item)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the TypeSet.
+
+        Returns:
+            str: Representation showing element type.
+        """
+
+        return f"Set[{repr(self.value_type)}]"
+
+
 class TypeDateTime(Type):
     """
     Schema type representing a date and time.

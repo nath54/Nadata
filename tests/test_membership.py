@@ -15,7 +15,7 @@ import pytest
 
 from src.api import Nadata
 from src.core.database.database import NaDataDatabase
-from src.core.expressions.expression import BinaryOpExpr
+from src.core.expressions.expression import BinaryOpExpr, Expression
 from src.core.expressions.scope import ExecutionScope
 from src.core.types.types import TypeArray, TypeDict, TypeInt, TypeStr
 from src.core.values.values import ValueArray, ValueDict, ValueInt, ValueStr
@@ -59,7 +59,7 @@ def _eval(expr: str) -> object:
         object: Raw evaluated result.
     """
 
-    ast: BinaryOpExpr = ExpressionParser.parse_text(text=expr)
+    ast: Expression = ExpressionParser.parse_text(text=expr)
 
     scope: ExecutionScope = ExecutionScope(
         parameters=_env(),  # type: ignore[arg-type]
@@ -79,7 +79,9 @@ class TestMembershipParsing:
         Tests that 'x in y' produces an 'in' BinaryOpExpr.
         """
 
-        ast: BinaryOpExpr = ExpressionParser.parse_text(text='"a" in arr')
+        ast: Expression = ExpressionParser.parse_text(text='"a" in arr')
+
+        assert isinstance(ast, BinaryOpExpr)
 
         assert isinstance(ast, BinaryOpExpr)
         assert ast.op == "in"
@@ -89,7 +91,9 @@ class TestMembershipParsing:
         Tests that 'x not in y' produces a 'not in' BinaryOpExpr.
         """
 
-        ast: BinaryOpExpr = ExpressionParser.parse_text(text='"a" not in arr')
+        ast: Expression = ExpressionParser.parse_text(text='"a" not in arr')
+
+        assert isinstance(ast, BinaryOpExpr)
 
         assert isinstance(ast, BinaryOpExpr)
         assert ast.op == "not in"
@@ -99,9 +103,11 @@ class TestMembershipParsing:
         Tests that membership binds tighter than logical 'and'.
         """
 
-        ast: BinaryOpExpr = ExpressionParser.parse_text(
+        ast: Expression = ExpressionParser.parse_text(
             text='"b" in arr and "k" in d'
         )
+
+        assert isinstance(ast, BinaryOpExpr)
 
         assert isinstance(ast, BinaryOpExpr)
         assert ast.op == "and"

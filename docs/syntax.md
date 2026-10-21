@@ -112,9 +112,30 @@ empty_str = ""
 Array[T]              typed array, e.g. Array[Str], Array[Entity]
 Array[Array[T]]       nested generics, e.g. Array[Array[Float32]]
 Dict[K, V]            typed dictionary, e.g. Dict[Str, Str], Dict[Str, Array[Str]]
+Set[T]                typed set of unique elements, e.g. Set[Str], Set[Entity]
 ```
 
-### 5.3 Home types
+### 5.3 Sets
+
+```text
+Set[Str] tags = {"admin", "dev", "admin"};   // deduplicates to {"admin", "dev"}
+Set[Str] empty = {};                          // empty braces declare an empty set
+if ("admin" in p.tags) { ... }                // O(1)-style native membership probe
+for (t: Str in p.tags) { ... }                // iteration (unordered)
+```
+
+- Set literals use braces with comma separated elements: `{1, 2, 3}`;
+  a single element `{x}` is a one-element set. **Empty braces `{}` are a
+  dict** (Python convention) — write an empty set through a declared
+  `Set[T]` type.
+- Elements must match the declared element type and be **hashable**
+  (scalars, strings, home types, struct instances — identity semantics
+  for instances). Nested containers (`Set[Array[Int32]]`) are not
+  representable.
+- Sets persist in the binary format with elements written in sorted
+  order, so the same logical set always encodes to the same bytes.
+
+### 5.4 Home types
 
 | Type | Construction |
 |---|---|
@@ -123,7 +144,7 @@ Dict[K, V]            typed dictionary, e.g. Dict[Str, Str], Dict[Str, Array[Str
 
 `DateTime` field keywords: `y`, `m`, `d`, `H`, `M`, `S`, `MS`.
 
-### 5.4 Struct types
+### 5.5 Struct types
 
 Any struct declared in a `.nastruct` file is itself a type, usable as attribute type,
 array element, dict value, parameter type, or return type:
@@ -273,6 +294,7 @@ return result;                            // return (mandatory last expression)
 - **Membership** (`in` / `not in`) binds like a comparison and works on:
   - `Array` — element scan: `"vip" in p.tags`,
   - `Dict` — **key** probe (hash lookup): `"floor" in config`,
+  - `Set` — element probe (hash lookup): `"vip" in p.tags`,
   - `Str` — substring search: `"lo wo" in s`.
 
   These are single native containment checks — no interpreted loop, no

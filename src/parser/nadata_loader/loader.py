@@ -32,7 +32,14 @@ from src.core.expressions.builtins import (
     SetLoopLimitFunction,
 )
 from src.core.database.queryset import QuerySet
-from src.core.expressions.expression import CallExpr, Expression, IdentifierExpr
+from src.core.expressions.expression import (
+    CallExpr,
+    DictLiteralExpr,
+    Expression,
+    IdentifierExpr,
+    SetLiteralExpr,
+)
+from src.core.types.types import TypeSet
 from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.utils.comments_remove import CommentsRemover
 from src.parser.nastruct_parser.resolver import TypeResolver, build_type_globals
@@ -569,6 +576,17 @@ class NaDataLoader:
                     type_name=statement.var_type_name
                 )
 
+            # A set declared with '{}' reuses the (otherwise dict) braces
+            if (
+                isinstance(statement.var_type, TypeSet)
+                and isinstance(statement.init_expr, DictLiteralExpr)
+                and not statement.init_expr.entries
+            ):
+                statement.init_expr = SetLiteralExpr(
+                    elements=[],
+                    declared_type=statement.var_type,
+                )
+
             return
 
         if isinstance(statement, ForInStmt):
@@ -639,6 +657,17 @@ class NaDataLoader:
 
         if stmt.var_type_name is not None:
             stmt.var_type = self._resolve_var_type(type_name=stmt.var_type_name)
+
+        # A set declared with '{}' reuses the (otherwise dict) braces
+        if (
+            isinstance(stmt.var_type, TypeSet)
+            and isinstance(stmt.init_expr, DictLiteralExpr)
+            and not stmt.init_expr.entries
+        ):
+            stmt.init_expr = SetLiteralExpr(
+                elements=[],
+                declared_type=stmt.var_type,
+            )
 
         stmt.execute(scope=self.scope)
 

@@ -93,7 +93,7 @@ class StructInstance:
         raw_default: Any = attr_def.default_value
 
         # Copy container defaults to avoid mutating the schema's shared value
-        if isinstance(raw_default, (list, dict)):
+        if isinstance(raw_default, (list, dict, set)):
             raw_default = raw_default.copy()
 
         self.attributes[name] = make_value(

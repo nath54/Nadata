@@ -23,6 +23,7 @@ from src.core.types.types import (
     TypeArray,
     TypeFloat,
     TypeDateTime,
+    TypeSet,
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
@@ -433,6 +434,79 @@ class ValueDict(Value):
         return f"{repr(self.value_type)}({self.entries})"
 
 
+class ValueSet(Value):
+    """
+    Runtime representation of a typed set of unique elements.
+
+    Attributes:
+        value_type (TypeSet): Associated set schema type.
+        elements (set[Any]): Set of contained element values.
+    """
+
+    def __init__(
+        self,
+        value_type: TypeSet,
+        elements: Optional[Any] = None
+    ) -> None:
+        """
+        Initializes the ValueSet instance.
+
+        Args:
+            value_type (TypeSet): Set type specification.
+            elements (Optional[Any], optional): Initial elements as a set or
+                an iterable to convert (e.g. from the persistence codec).
+                Defaults to None (empty set).
+
+        Raises:
+            TypeError: If elements violate the set value_type or an element
+                is unhashable.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=value_type)
+
+        resolved_elements: set[Any] = (
+            set(elements) if not isinstance(elements, (set, frozenset))
+            else set(elements)
+        ) if elements is not None else set()
+
+        # Validate elements against element type
+        value_type.check_value(value=resolved_elements)
+
+        self.value_type: TypeSet = value_type
+        self.elements: set[Any] = resolved_elements
+
+    def get(self) -> set[Any]:
+        """
+        Returns the raw elements set.
+
+        Returns:
+            set[Any]: Set of contained elements.
+        """
+
+        return self.elements
+
+    def __len__(self) -> int:
+        """
+        Returns count of elements in the set.
+
+        Returns:
+            int: Number of elements.
+        """
+
+        return len(self.elements)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueSet.
+
+        Returns:
+            str: Set representation.
+        """
+
+        return f"{repr(self.value_type)}({self.elements})"
+
+
 class ValueDateTime(Value):
     """
     Runtime representation of a DateTime value.
@@ -568,6 +642,9 @@ def make_value(value_type: Type, raw: Any) -> Value:
 
     if isinstance(value_type, TypeDict):
         return ValueDict(value_type=value_type, entries=raw)
+
+    if isinstance(value_type, TypeSet):
+        return ValueSet(value_type=value_type, elements=raw)
 
     if isinstance(value_type, TypeDateTime):
         return ValueDateTime(value=raw)

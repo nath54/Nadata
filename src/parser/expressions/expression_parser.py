@@ -21,6 +21,7 @@ from src.core.expressions.expression import (
     LambdaExpr,
     LiteralExpr,
     MemberAccessExpr,
+    SetLiteralExpr,
     UnaryOpExpr,
 )
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
@@ -568,9 +569,9 @@ class ExpressionParser:
         if token.token_type == TokenType.PUNCTUATION and token.value == "[":
             return self._parse_array_literal()
 
-        # Dict literals
+        # Dict and set literals (disambiguated after the first element)
         if token.token_type == TokenType.PUNCTUATION and token.value == "{":
-            return self._parse_dict_literal()
+            return self._parse_brace_literal()
 
         raise SyntaxError(
             f"Unexpected token '{token.value}' at index {token.position}"
@@ -608,12 +609,20 @@ class ExpressionParser:
 
         return ArrayLiteralExpr(elements=elements)
 
-    def _parse_dict_literal(self) -> DictLiteralExpr:
+    def _parse_brace_literal(self) -> Expression:
         """
-        Parses a dict literal '{key: value, ...}'.
+        Parses a brace literal: a dict '{key: value, ...}' or a set
+        '{element, element, ...}', disambiguated after the first element.
+
+        An empty '{}' is a dict literal (Python convention); empty sets are
+        written via a declared type ('Set[Str] tags = {};').
 
         Returns:
-            DictLiteralExpr: Parsed dict literal node.
+            Expression: Parsed DictLiteralExpr or SetLiteralExpr node.
+
+        Raises:
+            SyntaxError: On a malformed first element (neither a dict key
+                followed by ':' nor a set element).
         """
 
         # Consume the opening brace
@@ -623,18 +632,41 @@ class ExpressionParser:
         if self._match_punctuation("}"):
             return DictLiteralExpr(entries=[])
 
-        # Parse comma separated key / value entries
-        entries: list[tuple[Expression, Expression]] = []
+        # Parse the first element, then look for the dict / set discriminator
+        first: Expression = self._parse_or()
+
+        if self._match_punctuation(":"):
+            return self._parse_dict_entries(first_key=first)
+
+        if self._match_punctuation(","):
+            return self._parse_set_entries(first_element=first)
+
+        if self._match_punctuation("}"):
+            # Singleton set: '{element}'
+            return SetLiteralExpr(elements=[first])
+
+        token: Token = self._current()
+
+        raise SyntaxError(
+            f"Expected ':', ',', or '}}' in brace literal at index {token.position}"
+        )
+
+    def _parse_dict_entries(self, first_key: Expression) -> DictLiteralExpr:
+        """
+        Parses remaining dict entries after the first key and its ':'.
+
+        Args:
+            first_key (Expression): Already parsed first key.
+
+        Returns:
+            DictLiteralExpr: Parsed dict literal node.
+        """
+
+        first_value: Expression = self._parse_or()
+
+        entries: list[tuple[Expression, Expression]] = [(first_key, first_value)]
 
         while True:
-
-            key: Expression = self._parse_or()
-
-            self._expect_punctuation(":")
-
-            value: Expression = self._parse_or()
-
-            entries.append((key, value))
 
             # Continue on comma, else close the dict
             if not self._match_punctuation(","):
@@ -645,7 +677,46 @@ class ExpressionParser:
             if self._match_punctuation("}"):
                 break
 
+            key: Expression = self._parse_or()
+
+            self._expect_punctuation(":")
+
+            value: Expression = self._parse_or()
+
+            entries.append((key, value))
+
         return DictLiteralExpr(entries=entries)
+
+    def _parse_set_entries(self, first_element: Expression) -> SetLiteralExpr:
+        """
+        Parses remaining set elements after the first element and its ','.
+
+        Args:
+            first_element (Expression): Already parsed first element.
+
+        Returns:
+            SetLiteralExpr: Parsed set literal node.
+        """
+
+        elements: list[Expression] = [first_element]
+
+        while True:
+
+            # Closing brace ends the literal
+            if self._match_punctuation("}"):
+                break
+
+            elements.append(self._parse_or())
+
+            # Elements are comma separated; a trailing comma may precede '}'
+            if not self._match_punctuation(","):
+                self._expect_punctuation("}")
+                break
+
+            if self._match_punctuation("}"):
+                break
+
+        return SetLiteralExpr(elements=elements)
 
     def _parse_call(self, callee: Expression) -> CallExpr:
         """

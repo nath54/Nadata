@@ -462,6 +462,10 @@ class ForInStmt(Statement):
         if hasattr(raw_iterable, "to_list"):
             raw_iterable = raw_iterable.to_list()
 
+        # Sets iterate their (unordered) elements
+        if isinstance(raw_iterable, (set, frozenset)):
+            raw_iterable = list(raw_iterable)
+
         if not isinstance(raw_iterable, list):
             raise TypeError(
                 f"Cannot iterate over '{repr(iterable_value)}': "

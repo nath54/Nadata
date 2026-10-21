@@ -13,7 +13,12 @@ from typing import Any, Callable, Optional, cast
 
 from src.core.database.database import NaDataDatabase
 from src.core.expressions.builtins import builtin_type
-from src.core.expressions.expression import ArrayLiteralExpr, DictLiteralExpr, Expression
+from src.core.expressions.expression import (
+    ArrayLiteralExpr,
+    DictLiteralExpr,
+    Expression,
+    SetLiteralExpr,
+)
 from src.core.expressions.scope import ExecutionScope
 from src.core.expressions.statement import (
     BlockStmt,
@@ -39,6 +44,7 @@ from src.core.types.types import (
     TypeColor,
     TypeArray,
     TypeDict,
+    TypeSet,
     Int2,
     Int4,
     Int8,
@@ -209,6 +215,13 @@ class TypeResolver:
                 value_type=resolved_children[1],
                 key_type=resolved_children[0]
             )
+
+        # Set takes exactly one element type
+        if tmp_type.name == "Set":
+            if len(resolved_children) != 1:
+                raise TypeError("Type 'Set' takes exactly one type argument")
+
+            return TypeSet(value_type=resolved_children[0])
 
         raise TypeError(f"Unknown generic type '{tmp_type.name}'")
 
@@ -734,6 +747,21 @@ class SchemaResolver:
             isinstance(expression, DictLiteralExpr)
             and expression.declared_type is None
             and isinstance(resolved_type, TypeDict)
+        ):
+            expression.declared_type = resolved_type
+
+        # A set declared with '{}' reuses the (otherwise dict) empty braces
+        if (
+            isinstance(expression, DictLiteralExpr)
+            and not expression.entries
+            and isinstance(resolved_type, TypeSet)
+        ):
+            expression = SetLiteralExpr(elements=[], declared_type=resolved_type)
+
+        if (
+            isinstance(expression, SetLiteralExpr)
+            and expression.declared_type is None
+            and isinstance(resolved_type, TypeSet)
         ):
             expression.declared_type = resolved_type
 
