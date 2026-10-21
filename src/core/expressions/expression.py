@@ -474,6 +474,64 @@ class BinaryOpExpr(Expression):
 
         return ValueBool(value_type=TypeBool(), value=cmp_table[op])
 
+    @staticmethod
+    def _eval_membership(left: Value, op: str, right: Value) -> Optional[ValueBool]:
+        """
+        Evaluates membership binary operations between two Value instances.
+
+        Supported containers: Array (element scan), Dict (key probe), and
+        Str (substring search) — all delegated to the native Python
+        containment check on the raw payload, so no interpreted loop and
+        no loop fuel is involved.
+
+        Args:
+            left (Value): Needle operand Value.
+            op (str): Membership operator ('in' or 'not in').
+            right (Value): Container operand Value.
+
+        Returns:
+            Optional[ValueBool]: ValueBool membership result, or None if
+            not a membership op.
+
+        Raises:
+            TypeError: If the container kind is unsupported or the needle
+                type does not fit a Str container.
+        """
+
+        if op not in ("in", "not in"):
+            return None
+
+        raw_left: Any = left.get()
+        raw_right: Any = right.get()
+
+        found: bool
+
+        if isinstance(raw_right, str):
+            if not isinstance(raw_left, str):
+                raise TypeError(
+                    f"'in' on a Str requires a Str needle, got "
+                    f"{type(raw_left).__name__}"
+                )
+
+            found = raw_left in raw_right
+
+        elif isinstance(raw_right, dict):
+            found = raw_left in raw_right
+
+        elif isinstance(raw_right, (list, tuple, set)):
+            found = raw_left in raw_right
+
+        else:
+            raise TypeError(
+                f"'in' requires an Array, Dict, or Str container, got "
+                f"{type(raw_right).__name__}"
+            )
+
+        return ValueBool(
+            value_type=TypeBool(),
+            value=(found if op == "in" else not found),
+        )
+
     def evaluate(self, scope: ExecutionScope) -> Value:
         """
         Evaluates the binary expression, returning a typed Value.
@@ -502,6 +560,12 @@ class BinaryOpExpr(Expression):
 
         if comp_res is not None:
             return comp_res
+
+        # 2b. Attempt membership evaluation ('in' / 'not in')
+        member_res: Optional[ValueBool] = self._eval_membership(left_val, self.op, right_val)
+
+        if member_res is not None:
+            return member_res
 
         # 3. Logical operations (keyword only: 'and', 'or', 'xor', 'nand')
         if self.op == "and":

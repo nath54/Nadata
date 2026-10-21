@@ -266,9 +266,19 @@ return result;                            // return (mandatory last expression)
 - `elif` chains (any count) and a final `else` are allowed; `else if (...)`
   is accepted as an alias for `elif (...)`.
 - Operators: `+ - * / %`, comparisons `== != < <= > >=`,
-  logic (keyword only): `and`, `or`, `xor`, `nand`.
+  logic (keyword only): `and`, `or`, `xor`, `nand`,
+  membership (keyword only): `in`, `not in`.
   - `+` on two `Str` operands is **string concatenation**; mixing `Str` with
     any other operand kind is a resolution error (strict typing).
+- **Membership** (`in` / `not in`) binds like a comparison and works on:
+  - `Array` — element scan: `"vip" in p.tags`,
+  - `Dict` — **key** probe (hash lookup): `"floor" in config`,
+  - `Str` — substring search: `"lo wo" in s`.
+
+  These are single native containment checks — no interpreted loop, no
+  loop fuel. The needle must fit the container (`"x" in int_array` and
+  `5 in "abc"` are type errors). Chaining (`a in b in c`, `a < b in c`)
+  is a syntax error; combine with `and`/`or` instead.
 - Local variable declarations may be typed (`Float32 result = scaled + self.bias;`).
 - Member access with `.`; method calls with `()`.
 - **Indexing** with postfix `[...]` on arrays and dictionaries (chainable and

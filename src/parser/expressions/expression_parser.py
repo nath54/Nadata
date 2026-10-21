@@ -177,16 +177,30 @@ class ExpressionParser:
 
     def _parse_comparison(self) -> Expression:
         """
-        Parses the comparison precedence level (non-chained).
+        Parses the comparison precedence level (non-chained), including the
+        keyword membership operators 'in' and 'not in'.
 
         Returns:
             Expression: Parsed expression.
 
         Raises:
-            SyntaxError: On chained comparisons (e.g. 'a < b < c').
+            SyntaxError: On chained comparisons (e.g. 'a < b < c') or a
+                trailing keyword operator (e.g. 'a < b in c').
         """
 
         left: Expression = self._parse_additive()
+
+        # Membership keyword operators bind at comparison precedence
+        membership_op: Optional[str] = self._parse_membership_operator()
+
+        if membership_op is not None:
+            membership_right: Expression = self._parse_additive()
+
+            self._reject_trailing_comparison()
+
+            return BinaryOpExpr(
+                left=left, op=membership_op, right=membership_right
+            )
 
         # A single optional comparison
         if self._current().token_type == TokenType.OPERATOR:
@@ -198,21 +212,75 @@ class ExpressionParser:
 
                 right: Expression = self._parse_additive()
 
-                # Check no comparison chaining follows
-                if (
-                    self._current().token_type == TokenType.OPERATOR
-                    and self._current().value in COMPARISON_OPS
-                ):
-                    raise SyntaxError(
-                        f"Chained comparisons are not supported at index "
-                        f"{self._current().position}"
-                    )
+                self._reject_trailing_comparison()
 
                 return BinaryOpExpr(
                     left=left, op=operator_token.value, right=right
                 )
 
         return left
+
+    def _parse_membership_operator(self) -> Optional[str]:
+        """
+        Parses a membership keyword operator at the cursor.
+
+        Returns:
+            Optional[str]: 'in', 'not in', or None if no membership
+            operator is present.
+
+        Raises:
+            SyntaxError: On a dangling 'not' that is not followed by 'in'.
+        """
+
+        token: Token = self._current()
+
+        if token.token_type != TokenType.KEYWORD:
+            return None
+
+        if token.value == "in":
+            self.cursor += 1
+
+            return "in"
+
+        if token.value == "not":
+            next_index: int = self.cursor + 1
+
+            if next_index < len(self.tokens):
+                next_token: Token = self.tokens[next_index]
+
+                if next_token.token_type == TokenType.KEYWORD and next_token.value == "in":
+                    self.cursor += 2
+
+                    return "not in"
+
+            raise SyntaxError(
+                f"Expected 'in' after 'not' at index {token.position}"
+            )
+
+        return None
+
+    def _reject_trailing_comparison(self) -> None:
+        """
+        Rejects comparison or membership operators following an already
+        parsed comparison or membership expression.
+
+        Raises:
+            SyntaxError: If a chaining operator is present at the cursor.
+        """
+
+        token: Token = self._current()
+
+        if token.token_type == TokenType.OPERATOR and token.value in COMPARISON_OPS:
+            raise SyntaxError(
+                f"Chained comparisons are not supported at index "
+                f"{token.position}"
+            )
+
+        if token.token_type == TokenType.KEYWORD and token.value in ("in", "not"):
+            raise SyntaxError(
+                f"Chained membership expressions are not supported at "
+                f"index {token.position}"
+            )
 
     def _parse_additive(self) -> Expression:
         """
