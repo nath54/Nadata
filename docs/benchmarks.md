@@ -47,11 +47,13 @@ lookup plus an attribute access — no parsing, no string decoding, and the
 type is already known (schema validation happened at write time, not per
 read).
 
-**On disk, it is compact JSON** framed into slotted pages (4 KB pages with
-slot directories, dirty-page write-back, LRU cache). The JSON carries type
-information (`__class__` markers for composite values, named references
-for struct types and instance refs), which is why a `.ndb` file is bigger
-than a raw SQLite row store.
+**On disk, rows are positional binary** (format v2) framed into 64 KiB
+slotted pages with an LRU cache: each instance is packed against its
+struct's declared attribute types (little-endian scalars, length-prefixed
+strings, entity-id varints for references), so a typical typed row costs
+~66 bytes — slightly *less* than an equivalent SQLite row. Schema,
+functions, and symbol documents stay as JSON for inspectability. See
+`docs/persistence.md`.
 
 **The memory footprint today is Python-object shaped**: each small int
 costs ~28 bytes before the wrapper, and every instance is several dict
@@ -86,22 +88,37 @@ From `python benchmarks/bench.py --instances 10000 --query-repetitions 5`:
 | 1000 schema-method calls | 11 ms | n/a |
 | delta update (1000 rows) + save | 1256 ms | 17 ms |
 
+> **Superseded by format v2** (binary rows + lazy loading, see
+> `docs/persistence.md`). The same 10000-instance run now reports:
+>
+> | Operation | v1 | **v2** | SQLite |
+> |---|---:|---:|---:|
+> | dump to disk | 1709 ms | **258 ms** | — |
+> | file size | 9.81 MB | **704 KB** | 764 KB |
+> | load from disk | 941 ms | **70 ms** (lazy open) | 1.5 ms |
+> | aggregate SUM(age) | — | **3.4 ms** | 0.49 ms |
+> | delta update (1000 rows) + save | 1256 ms | **508 ms** | 16 ms |
+>
+> Nadata's file is now *smaller* than SQLite's while storing typed
+> collections, references, and schema-owned methods. The insert, query,
+> and language rows are engine-bound and unchanged — that is Phase 4
+> (native core) territory. The v1 table is kept as the historical
+> baseline.
+
 Reading of the gap:
 
-- **Queries are the closest race** (~6× slower on a linear scan) because
-  the per-row work is a dict lookup + comparison, not JSON decoding. The
-  query engine also hoists loop-invariant sub-expressions out of row
-  predicates (see `QueryOptimizer`), which already helps.
-- **File size (~13×)** is the JSON-in-slotted-pages cost: typed markers,
-  indentation-free but still textual numbers, and page slack. Binary
-  encoding of primitive columns is a straightforward future win.
-- **Bulk insert (~13×) and load (~600×)** are dominated by per-instance
-  object construction and per-document JSON decode. Both are exactly the
-  loops a columnar C core would flatten.
-- **Language loops** run at ~65k iterations/s — this is an AST tree-walk
-  interpreter with per-iteration scope allocation and fuel checks. Fine
-  for orchestration logic; hot numeric work should stay in Python-host
-  code or wait for the compiled core.
+- **File size is now solved at the encoding level** (format v2): rows are
+  positional binary against the schema, landing *below* SQLite's row cost
+  while keeping typed collections and references. Remaining overhead is
+  page slack and the schema/AST documents, which amortize to nothing.
+- **Loading is lazy**: open decodes nothing; scans decode as they go.
+  The load-time row above now measures the lazy open (O(meta)).
+- **Queries remain the closest race** (~6× slower on a linear scan):
+  per-row work is a dict lookup + comparison, and the query engine
+  hoists loop-invariant sub-expressions (see `QueryOptimizer`).
+- **Bulk insert (~13×) and language loops** are engine-bound: per-instance
+  object construction and AST tree-walking. Both are exactly the loops a
+  columnar C core would flatten (Phase 4).
 
 These numbers should get *better over time, on the same benchmark* — that
 is the point of committing this suite now.

@@ -9,11 +9,21 @@ preserved entity ids and cross references, and symbol bindings.
 # Import Modules
 from __future__ import annotations
 import json
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from src.core.database.database import NaDataDatabase
 from src.core.database.entity_id import EntityId
 from src.core.database.instance import StructInstance
+from src.core.database.persistence.binary_cells import (
+    decode_batch_document,
+    decode_row,
+    decode_varint,
+)
+from src.core.database.persistence.lazy_instances import (
+    LazyInstanceDict,
+    PendingRow,
+    RowDecoder,
+)
 from src.core.database.persistence.record_store import RecordStore
 from src.core.database.persistence.serialization import (
     DecodeContext,
@@ -24,6 +34,81 @@ from src.core.struct.struct import Struct
 from src.core.struct.struct_attribute import StructAttribute
 from src.core.struct.struct_method import StructMethod
 from src.core.types.types import Type
+
+
+def _is_json_document(payload: bytes) -> bool:
+    """
+    Checks whether a stored document payload is a JSON document.
+
+    Args:
+        payload (bytes): Document payload.
+
+    Returns:
+        bool: True if the payload starts with a JSON object brace.
+    """
+
+    return payload[:1] in (b"{", b"[")
+
+
+def _is_binary_batch(payload: bytes) -> bool:
+    """
+    Checks whether a stored document payload is a binary instance batch.
+
+    Batch documents start with a varint header length followed by a JSON
+    header whose kind is 'instances'; JSON documents start with '{'.
+
+    Args:
+        payload (bytes): Document payload.
+
+    Returns:
+        bool: True if the payload is a binary instance batch.
+    """
+
+    if payload[:1] in (b"{", b"["):
+        return False
+
+    try:
+        header_len: int
+        header_len, offset = decode_varint(payload=payload, offset=0)
+
+        header: dict[str, Any] = json.loads(
+            payload[offset:offset + header_len].decode("utf-8")
+        )
+
+    except (IndexError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return False
+
+    return header.get("kind") == "instances" and header.get("format") == "binary"
+
+
+def _column_types(struct: Struct, columns: list[str]) -> dict[str, Type]:
+    """
+    Resolves the declared type of each batch column from the struct.
+
+    Args:
+        struct (Struct): Struct definition to resolve against.
+        columns (list[str]): Column names in order.
+
+    Returns:
+        dict[str, Type]: Declared type per column.
+
+    Raises:
+        KeyError: If a column is not declared in the struct schema.
+    """
+
+    types: dict[str, Type] = {}
+
+    for column in columns:
+        attribute: Optional[StructAttribute] = struct.get_attribute(name=column)
+
+        if attribute is None:
+            raise KeyError(
+                f"Batch column '{column}' is not declared in struct '{struct.name}'"
+            )
+
+        types[column] = attribute.attr_type
+
+    return types
 
 
 def load_database(storage_path: str) -> NaDataDatabase:
@@ -49,13 +134,14 @@ def load_database(storage_path: str) -> NaDataDatabase:
     documents: list[dict[str, Any]] = [
         json.loads(payload.decode("utf-8"))
         for payload in record_store.read_all_documents().values()
+        if _is_json_document(payload=payload)
     ]
 
     meta_docs: list[dict[str, Any]] = [
         doc for doc in documents if doc.get("kind") == "meta"
     ]
 
-    if not meta_docs or meta_docs[-1].get("format_version") != 1:
+    if not meta_docs or meta_docs[-1].get("format_version") not in (1, 2):
         raise ValueError(f"File '{storage_path}' is not a Nadata database dump")
 
     struct_docs: list[dict[str, Any]] = [
@@ -95,8 +181,67 @@ def load_database(storage_path: str) -> NaDataDatabase:
             function: Any = codec.decode(data=doc["method"], context=context)
             database.register_function(function=cast(StructMethod, function))
 
-    # Phase 4: instances with preserved entity ids (refs stay placeholders)
-    instance_docs: list[dict[str, Any]] = [
+    # Phase 4: instances. Binary v2 batches register rows lazily; legacy
+    # v1 JSON instance documents decode eagerly with placeholder refs.
+    row_decoder: RowDecoder = RowDecoder()
+
+    row_decoder.set_struct_lookup(
+        lookup=lambda name: context.structs[name],
+    )
+
+    instance_docs: list[dict[str, Any]] = []
+
+    for payload in record_store.read_all_documents().values():
+        if not _is_binary_batch(payload=payload):
+            continue
+
+        batch_struct_name: str
+        columns: list[str]
+        max_local_id: int
+        rows: list[tuple[int, bytes]]
+
+        (
+            batch_struct_name,
+            columns,
+            max_local_id,
+            rows,
+        ) = decode_batch_document(payload=payload)
+
+        if batch_struct_name not in context.structs:
+            raise KeyError(
+                f"Batch references unknown struct '{batch_struct_name}'"
+            )
+
+        table = database.tables_by_struct_name[batch_struct_name]
+        types: dict[str, Type] = _column_types(
+            struct=table.struct, columns=columns
+        )
+
+        table.instances = LazyInstanceDict(
+            decoder=row_decoder,
+            struct_name=batch_struct_name,
+        )
+
+        for entity_id, row_payload in rows:
+            row_decoder.register(
+                row=PendingRow(
+                    entity_id=entity_id,
+                    struct_name=batch_struct_name,
+                    columns=columns,
+                    types=types,
+                    payload=row_payload,
+                )
+            )
+
+            table.next_local_id = max(
+                table.next_local_id,
+                EntityId(value=entity_id).local_id + 1,
+            )
+
+        # Header-level max local id also counts (replay may supersede rows)
+        table.next_local_id = max(table.next_local_id, max_local_id + 1)
+
+    instance_docs = [
         doc for doc in documents if doc.get("kind") == "instance"
     ]
 
@@ -124,6 +269,7 @@ def load_database(storage_path: str) -> NaDataDatabase:
         context.instances[instance_doc["entity_id"]] = instance
 
     # Phase 5: resolve cross instance references, then file into tables
+    # (legacy v1 rows only; binary rows resolve through the row decoder)
     for instance_doc in instance_docs:
         loaded_instance: StructInstance = context.instances[instance_doc["entity_id"]]
         table = database.tables_by_struct_name[instance_doc["struct_name"]]
