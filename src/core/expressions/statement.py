@@ -7,10 +7,11 @@ conditional if blocks, return statements, and statement blocks managing typed Va
 
 # Import Modules
 from __future__ import annotations
+from collections import deque
 from typing import Any, Optional
 
 from src.core.types.types import Type
-from src.core.values.values import Value
+from src.core.values.values import Value, ValuePriorityQueue
 from src.core.expressions.expression import Expression, _wrap_indexed_element
 from src.core.expressions.scope import (
     BreakSignal,
@@ -462,8 +463,12 @@ class ForInStmt(Statement):
         if hasattr(raw_iterable, "to_list"):
             raw_iterable = raw_iterable.to_list()
 
-        # Sets iterate their (unordered) elements
-        if isinstance(raw_iterable, (set, frozenset)):
+        # Priority queues iterate their elements in priority order
+        if isinstance(iterable_value, ValuePriorityQueue):
+            raw_iterable = [element for _, element in iterable_value.entries]
+
+        # Sets and queues iterate their (unordered / FIFO) elements
+        if isinstance(raw_iterable, (set, frozenset, deque)):
             raw_iterable = list(raw_iterable)
 
         if not isinstance(raw_iterable, list):

@@ -33,6 +33,7 @@ Value encoding is driven by the declared type:
 
 # Import Modules
 from __future__ import annotations
+from collections import deque
 import json
 import struct
 from typing import Any, Callable, Optional
@@ -52,6 +53,8 @@ from src.core.types.types import (
     TypeDict,
     TypeFloat,
     TypeInt,
+    TypePriorityQueue,
+    TypeQueue,
     TypeSet,
     TypeStr,
 )
@@ -257,6 +260,29 @@ def encode_value(raw: Any, value_type: Any) -> bytes:
 
         return bytes(out)
 
+    if isinstance(value_type, TypeQueue):
+        out = bytearray(encode_varint(value=len(raw)))
+
+        for element in raw:
+            out += encode_value(raw=element, value_type=value_type.value_type)
+
+        return bytes(out)
+
+    if isinstance(value_type, TypePriorityQueue):
+        # Normalize order for deterministic bytes: same content, same bytes
+        # regardless of push history
+        ordered_entries: list[Any] = sorted(
+            raw, key=lambda entry: (entry[0], repr(entry[1]))
+        )
+
+        out = bytearray(encode_varint(value=len(ordered_entries)))
+
+        for priority, element in ordered_entries:
+            out += encode_value(raw=priority, value_type=value_type.priority_type)
+            out += encode_value(raw=element, value_type=value_type.value_type)
+
+        return bytes(out)
+
     raise TypeError(f"No binary encoding for declared type '{repr(value_type)}'")
 
 
@@ -392,6 +418,52 @@ def decode_value(
             decoded_elements.add(decoded_element)
 
         return decoded_elements, offset
+
+    if isinstance(value_type, TypeQueue):
+        queue_count: int
+        queue_count, offset = decode_varint(payload=payload, offset=offset)
+
+        queued: deque[Any] = deque()
+
+        for _ in range(queue_count):
+            queued_element: Any
+            queued_element, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.value_type,
+                resolver=resolver,
+            )
+
+            queued.append(queued_element)
+
+        return queued, offset
+
+    if isinstance(value_type, TypePriorityQueue):
+        pq_count: int
+        pq_count, offset = decode_varint(payload=payload, offset=offset)
+
+        pq_entries: list[Any] = []
+
+        for _ in range(pq_count):
+            priority: Any
+            priority, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.priority_type,
+                resolver=resolver,
+            )
+
+            pq_element: Any
+            pq_element, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.value_type,
+                resolver=resolver,
+            )
+
+            pq_entries.append((priority, pq_element))
+
+        return pq_entries, offset
 
     raise TypeError(f"No binary decoding for declared type '{repr(value_type)}'")
 

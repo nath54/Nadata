@@ -39,7 +39,7 @@ from src.core.expressions.expression import (
     IdentifierExpr,
     SetLiteralExpr,
 )
-from src.core.types.types import TypeSet
+from src.core.types.types import TypePriorityQueue, TypeQueue, TypeSet
 from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.utils.comments_remove import CommentsRemover
 from src.parser.nastruct_parser.resolver import TypeResolver, build_type_globals
@@ -587,6 +587,14 @@ class NaDataLoader:
                     declared_type=statement.var_type,
                 )
 
+            # Queues declared with '{}' take the empty-brace form too
+            if (
+                isinstance(statement.var_type, (TypeQueue, TypePriorityQueue))
+                and isinstance(statement.init_expr, DictLiteralExpr)
+                and not statement.init_expr.entries
+            ):
+                statement.init_expr.declared_type = statement.var_type
+
             return
 
         if isinstance(statement, ForInStmt):
@@ -668,6 +676,14 @@ class NaDataLoader:
                 elements=[],
                 declared_type=stmt.var_type,
             )
+
+        # Queues declared with '{}' take the empty-brace form too
+        if (
+            isinstance(stmt.var_type, (TypeQueue, TypePriorityQueue))
+            and isinstance(stmt.init_expr, DictLiteralExpr)
+            and not stmt.init_expr.entries
+        ):
+            stmt.init_expr.declared_type = stmt.var_type
 
         stmt.execute(scope=self.scope)
 

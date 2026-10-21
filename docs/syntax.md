@@ -113,6 +113,9 @@ Array[T]              typed array, e.g. Array[Str], Array[Entity]
 Array[Array[T]]       nested generics, e.g. Array[Array[Float32]]
 Dict[K, V]            typed dictionary, e.g. Dict[Str, Str], Dict[Str, Array[Str]]
 Set[T]                typed set of unique elements, e.g. Set[Str], Set[Entity]
+Queue[T]              typed FIFO queue, e.g. Queue[Str], Queue[Task]
+PriorityQueue[T]      typed priority queue (Int64 priorities), e.g. PriorityQueue[Task]
+PriorityQueue[T, P]   typed priority queue with basic numeric priorities P, e.g. PriorityQueue[Task, Int32]
 ```
 
 ### 5.3 Sets
@@ -135,7 +138,34 @@ for (t: Str in p.tags) { ... }                // iteration (unordered)
 - Sets persist in the binary format with elements written in sorted
   order, so the same logical set always encodes to the same bytes.
 
-### 5.4 Home types
+### 5.4 Queues
+
+```text
+Queue[Str] jobs = {};                 // FIFO queue, filled with push
+jobs.push("repair");                  // enqueue at the back
+head = jobs.peek();                   // front element (not removed)
+next = jobs.pop();                    // serve the front element
+n = jobs.size();                      // element count
+
+PriorityQueue[Task] pq = {};          // priorities default to Int64
+PriorityQueue[Task, Int32] q32 = {};  // explicit basic numeric priority
+pq.push(task, 3);                     // insert with priority
+urgent = pq.pop();                    // serve the LOWEST priority first
+```
+
+- **Priorities are restricted to basic `IntXX` / `FloatXX`** (including
+  unsigned variants); any other priority type is a resolution error.
+- `pop` / `peek` on an empty queue raise; `push` validates the element
+  and the priority against the declared types.
+- Elements must be hashable-free but *storable*: scalars, strings, home
+  types, and struct instances are supported; nested containers are not.
+- Queues persist in the binary format; priority queues are written in
+  normalized (priority, element) order so the same content always
+  encodes to the same bytes.
+- Iteration (`for x in q`) yields elements in serving order; `in`
+  probes elements.
+
+### 5.5 Home types
 
 | Type | Construction |
 |---|---|
@@ -144,7 +174,7 @@ for (t: Str in p.tags) { ... }                // iteration (unordered)
 
 `DateTime` field keywords: `y`, `m`, `d`, `H`, `M`, `S`, `MS`.
 
-### 5.5 Struct types
+### 5.6 Struct types
 
 Any struct declared in a `.nastruct` file is itself a type, usable as attribute type,
 array element, dict value, parameter type, or return type:

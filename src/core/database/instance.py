@@ -7,8 +7,11 @@ a globally unique EntityId, and bound method execution.
 
 # Import Modules
 from __future__ import annotations
+from collections import deque
 from typing import Any, Optional
 
+from src.core.types.types import TypePriorityQueue, TypeQueue
+from src.core.values.values import ValuePriorityQueue, ValueQueue
 from src.core.values.values import Value, make_value
 from src.core.struct.struct import Struct
 from src.core.database.entity_id import EntityId
@@ -93,7 +96,7 @@ class StructInstance:
         raw_default: Any = attr_def.default_value
 
         # Copy container defaults to avoid mutating the schema's shared value
-        if isinstance(raw_default, (list, dict, set)):
+        if isinstance(raw_default, (list, dict, set, deque)):
             raw_default = raw_default.copy()
 
         self.attributes[name] = make_value(
@@ -123,6 +126,13 @@ class StructInstance:
 
         # Validate type
         attr_def.attr_type.check_value(value=value.get())
+
+        # Re-wrap raw payloads passed under a queue declaration (e.g. a
+        # plain array literal in a constructor call)
+        if isinstance(attr_def.attr_type, (TypeQueue, TypePriorityQueue)) and not isinstance(
+            value, (ValueQueue, ValuePriorityQueue)
+        ):
+            value = make_value(value_type=attr_def.attr_type, raw=value.get())
 
         self.attributes[name] = value
 

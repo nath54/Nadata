@@ -7,6 +7,8 @@ including integers, floats, strings, booleans, arrays, and dictionaries.
 
 # Import Modules
 from __future__ import annotations
+from bisect import insort
+from collections import deque
 from typing import Any, Optional
 
 from src.core.types.bits.bits import (
@@ -24,6 +26,8 @@ from src.core.types.types import (
     TypeFloat,
     TypeDateTime,
     TypeSet,
+    TypeQueue,
+    TypePriorityQueue,
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
@@ -507,6 +511,204 @@ class ValueSet(Value):
         return f"{repr(self.value_type)}({self.elements})"
 
 
+class ValueQueue(Value):
+    """
+    Runtime representation of a typed FIFO queue of values.
+
+    Attributes:
+        value_type (TypeQueue): Associated queue schema type.
+        elements (deque[Any]): Queue of contained element values (front
+            first).
+    """
+
+    def __init__(
+        self,
+        value_type: TypeQueue,
+        elements: Optional[Any] = None
+    ) -> None:
+        """
+        Initializes the ValueQueue instance.
+
+        Args:
+            value_type (TypeQueue): Queue type specification.
+            elements (Optional[Any], optional): Initial elements (front
+                first) as a deque or an iterable to convert. Defaults to
+                None (empty queue).
+
+        Raises:
+            TypeError: If elements violate the queue value_type.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=value_type)
+
+        resolved_elements: deque[Any] = (
+            deque(elements) if not isinstance(elements, deque) else elements
+        ) if elements is not None else deque()
+
+        # Validate elements against element type
+        value_type.check_value(value=resolved_elements)
+
+        self.value_type: TypeQueue = value_type
+        self.elements: deque[Any] = resolved_elements
+
+    def get(self) -> deque[Any]:
+        """
+        Returns the raw elements deque (front first).
+
+        Returns:
+            deque[Any]: Queue of contained elements.
+        """
+
+        return self.elements
+
+    def __len__(self) -> int:
+        """
+        Returns count of elements in the queue.
+
+        Returns:
+            int: Number of elements.
+        """
+
+        return len(self.elements)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueQueue.
+
+        Returns:
+            str: Queue representation.
+        """
+
+        return f"{repr(self.value_type)}({list(self.elements)})"
+
+
+class ValuePriorityQueue(Value):
+    """
+    Runtime representation of a typed priority queue of values.
+
+    Entries are kept as a list of (priority, element) pairs sorted
+    ascending by priority (stable for ties); the lowest priority is at the
+    front.
+
+    Attributes:
+        value_type (TypePriorityQueue): Associated priority queue schema
+            type.
+        entries (list[tuple[Any, Any]]): (priority, element) pairs sorted by
+            priority.
+    """
+
+    def __init__(
+        self,
+        value_type: TypePriorityQueue,
+        entries: Optional[Any] = None
+    ) -> None:
+        """
+        Initializes the ValuePriorityQueue instance.
+
+        Args:
+            value_type (TypePriorityQueue): Priority queue type
+                specification.
+            entries (Optional[Any], optional): Initial (priority, element)
+                pairs as a list (any order; normalized on insert).
+                Defaults to None (empty queue).
+
+        Raises:
+            TypeError: If an entry violates the priority or element type.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=value_type)
+
+        resolved_entries: list[tuple[Any, Any]] = (
+            [tuple(entry) for entry in entries] if entries is not None else []
+        )
+
+        # Validate entries against priority and element types
+        value_type.check_value(value=resolved_entries)
+
+        # Normalize into priority ascending order (ties keep decode order)
+        resolved_entries.sort(key=lambda entry: (entry[0], repr(entry[1])))
+
+        self.value_type: TypePriorityQueue = value_type
+        self.entries: list[tuple[Any, Any]] = resolved_entries
+
+    def push(self, element: Any, priority: Any) -> None:
+        """
+        Inserts an element with a priority, keeping the queue sorted.
+
+        Args:
+            element (Any): Element to insert (validated against the
+                element type).
+            priority (Any): Priority of the element (validated against the
+                priority type).
+
+        Raises:
+            TypeError: If the element or priority violates their types.
+        """
+
+        self.value_type.priority_type.check_value(value=priority)
+        self.value_type.value_type.check_value(value=element)
+
+        insort(self.entries, (priority, element), key=lambda entry: entry[0])
+
+    def pop(self) -> Any:
+        """
+        Removes and returns the front (lowest priority) element.
+
+        Returns:
+            Any: The served element.
+
+        Raises:
+            IndexError: If the queue is empty.
+        """
+
+        return self.entries.pop(0)[1]
+
+    def peek(self) -> Any:
+        """
+        Returns the front (lowest priority) element without removing it.
+
+        Returns:
+            Any: The front element.
+
+        Raises:
+            IndexError: If the queue is empty.
+        """
+
+        return self.entries[0][1]
+
+    def get(self) -> list[tuple[Any, Any]]:
+        """
+        Returns the raw (priority, element) entries, priority ascending.
+
+        Returns:
+            list[tuple[Any, Any]]: The internal entry list.
+        """
+
+        return self.entries
+
+    def __len__(self) -> int:
+        """
+        Returns count of entries in the queue.
+
+        Returns:
+            int: Number of elements.
+        """
+
+        return len(self.entries)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValuePriorityQueue.
+
+        Returns:
+            str: Priority queue representation.
+        """
+
+        return f"{repr(self.value_type)}({self.entries})"
+
+
 class ValueDateTime(Value):
     """
     Runtime representation of a DateTime value.
@@ -645,6 +847,12 @@ def make_value(value_type: Type, raw: Any) -> Value:
 
     if isinstance(value_type, TypeSet):
         return ValueSet(value_type=value_type, elements=raw)
+
+    if isinstance(value_type, TypeQueue):
+        return ValueQueue(value_type=value_type, elements=raw)
+
+    if isinstance(value_type, TypePriorityQueue):
+        return ValuePriorityQueue(value_type=value_type, entries=raw)
 
     if isinstance(value_type, TypeDateTime):
         return ValueDateTime(value=raw)

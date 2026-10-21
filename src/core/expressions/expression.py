@@ -7,6 +7,7 @@ binary operations, member accesses, and function/method calls operating on Value
 
 # Import Modules
 from __future__ import annotations
+from collections import deque
 from typing import Any, Optional
 
 from src.core.types.types import (
@@ -19,6 +20,8 @@ from src.core.types.types import (
     TypeFloat,
     TypeArray,
     TypeDict,
+    TypeQueue,
+    TypePriorityQueue,
     TypeSet,
     Float64,
     UInt64,
@@ -35,6 +38,8 @@ from src.core.values.values import (
     ValueDict,
     ValueDateTime,
     ValueExternal,
+    ValuePriorityQueue,
+    ValueQueue,
     ValueSet,
     make_value,
 )
@@ -42,6 +47,7 @@ from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
 from src.core.expressions.builtins import (
     DictCollectionCallable,
+    QueueCallable,
     _is_struct_instance,
     _struct_from_object,
     resolve_virtual_callable,
@@ -508,7 +514,13 @@ class BinaryOpExpr(Expression):
 
         found: bool
 
-        if isinstance(raw_right, str):
+        # Priority queues probe elements (raw payloads are priority pairs)
+        if isinstance(right, ValuePriorityQueue):
+            found = any(
+                element == raw_left for _, element in right.entries
+            )
+
+        elif isinstance(raw_right, str):
             if not isinstance(raw_left, str):
                 raise TypeError(
                     f"'in' on a Str requires a Str needle, got "
@@ -520,13 +532,13 @@ class BinaryOpExpr(Expression):
         elif isinstance(raw_right, dict):
             found = raw_left in raw_right
 
-        elif isinstance(raw_right, (list, tuple, set)):
+        elif isinstance(raw_right, (list, tuple, set, deque)):
             found = raw_left in raw_right
 
         else:
             raise TypeError(
-                f"'in' requires an Array, Dict, or Str container, got "
-                f"{type(raw_right).__name__}"
+                f"'in' requires an Array, Dict, Set, Queue, or Str "
+                f"container, got {type(raw_right).__name__}"
             )
 
         return ValueBool(
@@ -672,6 +684,14 @@ class MemberAccessExpr(Expression):
         if hasattr(raw_target, "attributes"):
             attrs: dict[str, Any] = getattr(raw_target, "attributes")
 
+            # Materialize lazily-defaulted attributes so access (and any
+            # mutation through it) never aliases the schema's shared default
+            if (
+                self.member not in attrs
+                and hasattr(raw_target, "ensure_attribute")
+            ):
+                raw_target.ensure_attribute(name=self.member)
+
             if self.member in attrs:
                 attr_val: Any = attrs[self.member]
 
@@ -726,6 +746,14 @@ class MemberAccessExpr(Expression):
         # fallback, which would return untyped builtin dict methods)
         if isinstance(target_obj, ValueDict) and self.member in ("keys", "values"):
             return DictCollectionCallable(value_dict=target_obj, member=self.member)
+
+        # Typed queue members (before the Python attr fallback, which would
+        # expose untyped deque / list methods)
+        if (
+            isinstance(target_obj, (ValueQueue, ValuePriorityQueue))
+            and self.member in ("push", "pop", "peek", "size")
+        ):
+            return QueueCallable(target=target_obj, member=self.member)
 
         # Unwrap Value containers to expose the payload object
         if isinstance(target_obj, Value):
@@ -1564,17 +1592,21 @@ class DictLiteralExpr(Expression):
     """
     AST node representing a dictionary literal (e.g. {'key': 'value'}).
 
+    Also serves as the empty-brace form of queue declarations: when the
+    surrounding declaration type is a TypeQueue or TypePriorityQueue, an
+    empty brace literal evaluates to the matching empty queue.
+
     Attributes:
         entries (list[tuple[Expression, Expression]]): Key / value expression
             pairs in declaration order.
-        declared_type (Optional[TypeDict]): Declared key / value types, when
-            known from the surrounding declaration (empty literals require it).
+        declared_type (Optional[Type]): Declared type (TypeDict, or a
+            TypeQueue / TypePriorityQueue for empty-brace queue forms).
     """
 
     def __init__(
         self,
         entries: Optional[list[tuple[Expression, Expression]]] = None,
-        declared_type: Optional[TypeDict] = None
+        declared_type: Optional[Type] = None
     ) -> None:
         """
         Initializes the DictLiteralExpr instance.
@@ -1582,28 +1614,34 @@ class DictLiteralExpr(Expression):
         Args:
             entries (Optional[list[tuple[Expression, Expression]]], optional):
                 Key / value expression pairs. Defaults to None (empty dict).
-            declared_type (Optional[TypeDict], optional): Declared dict type.
-                Defaults to None (types inferred from entries).
+            declared_type (Optional[Type], optional): Declared type (TypeDict
+                or an empty-brace queue form). Defaults to None (dict types
+                inferred from entries).
         """
 
         self.entries: list[tuple[Expression, Expression]] = (
             entries if entries is not None else []
         )
-        self.declared_type: Optional[TypeDict] = declared_type
+        self.declared_type: Optional[Type] = declared_type
 
     def evaluate(self, scope: ExecutionScope) -> Value:
         """
-        Evaluates all entries and builds the typed dictionary Value.
+        Evaluates all entries and builds the typed dictionary Value, or the
+        empty queue Value when declared as a queue type.
 
         Args:
             scope (ExecutionScope): Current execution scope.
 
         Returns:
-            Value: Typed ValueDict result.
+            Value: Typed ValueDict / ValueQueue / ValuePriorityQueue result.
 
         Raises:
             ValueError: If the key / value types cannot be determined.
         """
+
+        # Empty braces under a queue declaration produce the empty queue
+        if isinstance(self.declared_type, (TypeQueue, TypePriorityQueue)):
+            return make_value(value_type=self.declared_type, raw=[])
 
         evaluated_entries: list[tuple[Value, Value]] = [
             (key.evaluate(scope=scope), value.evaluate(scope=scope))
@@ -1611,7 +1649,7 @@ class DictLiteralExpr(Expression):
         ]
 
         # Resolve the dict type: declared type first, else infer from entries
-        if self.declared_type is not None:
+        if isinstance(self.declared_type, TypeDict):
             dict_type: TypeDict = self.declared_type
 
         elif evaluated_entries:

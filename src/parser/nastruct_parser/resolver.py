@@ -45,6 +45,8 @@ from src.core.types.types import (
     TypeArray,
     TypeDict,
     TypeSet,
+    TypeQueue,
+    TypePriorityQueue,
     Int2,
     Int4,
     Int8,
@@ -222,6 +224,30 @@ class TypeResolver:
                 raise TypeError("Type 'Set' takes exactly one type argument")
 
             return TypeSet(value_type=resolved_children[0])
+
+        # Queue takes exactly one element type
+        if tmp_type.name == "Queue":
+            if len(resolved_children) != 1:
+                raise TypeError("Type 'Queue' takes exactly one type argument")
+
+            return TypeQueue(value_type=resolved_children[0])
+
+        # PriorityQueue takes an element type and an optional basic numeric
+        # priority type (Int64 default)
+        if tmp_type.name == "PriorityQueue":
+            if len(resolved_children) not in (1, 2):
+                raise TypeError(
+                    "Type 'PriorityQueue' takes one or two type arguments"
+                )
+
+            priority_type: Type = (
+                resolved_children[1] if len(resolved_children) == 2 else Int64
+            )
+
+            return TypePriorityQueue(
+                value_type=resolved_children[0],
+                priority_type=priority_type,
+            )
 
         raise TypeError(f"Unknown generic type '{tmp_type.name}'")
 
@@ -757,6 +783,14 @@ class SchemaResolver:
             and isinstance(resolved_type, TypeSet)
         ):
             expression = SetLiteralExpr(elements=[], declared_type=resolved_type)
+
+        # Queues declared with '{}' take the empty-brace form too
+        if (
+            isinstance(expression, DictLiteralExpr)
+            and not expression.entries
+            and isinstance(resolved_type, (TypeQueue, TypePriorityQueue))
+        ):
+            expression.declared_type = resolved_type
 
         if (
             isinstance(expression, SetLiteralExpr)

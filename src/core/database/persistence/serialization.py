@@ -12,6 +12,7 @@ reserved marker keys ('__class__', '__ref__', '__struct_type__') as keys.
 # Import Modules
 from __future__ import annotations
 import inspect
+from collections import deque
 from typing import Any, Optional, cast
 
 from src.core.database.entity_id import EntityId
@@ -57,6 +58,8 @@ from src.core.types.types import (
     TypeDict,
     TypeFloat,
     TypeInt,
+    TypePriorityQueue,
+    TypeQueue,
     TypeSet,
     TypeStr,
 )
@@ -71,6 +74,8 @@ from src.core.values.values import (
     ValueExternal,
     ValueFloat,
     ValueInt,
+    ValuePriorityQueue,
+    ValueQueue,
     ValueSet,
     ValueStr,
 )
@@ -109,6 +114,8 @@ DECODABLE_CLASSES: dict[str, type] = {
     "TypeExternal": TypeExternal,
     "TypeFloat": TypeFloat,
     "TypeInt": TypeInt,
+    "TypePriorityQueue": TypePriorityQueue,
+    "TypeQueue": TypeQueue,
     "TypeSet": TypeSet,
     "TypeStr": TypeStr,
     "TargetAssignStmt": TargetAssignStmt,
@@ -121,6 +128,8 @@ DECODABLE_CLASSES: dict[str, type] = {
     "ValueExternal": ValueExternal,
     "ValueFloat": ValueFloat,
     "ValueInt": ValueInt,
+    "ValuePriorityQueue": ValuePriorityQueue,
+    "ValueQueue": ValueQueue,
     "ValueSet": ValueSet,
     "ValueStr": ValueStr,
     "VarDeclStmt": VarDeclStmt,
@@ -252,7 +261,7 @@ class ObjectCodec:
         if isinstance(obj, Struct):
             return {"__struct_type__": obj.name}
 
-        if isinstance(obj, (list, tuple, set, frozenset)):
+        if isinstance(obj, (list, tuple, set, frozenset, deque)):
             return [self.encode(obj=element) for element in obj]
 
         if isinstance(obj, dict):
@@ -482,6 +491,24 @@ def resolve_instance_refs(
         value.elements = {
             _resolve_raw(raw=raw, instances=instances) for raw in value.elements
         }
+
+        return value
+
+    if isinstance(value, ValueQueue):
+        value.elements = deque(
+            _resolve_raw(raw=raw, instances=instances) for raw in value.elements
+        )
+
+        return value
+
+    if isinstance(value, ValuePriorityQueue):
+        value.entries = [
+            (
+                _resolve_raw(raw=priority, instances=instances),
+                _resolve_raw(raw=element, instances=instances),
+            )
+            for priority, element in value.entries
+        ]
 
         return value
 

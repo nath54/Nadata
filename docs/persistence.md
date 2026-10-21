@@ -54,8 +54,10 @@ once in the schema instead of per value. Each row is:
 3. the packed values: little-endian ints of the declared width, 64-bit
    floats, length-prefixed UTF-8 strings, `DateTime` as 7×int32, `Color`
    as 4 bytes, struct references as entity id varints, arrays/dicts as
-   varint counts plus recursively encoded elements, and sets as varint
-   counts plus elements in **sorted order** (deterministic bytes).
+   varint counts plus recursively encoded elements, sets as varint
+   counts plus elements in **sorted order**, and queues as varint counts
+   plus elements in serving order (priority queues normalized by
+   priority, then element repr, for deterministic bytes).
 
 A typical typed row costs **~66 bytes** (versus ~1 KB in the legacy JSON
 form, and ~76 bytes for an equivalent SQLite row).

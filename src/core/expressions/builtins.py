@@ -12,17 +12,22 @@ imports the core struct classes (which import expressions).
 
 # Import Modules
 from __future__ import annotations
+from collections import deque
 from typing import Any, Optional, cast
 
 from src.core.expressions.scope import ScopeAwareFunction
-from src.core.types.types import TypeArray, TypeDict, TypeStr
+from src.core.types.types import TypeArray, TypeDict, TypeInt, TypeStr
 from src.core.values.values import (
     TYPE_EXTERNAL,
     Value,
     ValueArray,
     ValueDict,
     ValueExternal,
+    ValueInt,
+    ValuePriorityQueue,
+    ValueQueue,
     ValueStr,
+    make_value,
 )
 
 # Members resolved virtually on instances and struct types
@@ -494,3 +499,165 @@ class DictCollectionCallable:
             value_type=TypeArray(value_type=element_type),
             elements=elements,
         )
+
+
+class QueueCallable:
+    """
+    Callable bound to a typed member of a queue or priority queue value.
+
+    Provides push / pop / peek / size with element and priority validation,
+    since the raw Python container fallback bypasses typed checks.
+
+    Attributes:
+        target (Value): Receiver ValueQueue or ValuePriorityQueue.
+        member (str): Requested member name.
+    """
+
+    def __init__(self, target: Value, member: str) -> None:
+        """
+        Initializes the QueueCallable instance.
+
+        Args:
+            target (Value): Receiver queue value.
+            member (str): Requested member name.
+        """
+
+        self.target: Value = target
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Executes the requested queue member.
+
+        Args:
+            *args (Value): Evaluated call arguments (unwrapped to raw).
+
+        Returns:
+            Value: Typed result (ValueBool for size, ValueExternal for
+            mutating members).
+
+        Raises:
+            TypeError: On an unknown member or invalid argument count.
+            IndexError: On pop / peek against an empty queue.
+        """
+
+        raw_args: list[Any] = [arg.get() for arg in args]
+
+        # Priority queue members (entries sorted priority ascending)
+        if isinstance(self.target, ValuePriorityQueue):
+            return self._call_priority(raw_args=raw_args)
+
+        return self._call_fifo(raw_args=raw_args)
+
+    def _call_fifo(self, raw_args: list[Any]) -> Value:
+        """
+        Executes a FIFO queue member.
+
+        Args:
+            raw_args (list[Any]): Unwrapped call arguments.
+
+        Returns:
+            Value: Typed result.
+
+        Raises:
+            TypeError: On an unknown member or invalid argument count.
+        """
+
+        queue: ValueQueue = cast(ValueQueue, self.target)
+
+        if self.member == "push":
+            _require_arg_count(args=tuple(raw_args), count=1, member=self.member)
+
+            queue.value_type.value_type.check_value(value=raw_args[0])
+
+            queue.elements.append(raw_args[0])
+
+            return ValueExternal(payload=None)
+
+        if self.member == "pop":
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            return _wrap_raw(raw=queue.elements.popleft(), value_type=queue.value_type.value_type)
+
+        if self.member == "peek":
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            return _wrap_raw(raw=queue.elements[0], value_type=queue.value_type.value_type)
+
+        if self.member == "size":
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            return ValueInt(
+                value_type=TypeInt(num_bits=64, signed=True),
+                value=len(queue.elements),
+            )
+
+        raise TypeError(f"Unknown queue member '{self.member}'")
+
+    def _call_priority(self, raw_args: list[Any]) -> Value:
+        """
+        Executes a priority queue member.
+
+        Args:
+            raw_args (list[Any]): Unwrapped call arguments.
+
+        Returns:
+            Value: Typed result.
+
+        Raises:
+            TypeError: On an unknown member or invalid argument count.
+        """
+
+        queue: ValuePriorityQueue = cast(ValuePriorityQueue, self.target)
+
+        if self.member == "push":
+            _require_arg_count(args=tuple(raw_args), count=2, member=self.member)
+
+            queue.push(element=raw_args[0], priority=raw_args[1])
+
+            return ValueExternal(payload=None)
+
+        if self.member == "pop":
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            return _wrap_raw(
+                raw=queue.pop(), value_type=queue.value_type.value_type
+            )
+
+        if self.member == "peek":
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            return _wrap_raw(
+                raw=queue.peek(), value_type=queue.value_type.value_type
+            )
+
+        if self.member == "size":
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            return ValueInt(
+                value_type=TypeInt(num_bits=64, signed=True),
+                value=len(queue.entries),
+            )
+
+        raise TypeError(f"Unknown priority queue member '{self.member}'")
+
+
+def _wrap_raw(raw: Any, value_type: Any) -> Value:
+    """
+    Wraps a raw queue element into the typed Value matching its type.
+
+    Struct instances (opaque at runtime) wrap as externals; everything
+    else dispatches through make_value.
+
+    Args:
+        raw (Any): Raw element payload.
+        value_type (Any): Declared element type.
+
+    Returns:
+        Value: The typed wrapper.
+    """
+
+    if _is_struct_instance(obj=raw):
+        return ValueExternal(payload=raw)
+
+    return make_value(value_type=value_type, raw=raw)

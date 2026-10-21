@@ -7,6 +7,7 @@ strings, booleans, arrays, and dictionaries.
 
 # Import Modules
 from __future__ import annotations
+from collections import deque
 from typing import Any, Optional
 
 from src.core.types.bits.bits import (
@@ -472,6 +473,142 @@ class TypeSet(Type):
         """
 
         return f"Set[{repr(self.value_type)}]"
+
+
+class TypeQueue(Type):
+    """
+    Schema type representing a typed FIFO queue of elements.
+
+    Attributes:
+        value_type (Type): Type of elements stored in the queue.
+        default_value (list[Any]): Default empty queue payload.
+    """
+
+    def __init__(self, value_type: Type) -> None:
+        """
+        Initializes the TypeQueue instance.
+
+        Args:
+            value_type (Type): Type of elements allowed in this queue.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        self.value_type: Type = value_type
+
+        # Default value of the queue type (converted to a deque by the
+        # runtime wrapper; plain lists survive the JSON struct round trip)
+        self.default_value: list[Any] = []
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a deque (or plain list payload) and each
+        item matches value_type.
+
+        Args:
+            value (Any): Queue value to validate.
+
+        Raises:
+            TypeError: If value is not a deque/list or an item violates
+                value_type.
+        """
+
+        # Verify container type
+        if not isinstance(value, (deque, list)):
+            raise TypeError(f"Expected deque, got {type(value).__name__}")
+
+        # Check each item against element type
+        for item in value:
+            self.value_type.check_value(value=item)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the TypeQueue.
+
+        Returns:
+            str: Representation showing element type.
+        """
+
+        return f"Queue[{repr(self.value_type)}]"
+
+
+class TypePriorityQueue(Type):
+    """
+    Schema type representing a typed priority queue of elements.
+
+    Elements are ordered by an associated priority of a basic numeric type
+    (IntXX / FloatXX only); the lowest priority is served first.
+
+    Attributes:
+        value_type (Type): Type of elements stored in the queue.
+        priority_type (Type): Numeric type of priorities (IntXX / FloatXX).
+        default_value (list[Any]): Default empty queue payload.
+    """
+
+    def __init__(self, value_type: Type, priority_type: Type) -> None:
+        """
+        Initializes the TypePriorityQueue instance.
+
+        Args:
+            value_type (Type): Type of elements allowed in this queue.
+            priority_type (Type): Numeric priority type.
+
+        Raises:
+            TypeError: If priority_type is not a basic IntXX / FloatXX.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Restrict priorities to basic numeric types
+        if not isinstance(priority_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"PriorityQueue priority type must be a basic IntXX or "
+                f"FloatXX, got '{repr(priority_type)}'"
+            )
+
+        self.value_type: Type = value_type
+        self.priority_type: Type = priority_type
+
+        # Default value of the queue type (plain list of (priority, element)
+        # pairs; survives the JSON struct round trip)
+        self.default_value: list[Any] = []
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a list of (priority, element) pairs with
+        numeric priorities and typed elements.
+
+        Args:
+            value (Any): Priority queue value to validate.
+
+        Raises:
+            TypeError: If value is not a pair list or an entry violates the
+                priority or element type.
+        """
+
+        # Verify container type
+        if not isinstance(value, list):
+            raise TypeError(
+                f"Expected list of (priority, element) pairs, got "
+                f"{type(value).__name__}"
+            )
+
+        # Check each priority and element against their types
+        for priority, element in value:
+            self.priority_type.check_value(value=priority)
+            self.value_type.check_value(value=element)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the TypePriorityQueue.
+
+        Returns:
+            str: Representation showing element and priority types.
+        """
+
+        return f"PriorityQueue[{repr(self.value_type)}, {repr(self.priority_type)}]"
 
 
 class TypeDateTime(Type):
