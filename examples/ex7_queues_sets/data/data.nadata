@@ -1,0 +1,71 @@
+# ==============================================================================
+# Example 7: Queues and Sets - data and scripts
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+# --- Instances ---
+# 'backup' initializes its FIFO queue from an array literal (coerced);
+# 'main' starts fully empty and relies on lazy schema defaults.
+backup = Scheduler(name = "backup", waiting = ["index", "compact", "vacuum"]);
+main = Scheduler(name = "main");
+
+# --- FIFO queue: push / peek / pop / size ---
+print("backup jobs:", backup.waiting.size());
+print("first job:", backup.next_job());
+print("peek job:", backup.waiting.peek());
+print("jobs left:", backup.waiting.size());
+
+# --- Lazy default materialization: pushing through a never-assigned
+# --- queue attribute works, and never aliases the schema default ---
+main.waiting.push("analyze");
+print("main next:", main.next_job());
+print("main jobs after drain:", main.waiting.size());
+idle = Scheduler(name = "idle");
+print("idle jobs (fresh instance):", idle.waiting.size());
+
+# --- Priority queue: lowest severity number served first ---
+main.incidents.push("cleanup", 5);
+main.incidents.push("fire", 1);
+main.incidents.push("audit", 5);
+print("incidents queued:", main.incidents.size());
+print("most urgent:", main.next_incident());
+print("peek after fire:", main.incidents.peek());
+print("second incident:", main.next_incident());
+print("third incident:", main.next_incident());
+print("incidents left:", main.incidents.size());
+
+# --- Float32 priorities ---
+main.loads.push("nightly", 0.5);
+main.loads.push("hourly", 1.5);
+print("lightest load:", main.next_load());
+print("heaviest load:", main.loads.pop());
+
+# --- Sets: add deduplicates, membership is a hash probe ---
+main.labels.add("red");
+main.labels.add("blue");
+main.labels.add("red");
+print("label count:", main.labels.size());
+print("has red:", "red" in main.labels);
+print("has green:", "green" in main.labels);
+main.labels.discard("red");
+print("has red after discard:", "red" in main.labels);
+
+# --- Sets never alias across instances ---
+print("backup label count:", backup.labels.size());
+
+# --- Whole-set assignment from a literal (duplicates collapse) ---
+backup.labels = {"cache", "disk", "cache"};
+print("backup labels:", backup.labels.size());
+print("has cache:", "cache" in backup.labels);
+
+# --- for-in over a queue yields elements in serving order ---
+served: Int32 = 0;
+for(job: Str in backup.waiting){ served++; }
+print("jobs iterated:", served);
+
+# --- Struct-typed queue elements: pop returns the instance ---
+backup.workers.push(Worker(name = "alice"));
+backup.workers.push(Worker(name = "bob"));
+print("first worker:", backup.workers.pop().name);
+print("second worker:", backup.workers.pop().name);
+print("workers left:", backup.workers.size());

@@ -1,0 +1,40 @@
+# ==============================================================================
+# Example 7: Queues and Sets
+# Exercises FIFO queues, priority queues with basic numeric priorities, typed
+# set members (add / discard / size), membership probes, for-in iteration, and
+# lazy default materialization on queue / set attributes.
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+class Scheduler {
+    name: Str;
+
+    # FIFO job queue: the front is the next job to run
+    waiting: Queue[Str] = {};
+
+    # Incident queue: the lowest severity number is served first
+    # (priority type defaults to Int64)
+    incidents: PriorityQueue[Str] = {};
+
+    # Load queue with explicit Float32 priorities
+    loads: PriorityQueue[Str, Float32] = {};
+
+    # Unique labels: adding twice is a no-op the second time
+    labels: Set[Str] = {};
+
+    # Workers to dispatch: struct-typed queue elements
+    workers: Queue[Worker] = {};
+
+    # Serve the next job in FIFO order
+    @next_job() -> Str { return self.waiting.pop(); }
+
+    # Serve the most urgent incident (lowest severity number)
+    @next_incident() -> Str { return self.incidents.pop(); }
+
+    # Serve the lowest load
+    @next_load() -> Str { return self.loads.pop(); }
+}
+
+class Worker {
+    name: Str;
+}

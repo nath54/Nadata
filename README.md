@@ -109,6 +109,8 @@ edge cases:
 | `ex3_collections` | Nested arrays, dictionaries, `Color`, `DateTime` math |
 | `ex4_expressions` | `if`/`else`, boolean operators, local declarations |
 | `ex5_edge_cases` | Parser edge cases: comments, spacing, empty constructs |
+| `ex6_loops_collections` | Loops (`for-in`, C-style, `while`), fuel guards, collections |
+| `ex7_queues_sets` | FIFO / priority queues, typed sets, membership probes |
 
 ## Development
 

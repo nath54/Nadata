@@ -84,6 +84,35 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "guarded runs: 40",
         "Loaded 1 struct(s), 2 instance(s), 0 function(s).",
     ],
+    "ex7_queues_sets": [
+        "backup jobs: 3",
+        "first job: index",
+        "peek job: compact",
+        "jobs left: 2",
+        "main next: analyze",
+        "main jobs after drain: 0",
+        "idle jobs (fresh instance): 0",
+        "incidents queued: 3",
+        "most urgent: fire",
+        "peek after fire: cleanup",
+        "second incident: cleanup",
+        "third incident: audit",
+        "incidents left: 0",
+        "lightest load: nightly",
+        "heaviest load: hourly",
+        "label count: 2",
+        "has red: True",
+        "has green: False",
+        "has red after discard: False",
+        "backup label count: 0",
+        "backup labels: 2",
+        "has cache: True",
+        "jobs iterated: 2",
+        "first worker: alice",
+        "second worker: bob",
+        "workers left: 0",
+        "Loaded 2 struct(s), 5 instance(s), 0 function(s).",
+    ],
 }
 
 # Every bundled example must be covered here
@@ -95,6 +124,7 @@ ALL_EXAMPLES: list[str] = [
     "ex4_expressions",
     "ex5_edge_cases",
     "ex6_loops_collections",
+    "ex7_queues_sets",
 ]
 
 

@@ -48,6 +48,7 @@ from src.core.types.home_types.datetime import DateTime
 from src.core.expressions.builtins import (
     DictCollectionCallable,
     QueueCallable,
+    SetCallable,
     _is_struct_instance,
     _struct_from_object,
     resolve_virtual_callable,
@@ -754,6 +755,14 @@ class MemberAccessExpr(Expression):
             and self.member in ("push", "pop", "peek", "size")
         ):
             return QueueCallable(target=target_obj, member=self.member)
+
+        # Typed set members (before the Python attr fallback, which would
+        # expose untyped set methods)
+        if (
+            isinstance(target_obj, ValueSet)
+            and self.member in ("add", "discard", "size")
+        ):
+            return SetCallable(target=target_obj, member=self.member)
 
         # Unwrap Value containers to expose the payload object
         if isinstance(target_obj, Value):

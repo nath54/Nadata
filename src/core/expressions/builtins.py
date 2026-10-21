@@ -26,6 +26,7 @@ from src.core.values.values import (
     ValueInt,
     ValuePriorityQueue,
     ValueQueue,
+    ValueSet,
     ValueStr,
     make_value,
 )
@@ -640,6 +641,73 @@ class QueueCallable:
             )
 
         raise TypeError(f"Unknown priority queue member '{self.member}'")
+
+
+class SetCallable:
+    """
+    Callable bound to a typed member of a set value.
+
+    Provides add / discard / size with element validation, since the raw
+    Python container fallback bypasses typed checks.
+
+    Attributes:
+        target (ValueSet): Receiver set value.
+        member (str): Requested member name.
+    """
+
+    def __init__(self, target: ValueSet, member: str) -> None:
+        """
+        Initializes the SetCallable instance.
+
+        Args:
+            target (ValueSet): Receiver set value.
+            member (str): Requested member name.
+        """
+
+        self.target: ValueSet = target
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Executes the requested set member.
+
+        Args:
+            *args (Value): Evaluated call arguments (unwrapped to raw).
+
+        Returns:
+            Value: Typed result (ValueInt for size, ValueExternal for
+            mutating members).
+
+        Raises:
+            TypeError: On an unknown member or invalid argument count.
+        """
+
+        raw_args: list[Any] = [arg.get() for arg in args]
+
+        # add / discard take the element; size takes nothing
+        expected: int = 1 if self.member in ("add", "discard") else 0
+
+        _require_arg_count(args=tuple(raw_args), count=expected, member=self.member)
+
+        if self.member == "add":
+            self.target.value_type.value_type.check_value(value=raw_args[0])
+
+            self.target.elements.add(raw_args[0])
+
+            return ValueExternal(payload=None)
+
+        if self.member == "discard":
+            self.target.elements.discard(raw_args[0])
+
+            return ValueExternal(payload=None)
+
+        if self.member == "size":
+            return ValueInt(
+                value_type=TypeInt(num_bits=64, signed=True),
+                value=len(self.target.elements),
+            )
+
+        raise TypeError(f"Unknown set member '{self.member}'")
 
 
 def _wrap_raw(raw: Any, value_type: Any) -> Value:

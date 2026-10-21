@@ -8,7 +8,7 @@ This document specifies the exact syntax of the two Nadata source file formats:
 New to Nadata? Start with the [tutorial](tutorial.md); for the engine internals
 see [architecture.md](architecture.md).
 
-The reference examples live in `examples/` (`ex0_simple` to `ex5_edge_cases`) and are
+The reference examples live in `examples/` (`ex0_simple` to `ex7_queues_sets`) and are
 the canonical acceptance material for the parsers.
 
 ---
