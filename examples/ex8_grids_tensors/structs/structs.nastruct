@@ -1,0 +1,33 @@
+# ==============================================================================
+# Example 8: Sparse Spatial Grids and Tensors
+# Exercises the three sparse grid topologies (square 2D, hex axial 2D, cube
+# 3D), typed cell payloads, topology-aware neighborhoods, sparse storage with
+# negative coordinates, and shape-checked dense tensors declared in the type.
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+class World {
+    name: Str;
+
+    # Square 2D terrain: only occupied cells are stored
+    terrain: GridSquare2D[Str] = {};
+
+    # Hexagonal districts with axial (q, r) coordinates
+    districts: GridHex2D[Str] = {};
+
+    # 3D volumetric cells (six face neighbors each)
+    volumes: GridCube3D[Str] = {};
+
+    # 3x3 convolution kernel: the shape is part of the type
+    kernel: Tensor[Float32, 3, 3];
+
+    # 2x2x2 weights: nested literals flatten row-major on assignment
+    weights: Tensor[Float32, 2, 2, 2] = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]];
+
+    # Count the terrain cells occupied by visiting them all
+    @count_cells() -> Int32 {
+        n: Int32 = 0;
+        for (cell: Str in self.terrain) { n++; }
+        return n;
+    }
+}

@@ -47,6 +47,10 @@ from src.core.types.types import (
     TypeSet,
     TypeQueue,
     TypePriorityQueue,
+    SPATIAL_GRID_NAMES,
+    TypeSpatialGrid,
+    TypeTensor,
+    flatten_nested_lists,
     Int2,
     Int4,
     Int8,
@@ -196,6 +200,32 @@ class TypeResolver:
 
             raise TypeError(f"Unknown type '{tmp_type.name}'")
 
+        # Tensor takes an element type followed by positive dimension
+        # literals: Tensor[Float32, 3, 4]. Dimension children are literals,
+        # NOT types, so they are intercepted before type resolution.
+        if tmp_type.name == "Tensor":
+            if len(tmp_type.children) < 2:
+                raise TypeError(
+                    "Type 'Tensor' takes an element type and at least one "
+                    "dimension"
+                )
+
+            dims: list[int] = []
+
+            for dim_child in tmp_type.children[1:]:
+                if not dim_child.name.isdigit():
+                    raise TypeError(
+                        f"Tensor dimensions must be integer literals, got "
+                        f"'{dim_child.name}'"
+                    )
+
+                dims.append(int(dim_child.name))
+
+            return TypeTensor(
+                value_type=self.resolve(tmp_type=tmp_type.children[0]),
+                dims=dims,
+            )
+
         # Resolve every type argument first
         resolved_children: list[Type] = [
             self.resolve(tmp_type=child) for child in tmp_type.children
@@ -231,6 +261,19 @@ class TypeResolver:
                 raise TypeError("Type 'Queue' takes exactly one type argument")
 
             return TypeQueue(value_type=resolved_children[0])
+
+        # Sparse spatial grids take exactly one cell type; the topology is
+        # carried by the type name (GridSquare2D / GridHex2D / GridCube3D)
+        if tmp_type.name in SPATIAL_GRID_NAMES:
+            if len(resolved_children) != 1:
+                raise TypeError(
+                    f"Type '{tmp_type.name}' takes exactly one type argument"
+                )
+
+            return TypeSpatialGrid(
+                value_type=resolved_children[0],
+                topology=SPATIAL_GRID_NAMES[tmp_type.name],
+            )
 
         # PriorityQueue takes an element type and an optional basic numeric
         # priority type (Int64 default)
@@ -784,11 +827,12 @@ class SchemaResolver:
         ):
             expression = SetLiteralExpr(elements=[], declared_type=resolved_type)
 
-        # Queues declared with '{}' take the empty-brace form too
+        # Queues and sparse grids declared with '{}' take the empty-brace
+        # form too
         if (
             isinstance(expression, DictLiteralExpr)
             and not expression.entries
-            and isinstance(resolved_type, (TypeQueue, TypePriorityQueue))
+            and isinstance(resolved_type, (TypeQueue, TypePriorityQueue, TypeSpatialGrid))
         ):
             expression.declared_type = resolved_type
 
@@ -805,6 +849,10 @@ class SchemaResolver:
         value: Any = expression.evaluate(scope=scope)
 
         raw_value: Any = value.get() if hasattr(value, "get") else value
+
+        # Nested array literals flatten into the flat tensor payload
+        if isinstance(resolved_type, TypeTensor) and isinstance(raw_value, list):
+            raw_value = flatten_nested_lists(raw=raw_value)
 
         # Validate against the declared type (Struct is duck typed as Type)
         resolved_type.check_value(value=raw_value)

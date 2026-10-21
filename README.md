@@ -30,8 +30,11 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
 - **Typed schema language** — structs, inheritance, attributes with defaults,
   methods and computed properties, standalone functions
 - **Rich type system** — sized integers/floats (`Int32`, `UFloat16`, ...),
-  `Str`, `Bool`, `DateTime`, `Color`, `Array[T]`, `Dict[K, V]`, entity
-  references; indexing (`arr[0]`, `dict["k"]`) and string concatenation
+  `Str`, `Bool`, `DateTime`, `Color`, `Array[T]`, `Dict[K, V]`, `Set[T]`,
+  `Queue[T]` / `PriorityQueue[T, P]`, sparse spatial grids
+  (`GridSquare2D[T]`, `GridHex2D[T]`, `GridCube3D[T]`), shape-checked
+  `Tensor[T, d1, ...]`, entity references; indexing (`arr[0]`,
+  `dict["k"]`) and string concatenation
 - **Declarative data files** — forward and circular references, script
   statements, `print`, chained polymorphic queries
 - **Runtime introspection** — `elt.id`, `type(x)`, `elt.list_attr()` /
@@ -98,7 +101,7 @@ app.dump("store.ndb")                            # persist
 
 ## Examples
 
-The `examples/` folder contains six self-contained projects, from basics to
+The `examples/` folder contains self-contained projects, from basics to
 edge cases:
 
 | Example | Demonstrates |
@@ -111,6 +114,7 @@ edge cases:
 | `ex5_edge_cases` | Parser edge cases: comments, spacing, empty constructs |
 | `ex6_loops_collections` | Loops (`for-in`, C-style, `while`), fuel guards, collections |
 | `ex7_queues_sets` | FIFO / priority queues, typed sets, membership probes |
+| `ex8_grids_tensors` | Sparse spatial grids (square/hex/cube), shape-checked tensors |
 
 ## Development
 

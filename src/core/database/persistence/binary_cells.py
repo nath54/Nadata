@@ -56,7 +56,9 @@ from src.core.types.types import (
     TypePriorityQueue,
     TypeQueue,
     TypeSet,
+    TypeSpatialGrid,
     TypeStr,
+    TypeTensor,
 )
 from src.core.values.values import Value
 
@@ -131,10 +133,42 @@ def decode_varint(payload: bytes, offset: int) -> tuple[int, int]:
 
         result |= (byte & 0x7F) << shift
 
+        shift += 7
+
         if not byte & 0x80:
             return result, offset
 
-        shift += 7
+
+def encode_zigzag(value: int) -> bytes:
+    """
+    Encodes a signed integer as a zigzag varint.
+
+    Args:
+        value (int): Signed integer to encode.
+
+    Returns:
+        bytes: Encoded zigzag varint bytes.
+    """
+
+    return encode_varint(value=(value << 1) ^ (value >> 63))
+
+
+def decode_zigzag(payload: bytes, offset: int) -> tuple[int, int]:
+    """
+    Decodes a zigzag varint into a signed integer.
+
+    Args:
+        payload (bytes): Payload containing the varint.
+        offset (int): Offset of the varint's first byte.
+
+    Returns:
+        tuple[int, int]: The decoded value and the offset after it.
+    """
+
+    decoded: int
+    decoded, offset = decode_varint(payload=payload, offset=offset)
+
+    return (decoded >> 1) ^ -(decoded & 1), offset
 
 
 def _is_struct_type(value_type: Any) -> bool:
@@ -279,6 +313,27 @@ def encode_value(raw: Any, value_type: Any) -> bytes:
 
         for priority, element in ordered_entries:
             out += encode_value(raw=priority, value_type=value_type.priority_type)
+            out += encode_value(raw=element, value_type=value_type.value_type)
+
+        return bytes(out)
+
+    if isinstance(value_type, TypeSpatialGrid):
+        # Sort by coordinate tuple for deterministic bytes
+        out = bytearray(encode_varint(value=len(raw)))
+
+        for coords in sorted(raw.keys()):
+            for component in coords:
+                out += encode_zigzag(value=component)
+
+            out += encode_value(raw=raw[coords], value_type=value_type.value_type)
+
+        return bytes(out)
+
+    if isinstance(value_type, TypeTensor):
+        # Flat row-major payload; the shape lives in the type
+        out = bytearray(encode_varint(value=len(raw)))
+
+        for element in raw:
             out += encode_value(raw=element, value_type=value_type.value_type)
 
         return bytes(out)
@@ -464,6 +519,52 @@ def decode_value(
             pq_entries.append((priority, pq_element))
 
         return pq_entries, offset
+
+    if isinstance(value_type, TypeSpatialGrid):
+        grid_count: int
+        grid_count, offset = decode_varint(payload=payload, offset=offset)
+
+        grid_cells: dict[tuple[int, ...], Any] = {}
+
+        for _ in range(grid_count):
+            coords: list[int] = []
+
+            for _ in range(value_type.dims):
+                component: int
+                component, offset = decode_zigzag(payload=payload, offset=offset)
+
+                coords.append(component)
+
+            grid_element: Any
+            grid_element, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.value_type,
+                resolver=resolver,
+            )
+
+            grid_cells[tuple(coords)] = grid_element
+
+        return grid_cells, offset
+
+    if isinstance(value_type, TypeTensor):
+        tensor_count: int
+        tensor_count, offset = decode_varint(payload=payload, offset=offset)
+
+        tensor_cells: list[Any] = []
+
+        for _ in range(tensor_count):
+            tensor_element: Any
+            tensor_element, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.value_type,
+                resolver=resolver,
+            )
+
+            tensor_cells.append(tensor_element)
+
+        return tensor_cells, offset
 
     raise TypeError(f"No binary decoding for declared type '{repr(value_type)}'")
 

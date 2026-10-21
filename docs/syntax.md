@@ -8,7 +8,7 @@ This document specifies the exact syntax of the two Nadata source file formats:
 New to Nadata? Start with the [tutorial](tutorial.md); for the engine internals
 see [architecture.md](architecture.md).
 
-The reference examples live in `examples/` (`ex0_simple` to `ex7_queues_sets`) and are
+The reference examples live in `examples/` (`ex0_simple` to `ex8_grids_tensors`) and are
 the canonical acceptance material for the parsers.
 
 ---
@@ -165,7 +165,60 @@ urgent = pq.pop();                    // serve the LOWEST priority first
 - Iteration (`for x in q`) yields elements in serving order; `in`
   probes elements.
 
-### 5.5 Home types
+### 5.5 Sparse spatial grids
+
+Sparse hash-based grids storing only occupied cells. Coordinates are
+fixed `Int64` and negative values are allowed; three topologies are
+provided:
+
+```text
+GridSquare2D[T]   2D square grid, 4-adjacency (up/down/left/right)
+GridHex2D[T]      2D hexagonal grid, axial coordinates (q, r), 6-adjacency
+GridCube3D[T]     3D cube grid, 6-adjacency (face neighbors)
+```
+
+```text
+GridSquare2D[Str] terrain = {};       // empty sparse grid
+terrain.set_at(0, 0, "grass");        // write a cell (coords validated)
+t = terrain.at(-3, 7);                // read a cell (missing raises)
+b = terrain.has(5, 5);                // occupancy probe
+n = terrain.size();                   // occupied cell count
+terrain.remove(1, 0);                 // delete a cell
+coords = terrain.coords();            // Array[Array[Int64]], sorted
+nb = terrain.neighbors(0, 0);         // all neighbor coordinates
+occ = terrain.occupied_neighbors(0, 0);  // only existing cells
+for (c: Str in terrain) { ... }       // iterate occupied values, coord-sorted
+```
+
+- All members are topology aware: `neighbors` on `GridHex2D` uses the
+  six axial directions, on `GridCube3D` the six face directions.
+- Only occupied cells are stored, so huge sparse worlds cost nothing.
+- Grids persist in the binary format with cells written in sorted
+  coordinate order (zigzag varints, negatives included), so the same
+  content always encodes to the same bytes.
+
+### 5.6 Dense tensors
+
+Dense n-dimensional tensors with the **shape declared in the type** and
+checked on every write:
+
+```text
+Tensor[Float32, 3, 4] m;              // 3x4 matrix, 12 elements
+t = m.at(0, 2);                       // bounds-checked element read
+m.set_at(1, 3, 0.5);                  // element write (flat index 7)
+s = m.shape();                         // Array[Int32] of dimensions
+n = m.size();                          // total element count
+for (x: Float32 in m) { ... }         // row-major iteration
+"x" in m                               // membership probe (flat values)
+```
+
+- Dimensions must be positive integer literals in the type; nested
+  array literals flatten row-major on assignment, and the flattened
+  length must equal the product of the dimensions.
+- Tensors persist in the binary format as a varint count followed by
+  the flat row-major elements (the shape lives in the schema).
+
+### 5.7 Home types
 
 | Type | Construction |
 |---|---|
@@ -174,7 +227,7 @@ urgent = pq.pop();                    // serve the LOWEST priority first
 
 `DateTime` field keywords: `y`, `m`, `d`, `H`, `M`, `S`, `MS`.
 
-### 5.6 Struct types
+### 5.8 Struct types
 
 Any struct declared in a `.nastruct` file is itself a type, usable as attribute type,
 array element, dict value, parameter type, or return type:

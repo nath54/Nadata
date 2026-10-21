@@ -611,6 +611,256 @@ class TypePriorityQueue(Type):
         return f"PriorityQueue[{repr(self.value_type)}, {repr(self.priority_type)}]"
 
 
+def flatten_nested_lists(raw: Any) -> list[Any]:
+    """
+    Flattens nested raw lists into a flat row-major element payload.
+
+    Args:
+        raw (Any): Raw payload from a (possibly nested) array literal.
+
+    Returns:
+        list[Any]: Flat element list.
+    """
+
+    flat: list[Any] = []
+
+    for element in raw:
+
+        if isinstance(element, list):
+
+            flat.extend(flatten_nested_lists(raw=element))
+
+
+
+        else:
+
+            flat.append(element)
+
+
+
+    return flat
+
+
+
+# Supported spatial grid topologies (name -> (dimensions, neighbor offsets))
+SPATIAL_TOPOLOGIES: dict[str, tuple[int, list[tuple[int, ...]]]] = {
+    "square2d": (2, [(1, 0), (-1, 0), (0, 1), (0, -1)]),
+    "hex2d": (2, [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]),
+    "cube3d": (3, [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]),
+}
+
+# Topology tag per source type name
+SPATIAL_GRID_NAMES: dict[str, str] = {
+    "GridSquare2D": "square2d",
+    "GridHex2D": "hex2d",
+    "GridCube3D": "cube3d",
+}
+
+# Repr fragment per topology
+SPATIAL_GRID_REPRS: dict[str, str] = {
+    "square2d": "GridSquare2D",
+    "hex2d": "GridHex2D",
+    "cube3d": "GridCube3D",
+}
+
+
+class TypeSpatialGrid(Type):
+    """
+    Schema type representing a sparse spatial grid of typed cells.
+
+    Cells live in a hash map keyed by integer coordinate tuples; absent
+    keys are empty cells. The topology fixes the dimensionality and the
+    canonical neighbor offsets (square2d: 4-adjacency, hex2d: axial
+    6-adjacency, cube3d: 6-adjacency).
+
+    Attributes:
+        value_type (Type): Type of cell values.
+        topology (str): Topology tag (SPATIAL_TOPOLOGIES key).
+        default_value (dict[Any, Any]): Default empty grid.
+    """
+
+    def __init__(self, value_type: Type, topology: str) -> None:
+        """
+        Initializes the TypeSpatialGrid instance.
+
+        Args:
+            value_type (Type): Type of cell values.
+            topology (str): Topology tag (SPATIAL_TOPOLOGIES key).
+
+        Raises:
+            ValueError: If the topology tag is unknown.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        if topology not in SPATIAL_TOPOLOGIES:
+            raise ValueError(f"Unknown spatial grid topology '{topology}'")
+
+        self.value_type: Type = value_type
+        self.topology: str = topology
+
+        # Default value of the grid type (empty occupancy)
+        self.default_value: dict[Any, Any] = {}
+
+    @property
+    def dims(self) -> int:
+        """
+        Returns the coordinate dimensionality of the topology.
+
+        Returns:
+            int: Number of coordinate components.
+        """
+
+        return SPATIAL_TOPOLOGIES[self.topology][0]
+
+    def neighbor_offsets(self) -> list[tuple[int, ...]]:
+        """
+        Returns the canonical neighbor coordinate offsets.
+
+        Returns:
+            list[tuple[int, ...]]: Fixed-order offset tuples.
+        """
+
+        return SPATIAL_TOPOLOGIES[self.topology][1]
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a coordinate keyed dict of typed cells.
+
+        Args:
+            value (Any): Grid value to validate.
+
+        Raises:
+            TypeError: If value is not a dict, a coordinate tuple has the
+                wrong arity or non-integer components, or a cell violates
+                value_type.
+        """
+
+        # Verify container type
+        if not isinstance(value, dict):
+            raise TypeError(f"Expected dict, got {type(value).__name__}")
+
+        # Check each coordinate and cell against the topology / value type
+        for coords, cell in value.items():
+            if not isinstance(coords, tuple) or len(coords) != self.dims:
+                raise TypeError(
+                    f"Expected a {self.dims}-component coordinate tuple"
+                )
+
+            for component in coords:
+                if isinstance(component, bool) or not isinstance(component, int):
+                    raise TypeError(
+                        f"Expected an integer coordinate component, got "
+                        f"{type(component).__name__}"
+                    )
+
+            self.value_type.check_value(value=cell)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the TypeSpatialGrid.
+
+        Returns:
+            str: Representation showing the topology and cell type.
+        """
+
+        return f"{SPATIAL_GRID_REPRS[self.topology]}[{repr(self.value_type)}]"
+
+
+class TypeTensor(Type):
+    """
+    Schema type representing a dense tensor with explicit dimensions.
+
+    The shape is part of the type: values are flat row-major lists whose
+    length must equal the product of the dimensions.
+
+    Attributes:
+        value_type (Type): Type of elements.
+        dims (list[int]): Dimension extents (all >= 1).
+        default_value (list[Any]): Default empty payload.
+    """
+
+    def __init__(self, value_type: Type, dims: list[int]) -> None:
+        """
+        Initializes the TypeTensor instance.
+
+        Args:
+            value_type (Type): Type of elements.
+            dims (list[int]): Dimension extents (all >= 1).
+
+        Raises:
+            ValueError: If any dimension is below 1.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        if any(dim < 1 for dim in dims):
+            raise ValueError("Tensor dimensions must be >= 1")
+
+        self.value_type: Type = value_type
+        self.dims: list[int] = list(dims)
+
+        # Default value of the tensor type (never validated; tensors are
+        # materialized explicitly)
+        self.default_value: list[Any] = []
+
+    def length(self) -> int:
+        """
+        Returns the total element count of the shape.
+
+        Returns:
+            int: Product of the dimensions.
+        """
+
+        total: int = 1
+
+        for dim in self.dims:
+            total *= dim
+
+        return total
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a flat row-major list of the exact shape.
+
+        Args:
+            value (Any): Tensor value to validate.
+
+        Raises:
+            TypeError: If value is not a list, its length does not match
+                the shape, or an element violates value_type.
+        """
+
+        # Verify container type
+        if not isinstance(value, list):
+            raise TypeError(f"Expected list, got {type(value).__name__}")
+
+        # Verify exact shape
+        if len(value) != self.length():
+            raise TypeError(
+                f"Expected {self.length()} elements for shape "
+                f"{self.dims}, got {len(value)}"
+            )
+
+        # Check each element against the element type
+        for element in value:
+            self.value_type.check_value(value=element)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the TypeTensor.
+
+        Returns:
+            str: Representation showing the element type and shape.
+        """
+
+        dims_text: str = ", ".join(str(dim) for dim in self.dims)
+
+        return f"Tensor[{repr(self.value_type)}, {dims_text}]"
+
+
 class TypeDateTime(Type):
     """
     Schema type representing a date and time.

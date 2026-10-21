@@ -16,18 +16,21 @@ from collections import deque
 from typing import Any, Optional, cast
 
 from src.core.expressions.scope import ScopeAwareFunction
-from src.core.types.types import TypeArray, TypeDict, TypeInt, TypeStr
+from src.core.types.types import TypeArray, TypeBool, TypeDict, TypeInt, TypeStr
 from src.core.values.values import (
     TYPE_EXTERNAL,
     Value,
     ValueArray,
+    ValueBool,
     ValueDict,
     ValueExternal,
     ValueInt,
     ValuePriorityQueue,
     ValueQueue,
     ValueSet,
+    ValueSpatialGrid,
     ValueStr,
+    ValueTensor,
     make_value,
 )
 
@@ -708,6 +711,271 @@ class SetCallable:
             )
 
         raise TypeError(f"Unknown set member '{self.member}'")
+
+
+def _coords_argument(raw_args: list[Any], dims: int, offset: int, member: str) -> tuple[int, ...]:
+    """
+    Validates and extracts the leading coordinate components of a call.
+
+    Args:
+        raw_args (list[Any]): Unwrapped call arguments.
+        dims (int): Expected coordinate arity.
+        offset (int): Index of the first coordinate argument.
+        member (str): Member name, for error messages.
+
+    Returns:
+        tuple[int, ...]: The validated coordinate tuple.
+
+    Raises:
+        TypeError: On wrong arity or non-integer components.
+    """
+
+    if len(raw_args) < offset + dims:
+        raise TypeError(
+            f"Member '{member}' expects {dims} coordinate component(s)"
+        )
+
+    coords: list[int] = []
+
+    for component in raw_args[offset:offset + dims]:
+        if isinstance(component, bool) or not isinstance(component, int):
+            raise TypeError(
+                f"Member '{member}' expects integer coordinates, got "
+                f"{type(component).__name__}"
+            )
+
+        coords.append(component)
+
+    return tuple(coords)
+
+
+def _coords_array(coords_list: list[tuple[int, ...]]) -> ValueArray:
+    """
+    Wraps coordinate tuples into a typed Array[Array[Int64]] value.
+
+    Args:
+        coords_list (list[tuple[int, ...]]): Coordinate tuples.
+
+    Returns:
+        ValueArray: The typed coordinate array.
+    """
+
+    from src.core.types.types import Int64, TypeArray
+
+    return ValueArray(
+        value_type=TypeArray(value_type=TypeArray(value_type=Int64)),
+        elements=[list(coords) for coords in coords_list],
+    )
+
+
+class GridCallable:
+    """
+    Callable bound to a typed member of a sparse spatial grid value.
+
+    Provides at / set_at / has / remove / size / coords / neighbors /
+    occupied_neighbors with coordinate and element validation.
+
+    Attributes:
+        target (ValueSpatialGrid): Receiver grid value.
+        member (str): Requested member name.
+    """
+
+    def __init__(self, target: ValueSpatialGrid, member: str) -> None:
+        """
+        Initializes the GridCallable instance.
+
+        Args:
+            target (ValueSpatialGrid): Receiver grid value.
+            member (str): Requested member name.
+        """
+
+        self.target: ValueSpatialGrid = target
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Executes the requested grid member.
+
+        Args:
+            *args (Value): Evaluated call arguments (unwrapped to raw).
+
+        Returns:
+            Value: Typed result.
+
+        Raises:
+            TypeError: On an unknown member or invalid arguments.
+            KeyError: On 'at' against an empty cell.
+        """
+
+        raw_args: list[Any] = [arg.get() for arg in args]
+        grid: ValueSpatialGrid = self.target
+        dims: int = grid.value_type.dims
+
+        if self.member == "at":
+            coords: tuple[int, ...] = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            if coords not in grid.cells:
+                raise KeyError(f"Empty grid cell at {coords}")
+
+            return _wrap_raw(raw=grid.cells[coords], value_type=grid.value_type.value_type)
+
+        if self.member == "set_at":
+            coords = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            if len(raw_args) != dims + 1:
+                raise TypeError(
+                    f"Member 'set_at' expects {dims} coordinate(s) and one value"
+                )
+
+            grid.value_type.value_type.check_value(value=raw_args[dims])
+
+            grid.cells[coords] = raw_args[dims]
+
+            return ValueExternal(payload=None)
+
+        if self.member == "has":
+            coords = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            return ValueBool(
+                value_type=TypeBool(), value=coords in grid.cells
+            )
+
+        if self.member == "remove":
+            coords = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            grid.cells.pop(coords, None)
+
+            return ValueExternal(payload=None)
+
+        if self.member == "size":
+            return ValueInt(
+                value_type=TypeInt(num_bits=64, signed=True),
+                value=len(grid.cells),
+            )
+
+        if self.member == "coords":
+            return _coords_array(
+                coords_list=sorted(grid.cells.keys())
+            )
+
+        if self.member == "neighbors":
+            coords = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            return _coords_array(coords_list=[
+                tuple(base + offset for base, offset in zip(coords, offsets))
+                for offsets in grid.value_type.neighbor_offsets()
+            ])
+
+        if self.member == "occupied_neighbors":
+            coords = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            return _coords_array(coords_list=[
+                neighbor
+                for neighbor in (
+                    tuple(base + offset for base, offset in zip(coords, offsets))
+                    for offsets in grid.value_type.neighbor_offsets()
+                )
+                if neighbor in grid.cells
+            ])
+
+        raise TypeError(f"Unknown grid member '{self.member}'")
+
+
+class TensorCallable:
+    """
+    Callable bound to a typed member of a tensor value.
+
+    Provides at / set_at / size / shape with index bounds and shape
+    validation.
+
+    Attributes:
+        target (ValueTensor): Receiver tensor value.
+        member (str): Requested member name.
+    """
+
+    def __init__(self, target: ValueTensor, member: str) -> None:
+        """
+        Initializes the TensorCallable instance.
+
+        Args:
+            target (ValueTensor): Receiver tensor value.
+            member (str): Requested member name.
+        """
+
+        self.target: ValueTensor = target
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Executes the requested tensor member.
+
+        Args:
+            *args (Value): Evaluated call arguments (unwrapped to raw).
+
+        Returns:
+            Value: Typed result.
+
+        Raises:
+            TypeError: On an unknown member or invalid arguments.
+            IndexError: On out-of-bounds indices.
+        """
+
+        raw_args: list[Any] = [arg.get() for arg in args]
+        tensor: ValueTensor = self.target
+        dims: int = len(tensor.value_type.dims)
+
+        if self.member == "at":
+            indices: tuple[int, ...] = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            flat: int = tensor.flat_index(indices=indices)
+
+            return _wrap_raw(
+                raw=tensor.cells[flat], value_type=tensor.value_type.value_type
+            )
+
+        if self.member == "set_at":
+            indices = _coords_argument(
+                raw_args=raw_args, dims=dims, offset=0, member=self.member
+            )
+
+            if len(raw_args) != dims + 1:
+                raise TypeError(
+                    f"Member 'set_at' expects {dims} index(es) and one value"
+                )
+
+            tensor.value_type.value_type.check_value(value=raw_args[dims])
+
+            tensor.cells[tensor.flat_index(indices=indices)] = raw_args[dims]
+
+            return ValueExternal(payload=None)
+
+        if self.member == "size":
+            return ValueInt(
+                value_type=TypeInt(num_bits=64, signed=True),
+                value=len(tensor.cells),
+            )
+
+        if self.member == "shape":
+            return ValueArray(
+                value_type=TypeArray(value_type=TypeInt(num_bits=32, signed=True)),
+                elements=list(tensor.value_type.dims),
+            )
+
+        raise TypeError(f"Unknown tensor member '{self.member}'")
 
 
 def _wrap_raw(raw: Any, value_type: Any) -> Value:

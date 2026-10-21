@@ -28,6 +28,8 @@ from src.core.types.types import (
     TypeSet,
     TypeQueue,
     TypePriorityQueue,
+    TypeSpatialGrid,
+    TypeTensor,
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
@@ -709,6 +711,189 @@ class ValuePriorityQueue(Value):
         return f"{repr(self.value_type)}({self.entries})"
 
 
+class ValueSpatialGrid(Value):
+    """
+    Runtime representation of a sparse spatial grid of typed cells.
+
+    Attributes:
+        value_type (TypeSpatialGrid): Associated grid schema type.
+        cells (dict[tuple[int, ...], Any]): Occupied cells keyed by
+            coordinate tuple.
+    """
+
+    def __init__(
+        self,
+        value_type: TypeSpatialGrid,
+        cells: Optional[Any] = None
+    ) -> None:
+        """
+        Initializes the ValueSpatialGrid instance.
+
+        Args:
+            value_type (TypeSpatialGrid): Grid type specification.
+            cells (Optional[Any], optional): Initial cells keyed by
+                coordinate tuple. Defaults to None (empty grid).
+
+        Raises:
+            TypeError: If a cell violates the value type or a coordinate
+                tuple does not match the topology.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=value_type)
+
+        resolved_cells: dict[tuple[int, ...], Any] = (
+            dict(cells) if cells is not None else {}
+        )
+
+        # Validate coordinates and cells against the grid type
+        value_type.check_value(value=resolved_cells)
+
+        self.value_type: TypeSpatialGrid = value_type
+        self.cells: dict[tuple[int, ...], Any] = resolved_cells
+
+    def get(self) -> dict[tuple[int, ...], Any]:
+        """
+        Returns the raw occupied-cell mapping.
+
+        Returns:
+            dict[tuple[int, ...], Any]: Cells keyed by coordinate tuple.
+        """
+
+        return self.cells
+
+    def __len__(self) -> int:
+        """
+        Returns count of occupied cells.
+
+        Returns:
+            int: Number of occupied cells.
+        """
+
+        return len(self.cells)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueSpatialGrid.
+
+        Returns:
+            str: Grid representation.
+        """
+
+        return f"{repr(self.value_type)}({self.cells})"
+
+
+class ValueTensor(Value):
+    """
+    Runtime representation of a dense tensor with a type-level shape.
+
+    Attributes:
+        value_type (TypeTensor): Associated tensor schema type.
+        cells (list[Any]): Flat row-major element payload.
+    """
+
+    def __init__(
+        self,
+        value_type: TypeTensor,
+        cells: Optional[Any] = None
+    ) -> None:
+        """
+        Initializes the ValueTensor instance.
+
+        Args:
+            value_type (TypeTensor): Tensor type specification (carries the
+                shape).
+            cells (Optional[Any], optional): Flat row-major payload.
+                Defaults to None (all-shape zero-length is impossible, so
+                an explicit payload is expected for valid shapes).
+
+        Raises:
+            TypeError: If the payload length does not match the shape or an
+                element violates the element type.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=value_type)
+
+        resolved_cells: list[Any] = list(cells) if cells is not None else []
+
+        # Validate exact shape and element types
+        value_type.check_value(value=resolved_cells)
+
+        self.value_type: TypeTensor = value_type
+        self.cells: list[Any] = resolved_cells
+
+    def flat_index(self, indices: tuple[int, ...]) -> int:
+        """
+        Converts a multi-index into a flat row-major offset.
+
+        Args:
+            indices (tuple[int, ...]): One index per dimension.
+
+        Returns:
+            int: Flat offset into the payload.
+
+        Raises:
+            TypeError: On a wrong-arity or non-integer index.
+            IndexError: On an out-of-bounds index.
+        """
+
+        dims: list[int] = self.value_type.dims
+
+        if len(indices) != len(dims):
+            raise TypeError(
+                f"Expected {len(dims)} index component(s), got {len(indices)}"
+            )
+
+        flat_index: int = 0
+
+        for axis, (index, dim) in enumerate(zip(indices, dims)):
+            if isinstance(index, bool) or not isinstance(index, int):
+                raise TypeError(
+                    f"Expected an integer index on axis {axis}, got "
+                    f"{type(index).__name__}"
+                )
+
+            if index < 0 or index >= dim:
+                raise IndexError(
+                    f"Index {index} out of range for axis {axis} of size {dim}"
+                )
+
+            flat_index = flat_index * dim + index
+
+        return flat_index
+
+    def get(self) -> list[Any]:
+        """
+        Returns the flat row-major payload.
+
+        Returns:
+            list[Any]: The element payload.
+        """
+
+        return self.cells
+
+    def __len__(self) -> int:
+        """
+        Returns the total element count.
+
+        Returns:
+            int: Product of the dimensions.
+        """
+
+        return len(self.cells)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueTensor.
+
+        Returns:
+            str: Tensor representation.
+        """
+
+        return f"{repr(self.value_type)}({self.cells})"
+
+
 class ValueDateTime(Value):
     """
     Runtime representation of a DateTime value.
@@ -853,6 +1038,12 @@ def make_value(value_type: Type, raw: Any) -> Value:
 
     if isinstance(value_type, TypePriorityQueue):
         return ValuePriorityQueue(value_type=value_type, entries=raw)
+
+    if isinstance(value_type, TypeSpatialGrid):
+        return ValueSpatialGrid(value_type=value_type, cells=raw)
+
+    if isinstance(value_type, TypeTensor):
+        return ValueTensor(value_type=value_type, cells=raw)
 
     if isinstance(value_type, TypeDateTime):
         return ValueDateTime(value=raw)

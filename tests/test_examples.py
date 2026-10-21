@@ -113,6 +113,28 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "workers left: 0",
         "Loaded 2 struct(s), 5 instance(s), 0 function(s).",
     ],
+    "ex8_grids_tensors": [
+        "terrain cells: 3",
+        "at -3 7: lava",
+        "has 5 5: False",
+        "square neighbor count: 4",
+        "with temporary: 4",
+        "after remove: 3",
+        "cells visited: 3",
+        "hex neighbor count: 6",
+        "hex occupied next to (1,1): 1",
+        "cube neighbor count: 6",
+        "cube occupied next to core: 1",
+        "kernel size: 9",
+        "kernel at 0 2: -1.0",
+        "kernel at 2 2: 2.0",
+        "kernel rank: 2",
+        "weights size: 8",
+        "weights at 1 1 1: 8.0",
+        "kernel after write: 9.5",
+        "kernel sum: 11.75",
+        "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
+    ],
 }
 
 # Every bundled example must be covered here
@@ -125,6 +147,7 @@ ALL_EXAMPLES: list[str] = [
     "ex5_edge_cases",
     "ex6_loops_collections",
     "ex7_queues_sets",
+    "ex8_grids_tensors",
 ]
 
 

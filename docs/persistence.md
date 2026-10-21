@@ -55,9 +55,13 @@ once in the schema instead of per value. Each row is:
    floats, length-prefixed UTF-8 strings, `DateTime` as 7×int32, `Color`
    as 4 bytes, struct references as entity id varints, arrays/dicts as
    varint counts plus recursively encoded elements, sets as varint
-   counts plus elements in **sorted order**, and queues as varint counts
+   counts plus elements in **sorted order**, queues as varint counts
    plus elements in serving order (priority queues normalized by
-   priority, then element repr, for deterministic bytes).
+   priority, then element repr, for deterministic bytes), sparse
+   spatial grids as varint counts plus (zigzag varint coordinates,
+   element) pairs in **sorted coordinate order**, and tensors as a
+   varint count plus the flat row-major elements (the shape lives in
+   the schema type).
 
 A typical typed row costs **~66 bytes** (versus ~1 KB in the legacy JSON
 form, and ~76 bytes for an equivalent SQLite row).

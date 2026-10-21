@@ -1,0 +1,75 @@
+# ==============================================================================
+# Example 8: Sparse Spatial Grids and Tensors - data and scripts
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+# --- Instances ---
+# 'earth' starts with an empty terrain (sparse) and a kernel from a
+# nested array literal, which flattens row-major into the tensor.
+earth = World(
+    name = "earth",
+    kernel = [[1.0, 0.0, -1.0], [0.5, 0.0, -0.5], [0.25, 0.0, 2.0]],
+);
+
+# --- Sparse square grid: only occupied cells cost anything ---
+earth.terrain.set_at(0, 0, "grass");
+earth.terrain.set_at(1, 0, "water");
+earth.terrain.set_at(-3, 7, "lava");
+print("terrain cells:", earth.terrain.size());
+print("at -3 7:", earth.terrain.at(-3, 7));
+print("has 5 5:", earth.terrain.has(5, 5));
+
+# --- Neighborhoods are topology aware (4-adjacency on squares) ---
+sq: Int32 = 0;
+for (c: Array[Int64] in earth.terrain.neighbors(0, 0)) { sq++; }
+print("square neighbor count:", sq);
+
+# --- Removing a cell returns the grid to sparsity ---
+earth.terrain.set_at(9, 9, "temporary");
+print("with temporary:", earth.terrain.size());
+earth.terrain.remove(9, 9);
+print("after remove:", earth.terrain.size());
+
+# --- for-in visits occupied values in coordinate-sorted order ---
+print("cells visited:", earth.count_cells());
+
+# --- Hex grid: axial (q, r) coordinates, 6-adjacency ---
+earth.districts.set_at(1, 0, "forest");
+earth.districts.set_at(1, 1, "hills");
+hx: Int32 = 0;
+for (c: Array[Int64] in earth.districts.neighbors(1, 0)) { hx++; }
+print("hex neighbor count:", hx);
+ho: Int32 = 0;
+for (c: Array[Int64] in earth.districts.occupied_neighbors(1, 1)) { ho++; }
+print("hex occupied next to (1,1):", ho);
+
+# --- Cube grid: 3D coordinates, 6 face neighbors ---
+earth.volumes.set_at(0, 0, 1, "core");
+earth.volumes.set_at(0, 0, 0, "mantle");
+cb: Int32 = 0;
+for (c: Array[Int64] in earth.volumes.neighbors(0, 0, 0)) { cb++; }
+print("cube neighbor count:", cb);
+co: Int32 = 0;
+for (c: Array[Int64] in earth.volumes.occupied_neighbors(0, 0, 1)) { co++; }
+print("cube occupied next to core:", co);
+
+# --- Tensors: shape lives in the type, writes are bounds checked ---
+print("kernel size:", earth.kernel.size());
+print("kernel at 0 2:", earth.kernel.at(0, 2));
+print("kernel at 2 2:", earth.kernel.at(2, 2));
+rank: Int32 = 0;
+for (d: Int32 in earth.kernel.shape()) { rank++; }
+print("kernel rank:", rank);
+
+# --- Nested literals flatten row-major (schema default) ---
+print("weights size:", earth.weights.size());
+print("weights at 1 1 1:", earth.weights.at(1, 1, 1));
+
+# --- Tensor writes update the flat payload ---
+earth.kernel.set_at(1, 1, 9.5);
+print("kernel after write:", earth.kernel.at(1, 1));
+
+# --- Sum the kernel by row-major iteration ---
+total: Float32 = 0.0;
+for (x: Float32 in earth.kernel) { total = total + x; }
+print("kernel sum:", total);

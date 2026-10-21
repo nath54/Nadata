@@ -10,8 +10,21 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
-from src.core.types.types import TypePriorityQueue, TypeQueue
-from src.core.values.values import ValuePriorityQueue, ValueQueue
+from src.core.types.types import (
+    TypePriorityQueue,
+    TypeQueue,
+    TypeTensor,
+    flatten_nested_lists,
+)
+from src.core.values.values import (
+    Value,
+    ValueArray,
+    ValuePriorityQueue,
+    ValueQueue,
+    ValueTensor,
+    make_value,
+)
+
 from src.core.values.values import Value, make_value
 from src.core.struct.struct import Struct
 from src.core.database.entity_id import EntityId
@@ -122,6 +135,14 @@ class StructInstance:
         if attr_def is None:
             raise AttributeError(
                 f"Cannot set undeclared attribute '{name}' on Struct '{self.struct.name}'"
+            )
+
+        # Flatten nested array literals into the flat row-major payload of
+        # a tensor declaration (shape checked by the type below)
+        if isinstance(attr_def.attr_type, TypeTensor) and isinstance(value, ValueArray):
+            value = make_value(
+                value_type=attr_def.attr_type,
+                raw=flatten_nested_lists(raw=value.get()),
             )
 
         # Validate type

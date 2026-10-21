@@ -22,6 +22,7 @@ from src.core.types.types import (
     TypeDict,
     TypeQueue,
     TypePriorityQueue,
+    TypeSpatialGrid,
     TypeSet,
     Float64,
     UInt64,
@@ -41,14 +42,18 @@ from src.core.values.values import (
     ValuePriorityQueue,
     ValueQueue,
     ValueSet,
+    ValueSpatialGrid,
+    ValueTensor,
     make_value,
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
 from src.core.expressions.builtins import (
     DictCollectionCallable,
+    GridCallable,
     QueueCallable,
     SetCallable,
+    TensorCallable,
     _is_struct_instance,
     _struct_from_object,
     resolve_virtual_callable,
@@ -515,8 +520,17 @@ class BinaryOpExpr(Expression):
 
         found: bool
 
+        # Sparse grids probe occupied-cell values (raw payloads are
+        # coordinate keyed dicts)
+        if isinstance(right, ValueSpatialGrid):
+            found = any(cell == raw_left for cell in right.cells.values())
+
+        # Tensors probe flat row-major elements
+        elif isinstance(right, ValueTensor):
+            found = any(cell == raw_left for cell in right.cells)
+
         # Priority queues probe elements (raw payloads are priority pairs)
-        if isinstance(right, ValuePriorityQueue):
+        elif isinstance(right, ValuePriorityQueue):
             found = any(
                 element == raw_left for _, element in right.entries
             )
@@ -763,6 +777,24 @@ class MemberAccessExpr(Expression):
             and self.member in ("add", "discard", "size")
         ):
             return SetCallable(target=target_obj, member=self.member)
+
+        # Typed grid members (before the Python attr fallback, which would
+        # expose untyped dict methods)
+        if (
+            isinstance(target_obj, ValueSpatialGrid)
+            and self.member in (
+                "at", "set_at", "has", "remove", "size", "coords",
+                "neighbors", "occupied_neighbors",
+            )
+        ):
+            return GridCallable(target=target_obj, member=self.member)
+
+        # Typed tensor members (before the Python attr fallback)
+        if (
+            isinstance(target_obj, ValueTensor)
+            and self.member in ("at", "set_at", "size", "shape")
+        ):
+            return TensorCallable(target=target_obj, member=self.member)
 
         # Unwrap Value containers to expose the payload object
         if isinstance(target_obj, Value):
@@ -1336,9 +1368,9 @@ class CallExpr(Expression):
         if callable(callable_obj):
             # Check if callable is a native Python class or function (e.g. DateTime)
             is_type: bool = isinstance(callable_obj, type)
-            is_home_type: bool = getattr(callable_obj, "__module__", "").startswith(
-                "src.core.types.home_types"
-            )
+            is_home_type: bool = (
+                getattr(callable_obj, "__module__", None) or ""
+            ).startswith("src.core.types.home_types")
 
             if is_type or is_home_type:
                 raw_args: list[Any] = [a.get() for a in eval_args]
@@ -1648,8 +1680,11 @@ class DictLiteralExpr(Expression):
             ValueError: If the key / value types cannot be determined.
         """
 
-        # Empty braces under a queue declaration produce the empty queue
-        if isinstance(self.declared_type, (TypeQueue, TypePriorityQueue)):
+        # Empty braces under a queue or sparse grid declaration produce the
+        # empty container
+        if isinstance(
+            self.declared_type, (TypeQueue, TypePriorityQueue, TypeSpatialGrid)
+        ):
             return make_value(value_type=self.declared_type, raw=[])
 
         evaluated_entries: list[tuple[Value, Value]] = [

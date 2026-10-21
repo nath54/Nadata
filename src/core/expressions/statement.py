@@ -10,8 +10,15 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
-from src.core.types.types import Type
-from src.core.values.values import Value, ValuePriorityQueue
+from src.core.types.types import Type, TypeTensor, flatten_nested_lists
+from src.core.values.values import (
+    Value,
+    ValueArray,
+    ValuePriorityQueue,
+    ValueSpatialGrid,
+    ValueTensor,
+    make_value,
+)
 from src.core.expressions.expression import Expression, _wrap_indexed_element
 from src.core.expressions.scope import (
     BreakSignal,
@@ -87,6 +94,17 @@ class VarDeclStmt(Statement):
         """
 
         val: Value = self.init_expr.evaluate(scope=scope)
+
+        # Nested array literals flatten into the flat payload of a tensor
+        # declaration (the shape is checked by the type)
+        if (
+            isinstance(self.var_type, TypeTensor)
+            and isinstance(val, ValueArray)
+        ):
+            val = make_value(
+                value_type=self.var_type,
+                raw=flatten_nested_lists(raw=val.get()),
+            )
 
         # Validate against type annotation if provided
         if self.var_type is not None:
@@ -466,6 +484,17 @@ class ForInStmt(Statement):
         # Priority queues iterate their elements in priority order
         if isinstance(iterable_value, ValuePriorityQueue):
             raw_iterable = [element for _, element in iterable_value.entries]
+
+        # Sparse grids iterate occupied cell values in canonical
+        # (coordinate sorted) order; tensors iterate row-major
+        if isinstance(iterable_value, ValueSpatialGrid):
+            raw_iterable = [
+                iterable_value.cells[coords]
+                for coords in sorted(iterable_value.cells.keys())
+            ]
+
+        if isinstance(iterable_value, ValueTensor):
+            raw_iterable = list(iterable_value.cells)
 
         # Sets and queues iterate their (unordered / FIFO) elements
         if isinstance(raw_iterable, (set, frozenset, deque)):

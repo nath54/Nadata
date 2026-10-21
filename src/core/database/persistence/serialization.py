@@ -61,6 +61,8 @@ from src.core.types.types import (
     TypePriorityQueue,
     TypeQueue,
     TypeSet,
+    TypeSpatialGrid,
+    TypeTensor,
     TypeStr,
 )
 from src.core.values.values import (
@@ -77,7 +79,9 @@ from src.core.values.values import (
     ValuePriorityQueue,
     ValueQueue,
     ValueSet,
+    ValueSpatialGrid,
     ValueStr,
+    ValueTensor,
 )
 
 
@@ -117,6 +121,8 @@ DECODABLE_CLASSES: dict[str, type] = {
     "TypePriorityQueue": TypePriorityQueue,
     "TypeQueue": TypeQueue,
     "TypeSet": TypeSet,
+    "TypeSpatialGrid": TypeSpatialGrid,
+    "TypeTensor": TypeTensor,
     "TypeStr": TypeStr,
     "TargetAssignStmt": TargetAssignStmt,
     "UnaryOpExpr": UnaryOpExpr,
@@ -131,6 +137,8 @@ DECODABLE_CLASSES: dict[str, type] = {
     "ValuePriorityQueue": ValuePriorityQueue,
     "ValueQueue": ValueQueue,
     "ValueSet": ValueSet,
+    "ValueSpatialGrid": ValueSpatialGrid,
+    "ValueTensor": ValueTensor,
     "ValueStr": ValueStr,
     "VarDeclStmt": VarDeclStmt,
     "WhileStmt": WhileStmt,
@@ -265,6 +273,14 @@ class ObjectCodec:
             return [self.encode(obj=element) for element in obj]
 
         if isinstance(obj, dict):
+
+            # Tuple keys (spatial grid coordinates) encode as pair lists
+            if any(isinstance(key, tuple) for key in obj.keys()):
+                return [
+                    [list(key), self.encode(obj=value)]
+                    for key, value in obj.items()
+                ]
+
             return {key: self.encode(obj=value) for key, value in obj.items()}
 
         if isinstance(obj, DateTime):
@@ -508,6 +524,21 @@ def resolve_instance_refs(
                 _resolve_raw(raw=element, instances=instances),
             )
             for priority, element in value.entries
+        ]
+
+        return value
+
+    if isinstance(value, ValueSpatialGrid):
+        value.cells = {
+            coords: _resolve_raw(raw=cell, instances=instances)
+            for coords, cell in value.cells.items()
+        }
+
+        return value
+
+    if isinstance(value, ValueTensor):
+        value.cells = [
+            _resolve_raw(raw=cell, instances=instances) for cell in value.cells
         ]
 
         return value

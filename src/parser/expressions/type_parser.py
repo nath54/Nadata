@@ -136,6 +136,13 @@ class TypeParser:
 
         token: Token = self.tokens[cursor]
 
+        # A dimension literal (e.g. the 3 in 'Tensor[Float32, 3, 4]') is a
+        # valid type argument and is carried as its digit-string name
+        if token.token_type == TokenType.INT:
+            cursor += 1
+
+            return TmpType(name=token.value), cursor
+
         # A type starts with its constructor name
         if token.token_type != TokenType.IDENTIFIER:
             raise SyntaxError(
