@@ -38,6 +38,7 @@ from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
 from src.core.types.types import (
     Type,
+    TypeInt,
     TypeStr,
     TypeBool,
     TypeDateTime,
@@ -200,9 +201,10 @@ class TypeResolver:
 
             raise TypeError(f"Unknown type '{tmp_type.name}'")
 
-        # Tensor takes an element type followed by positive dimension
-        # literals: Tensor[Float32, 3, 4]. Dimension children are literals,
-        # NOT types, so they are intercepted before type resolution.
+        # Tensor takes an element type followed by dimension specifiers:
+        # positive integer literals or names of const integer attributes of
+        # the owning struct (validated in a post-pass once all attributes
+        # are resolved). Dimension children are NOT types.
         if tmp_type.name == "Tensor":
             if len(tmp_type.children) < 2:
                 raise TypeError(
@@ -210,16 +212,24 @@ class TypeResolver:
                     "dimension"
                 )
 
-            dims: list[int] = []
+            dims: list[int | str] = []
 
             for dim_child in tmp_type.children[1:]:
-                if not dim_child.name.isdigit():
+
+                # Integer literal dimension
+                if dim_child.name.isdigit():
+                    dims.append(int(dim_child.name))
+
+                    continue
+
+                # Symbolic dimension: a const attribute name of the owner
+                if dim_child.children:
                     raise TypeError(
-                        f"Tensor dimensions must be integer literals, got "
-                        f"'{dim_child.name}'"
+                        f"Tensor dimensions must be integer literals or "
+                        f"constant names, got '{dim_child.name}'"
                     )
 
-                dims.append(int(dim_child.name))
+                dims.append(dim_child.name)
 
             return TypeTensor(
                 value_type=self.resolve(tmp_type=tmp_type.children[0]),
@@ -392,6 +402,9 @@ class SchemaResolver:
 
         for tmp_function in tmp_struct.methods.values():
             struct.add_method(method=self.resolve_callable(tmp_function=tmp_function))
+
+        # Validate symbolic tensor dimensions against the resolved attributes
+        self._validate_symbolic_dims(struct=struct)
 
         self.check_identifier_shadowing(tmp_struct=tmp_struct, struct=struct)
 
@@ -744,8 +757,97 @@ class SchemaResolver:
             name=tmp_attribute.attribute_name,
             attr_type=attr_type,
             default_value=default_value,
-            has_default=has_default
+            has_default=has_default,
+            is_const=tmp_attribute.is_const
         ))
+
+    def _validate_symbolic_dims(self, struct: Struct) -> None:
+        """
+        Validates symbolic tensor dimensions against the struct's attributes.
+
+        Every symbolic dimension must name a `const` attribute of the struct
+        (or an inherited one) whose type is a basic integer; the attribute
+        may be declared anywhere in the body regardless of ordering. Tensor
+        attributes with a default value are additionally length-checked
+        against the const defaults when all dims are bound by them.
+
+        Args:
+            struct (Struct): The resolved struct.
+
+        Raises:
+            TypeError: If a symbolic dimension has no matching const
+                integer attribute, or a default payload length mismatches.
+        """
+
+        for attribute in struct.get_all_attributes().values():
+
+            if not isinstance(attribute.attr_type, TypeTensor):
+                continue
+
+            tensor_type: TypeTensor = attribute.attr_type
+
+            # Resolve the concrete extents implied by const defaults
+            bound: dict[str, int] = {}
+            all_bound: bool = True
+
+            for dim_name in tensor_type.symbolic_dims():
+                dim_attr: Optional[StructAttribute] = struct.get_attribute(
+                    name=dim_name
+                )
+
+                if dim_attr is None:
+                    raise TypeError(
+                        f"Tensor dimension '{dim_name}' on "
+                        f"'{struct.name}.{attribute.name}' does not match "
+                        f"any attribute of '{struct.name}'"
+                    )
+
+                if not dim_attr.is_const:
+                    raise TypeError(
+                        f"Tensor dimension '{dim_name}' on "
+                        f"'{struct.name}.{attribute.name}' must reference "
+                        f"a 'const' attribute"
+                    )
+
+                if not isinstance(dim_attr.attr_type, TypeInt):
+                    raise TypeError(
+                        f"Tensor dimension '{dim_name}' on "
+                        f"'{struct.name}.{attribute.name}' must reference "
+                        f"a basic integer const attribute, got "
+                        f"{repr(dim_attr.attr_type)}"
+                    )
+
+                # Track default-bound extents for default validation
+                if dim_attr.has_default and isinstance(dim_attr.default_value, int):
+                    bound[dim_name] = dim_attr.default_value
+
+                else:
+                    all_bound = False
+
+            # Validate a declared default payload when the shape is known
+            if (
+                attribute.has_default
+                and tensor_type.is_symbolic
+                and all_bound
+                and isinstance(attribute.default_value, list)
+            ):
+                expected: int = 1
+
+                for dim_value in tensor_type.dims:
+
+                    if isinstance(dim_value, str):
+                        expected *= bound[dim_value]
+
+                    else:
+                        expected *= dim_value
+
+                if len(attribute.default_value) != expected:
+                    raise TypeError(
+                        f"Default for '{struct.name}.{attribute.name}' has "
+                        f"{len(attribute.default_value)} elements but shape "
+                        f"{tensor_type.dims} with bound dims {bound} "
+                        f"requires {expected}"
+                    )
 
     def resolve_callable(self, tmp_function: TmpFunction) -> StructMethod:
         """

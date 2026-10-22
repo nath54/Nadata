@@ -1,0 +1,49 @@
+# ==============================================================================
+# Example 9: Constants and Symbolic Tensor Dimensions - data and scripts
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+# --- Instances bind their own extents ---
+# 'small' uses the Dim default (4); 'wide' overrides it to 2.
+small = Attention(
+    label = "small",
+    Batch = 2,
+    q = [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]],
+    k = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]],
+);
+wide = Attention(
+    label = "wide",
+    Batch = 3,
+    Dim = 2,
+    q = [[1.0, 0.0], [0.0, 1.0], [2.0, 2.0]],
+    k = [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
+);
+
+# --- Constants read like any attribute ---
+print("small batch:", small.Batch);
+print("small dim:", small.Dim);
+print("wide batch:", wide.Batch);
+print("wide dim:", wide.Dim);
+
+# --- Tensor payloads match the bound shapes ---
+print("small q cells:", small.q.size());
+print("wide q cells:", wide.q.size());
+
+rank: Int32 = 0;
+for (d: Int32 in small.q.shape()) { rank++; }
+print("q rank:", rank);
+
+# --- Shape is validated per instance at construction ---
+print("small q sum:", small.q_sum());
+print("wide q sum:", wide.q_sum());
+
+# --- Single-cell writes never re-check the shape ---
+small.q.set_at(0, 0, 10.0);
+print("small q sum after write:", small.q_sum());
+
+# --- Constants are visible through methods ---
+print("small batch again:", small.Batch);
+
+# --- Non-const attributes stay mutable ---
+small.label = "renamed";
+print("small label:", small.label);

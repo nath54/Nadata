@@ -349,6 +349,7 @@ def _decode_struct(
             attr_type=attribute_type,
             default_value=default_value,
             has_default=attribute_doc["has_default"],
+            is_const=attribute_doc.get("is_const", False),
         )
 
         if merge_mode and attribute.name in struct.attributes:

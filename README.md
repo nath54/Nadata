@@ -28,12 +28,14 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
 ## Features
 
 - **Typed schema language** — structs, inheritance, attributes with defaults,
-  methods and computed properties, standalone functions
+  `const` bind-once attributes, methods and computed properties, standalone
+  functions
 - **Rich type system** — sized integers/floats (`Int32`, `UFloat16`, ...),
   `Str`, `Bool`, `DateTime`, `Color`, `Array[T]`, `Dict[K, V]`, `Set[T]`,
   `Queue[T]` / `PriorityQueue[T, P]`, sparse spatial grids
   (`GridSquare2D[T]`, `GridHex2D[T]`, `GridCube3D[T]`), shape-checked
-  `Tensor[T, d1, ...]`, entity references; indexing (`arr[0]`,
+  `Tensor[T, d1, ...]` with symbolic dims bound to `const` attributes,
+  entity references; indexing (`arr[0]`,
   `dict["k"]`) and string concatenation
 - **Declarative data files** — forward and circular references, script
   statements, `print`, chained polymorphic queries
@@ -115,6 +117,7 @@ edge cases:
 | `ex6_loops_collections` | Loops (`for-in`, C-style, `while`), fuel guards, collections |
 | `ex7_queues_sets` | FIFO / priority queues, typed sets, membership probes |
 | `ex8_grids_tensors` | Sparse spatial grids (square/hex/cube), shape-checked tensors |
+| `ex9_constants` | `const` bind-once attributes, symbolic tensor dims |
 
 ## Development
 

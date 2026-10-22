@@ -97,7 +97,7 @@ class TestTypeResolution:
 
     def test_tensor_rejects_bad_dims(self) -> None:
         """
-        Tests that non-numeric or non-positive dimensions are rejected.
+        Tests that a tensor without dimensions is rejected.
         """
 
         resolver: TypeResolver = TypeResolver()
@@ -105,8 +105,22 @@ class TestTypeResolution:
         with pytest.raises(TypeError):
             resolver.resolve(tmp_type=TypeParser.parse_text(text="Tensor[Str]"))
 
-        with pytest.raises(TypeError):
-            resolver.resolve(tmp_type=TypeParser.parse_text(text="Tensor[Str, Str]"))
+    def test_tensor_symbolic_dims_resolve(self) -> None:
+        """
+        Tests that identifier dimensions resolve as symbolic names.
+        """
+
+        resolver: TypeResolver = TypeResolver()
+
+        tensor: Any = resolver.resolve(
+            tmp_type=TypeParser.parse_text(text="Tensor[Float32, Batch, 4]")
+        )
+
+        assert isinstance(tensor, TypeTensor)
+        assert tensor.dims == ["Batch", 4]
+        assert tensor.is_symbolic is True
+        assert tensor.symbolic_dims() == ["Batch"]
+        assert tensor.length() is None
 
     def test_grid_reprs(self) -> None:
         """

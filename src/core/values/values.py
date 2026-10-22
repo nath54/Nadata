@@ -790,6 +790,8 @@ class ValueTensor(Value):
     Attributes:
         value_type (TypeTensor): Associated tensor schema type.
         cells (list[Any]): Flat row-major element payload.
+        concrete_dims (Optional[list[int]]): Resolved extents for symbolic
+            shapes (stamped at binding/decode time); None for unbound.
     """
 
     def __init__(
@@ -822,6 +824,7 @@ class ValueTensor(Value):
 
         self.value_type: TypeTensor = value_type
         self.cells: list[Any] = resolved_cells
+        self.concrete_dims: Optional[list[int]] = None
 
     def flat_index(self, indices: tuple[int, ...]) -> int:
         """
@@ -838,7 +841,22 @@ class ValueTensor(Value):
             IndexError: On an out-of-bounds index.
         """
 
-        dims: list[int] = self.value_type.dims
+        # Per-axis extents: resolved concrete dims for symbolic shapes,
+        # declared dims for literal shapes
+        dims: list[int]
+
+        if self.concrete_dims is not None:
+            dims = self.concrete_dims
+
+        else:
+            declared: list[int | str] = self.value_type.dims
+
+            if any(isinstance(dim, str) for dim in declared):
+                raise TypeError(
+                    "Tensor extents are not bound on this value"
+                )
+
+            dims = [dim for dim in declared if isinstance(dim, int)]
 
         if len(indices) != len(dims):
             raise TypeError(

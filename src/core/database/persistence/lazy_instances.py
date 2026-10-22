@@ -16,7 +16,8 @@ from src.core.database.entity_id import EntityId
 from src.core.database.instance import StructInstance
 from src.core.database.persistence.binary_cells import decode_row
 from src.core.struct.struct import Struct
-from src.core.types.types import Type
+from src.core.types.types import Type, TypeTensor
+from src.core.values.values import Value, ValueTensor
 
 
 class PendingRow:
@@ -285,10 +286,66 @@ class RowDecoder:
 
         shell.attributes = attributes
 
+        # Stamp resolved extents onto symbolic tensor payloads
+        self._stamp_symbolic_dims(struct=struct, attributes=attributes)
+
         self.decoded[entity_id] = shell
         self.drop_pending(entity_id=entity_id)
 
         return shell
+
+    def _stamp_symbolic_dims(self, struct: Struct, attributes: dict[str, Any]) -> None:
+        """
+        Fills concrete extents of decoded symbolic tensor payloads.
+
+        The extents live in the row's own const attributes; tensors decode
+        count-prefixed so this stamping is optional metadata for shape().
+
+        Args:
+            struct (Struct): Schema of the decoded row.
+            attributes (dict[str, Any]): Decoded attribute Values.
+        """
+
+        for attr_name, attr_def in struct.get_all_attributes().items():
+
+            if not (
+                isinstance(attr_def.attr_type, TypeTensor)
+                and attr_def.attr_type.is_symbolic
+            ):
+                continue
+
+            tensor_value: Any = attributes.get(attr_name)
+
+            if not isinstance(tensor_value, ValueTensor):
+                continue
+
+            extents: dict[str, int] = {}
+            all_bound: bool = True
+
+            for dim_name in attr_def.attr_type.symbolic_dims():
+                dim_value: Any = attributes.get(dim_name)
+
+                if dim_value is None:
+                    all_bound = False
+
+                    break
+
+                raw_dim: Any = (
+                    dim_value.get() if isinstance(dim_value, Value) else dim_value
+                )
+
+                if isinstance(raw_dim, bool) or not isinstance(raw_dim, int):
+                    all_bound = False
+
+                    break
+
+                extents[dim_name] = raw_dim
+
+            if all_bound:
+                tensor_value.concrete_dims = [
+                    dim if isinstance(dim, int) else extents[dim]
+                    for dim in attr_def.attr_type.dims
+                ]
 
     def _decode_attributes(self, row: PendingRow) -> dict[str, Any]:
         """

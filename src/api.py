@@ -443,8 +443,12 @@ class Nadata:
             symbol=symbol
         )
 
-        for attr_name, attr_value in (attributes or {}).items():
-            instance.set_attribute(name=attr_name, value=_wrap_argument(value=attr_value))
+        if attributes:
+            wrapped: dict[str, Value] = {
+                name: _wrap_argument(value=value) for name, value in attributes.items()
+            }
+
+            instance.set_creation_attributes(values=wrapped)
 
         return instance
 

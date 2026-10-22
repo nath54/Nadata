@@ -103,13 +103,16 @@ class StructRuntimeBinding:
             attributes=None
         )
 
-        # Bind positional arguments in declaration order
-        for idx, arg_value in enumerate(args):
-            instance.set_attribute(name=attribute_names[idx], value=arg_value)
+        # Bind arguments: constants first (they seed symbolic tensor shapes)
+        creation_values: dict[str, Value] = {}
 
-        # Bind keyword arguments by name
+        for idx, arg_value in enumerate(args):
+            creation_values[attribute_names[idx]] = arg_value
+
         for kw_name, kw_value in kwargs.items():
-            instance.set_attribute(name=kw_name, value=kw_value)
+            creation_values[kw_name] = kw_value
+
+        instance.set_creation_attributes(values=creation_values)
 
         return instance
 
@@ -536,8 +539,7 @@ class NaDataLoader:
                     scope=self.scope
                 )
 
-            for attr_name, attr_value in attribute_values.items():
-                instance.set_attribute(name=attr_name, value=attr_value)
+            instance.set_creation_attributes(values=attribute_values)
 
     # --- Pass 3: script execution ---
 

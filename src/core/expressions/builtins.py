@@ -970,9 +970,25 @@ class TensorCallable:
             )
 
         if self.member == "shape":
+
+            # Symbolic shapes report the resolved extents when bound
+            if tensor.concrete_dims is not None:
+                resolved_dims: list[int] = tensor.concrete_dims
+
+            elif tensor.value_type.is_symbolic:
+                raise TypeError(
+                    "Cannot report the shape of a tensor with unbound "
+                    "symbolic dimensions"
+                )
+
+            else:
+                resolved_dims = [
+                    dim for dim in tensor.value_type.dims if isinstance(dim, int)
+                ]
+
             return ValueArray(
                 value_type=TypeArray(value_type=TypeInt(num_bits=32, signed=True)),
-                elements=list(tensor.value_type.dims),
+                elements=resolved_dims,
             )
 
         raise TypeError(f"Unknown tensor member '{self.member}'")

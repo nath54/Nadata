@@ -8,7 +8,7 @@ This document specifies the exact syntax of the two Nadata source file formats:
 New to Nadata? Start with the [tutorial](tutorial.md); for the engine internals
 see [architecture.md](architecture.md).
 
-The reference examples live in `examples/` (`ex0_simple` to `ex8_grids_tensors`) and are
+The reference examples live in `examples/` (`ex0_simple` to `ex9_constants`) and are
 the canonical acceptance material for the parsers.
 
 ---
@@ -212,13 +212,44 @@ for (x: Float32 in m) { ... }         // row-major iteration
 "x" in m                               // membership probe (flat values)
 ```
 
-- Dimensions must be positive integer literals in the type; nested
-  array literals flatten row-major on assignment, and the flattened
-  length must equal the product of the dimensions.
+- Dimensions must be positive integer literals in the type, **or the
+  names of `const` integer attributes of the struct** (symbolic dims,
+  see 5.7); nested array literals flatten row-major on assignment, and
+  the flattened length must equal the product of the dimensions.
 - Tensors persist in the binary format as a varint count followed by
   the flat row-major elements (the shape lives in the schema).
 
-### 5.7 Home types
+### 5.7 Constants and symbolic dimensions
+
+A `const` attribute binds once — in the constructor — and is immutable
+afterwards:
+
+```text
+class Attention {
+    const Batch: Int32;              // required: no default
+    const Dim: Int32 = 4;            // optional: schema default
+    q: Tensor[Float32, Batch, Dim];  // shape refers to the constants
+}
+
+a = Attention(Batch = 2, q = ...);   // constructor binding only
+```
+
+- Constants bind through constructor arguments (or their schema
+  default); every later write path — `set_attribute`, target
+  assignment, `self.X = ...` in methods — is a type error.
+- Tensor dimensions may name `const` attributes of the same struct
+  (inherited ones included); the referenced attribute must be a basic
+  integer type. Declaration order inside the body is irrelevant.
+- Tensor payloads are validated at construction against the bound
+  extents; two instances of the same struct may bind different values
+  (`Batch = 2` and `Batch = 3` coexist).
+- A tensor with symbolic dims cannot be written until all its named
+  constants are bound. Single-cell writes (`set_at`) never re-check
+  the shape.
+- Constants persist as ordinary attributes; the binary format is
+  unchanged.
+
+### 5.8 Home types
 
 | Type | Construction |
 |---|---|
@@ -227,7 +258,7 @@ for (x: Float32 in m) { ... }         // row-major iteration
 
 `DateTime` field keywords: `y`, `m`, `d`, `H`, `M`, `S`, `MS`.
 
-### 5.8 Struct types
+### 5.9 Struct types
 
 Any struct declared in a `.nastruct` file is itself a type, usable as attribute type,
 array element, dict value, parameter type, or return type:

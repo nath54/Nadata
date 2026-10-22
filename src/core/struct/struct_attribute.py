@@ -21,6 +21,7 @@ class StructAttribute:
         attr_type (Type): Schema type associated with this attribute.
         default_value (Any): Default value if not specified during instantiation.
         has_default (bool): Whether a default value was explicitly provided.
+        is_const (bool): Whether the attribute is immutable after construction.
     """
 
     def __init__(
@@ -28,7 +29,8 @@ class StructAttribute:
         name: str,
         attr_type: Type,
         default_value: Any = None,
-        has_default: bool = False
+        has_default: bool = False,
+        is_const: bool = False
     ) -> None:
         """
         Initializes the StructAttribute instance.
@@ -38,12 +40,15 @@ class StructAttribute:
             attr_type (Type): Attribute schema type.
             default_value (Any, optional): Optional default value. Defaults to None.
             has_default (bool, optional): Whether a default was provided. Defaults to False.
+            is_const (bool, optional): Whether the attribute binds once at
+                construction and is immutable afterwards. Defaults to False.
         """
 
         self.name: str = name
         self.attr_type: Type = attr_type
         self.default_value: Any = default_value
         self.has_default: bool = has_default
+        self.is_const: bool = is_const
 
         # Validate default value against attribute type if present
         if has_default and default_value is not None:
@@ -72,7 +77,13 @@ class StructAttribute:
             str: Representation showing name, type, and default if present.
         """
 
-        if self.has_default:
-            return f"{self.name}: {repr(self.attr_type)} = {repr(self.default_value)}"
+        if self.is_const:
+            prefix = "const "
 
-        return f"{self.name}: {repr(self.attr_type)}"
+        else:
+            prefix = ""
+
+        if self.has_default:
+            return f"{prefix}{self.name}: {repr(self.attr_type)} = {repr(self.default_value)}"
+
+        return f"{prefix}{self.name}: {repr(self.attr_type)}"

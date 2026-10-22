@@ -32,11 +32,14 @@ class TmpAttribute:
             (e.g. Array[Entity]).
         attribute_default_value (Optional[Expression]): Parsed default value
             expression AST, or None if the attribute has no default.
+        is_const (bool): Whether the attribute was declared with the `const`
+            modifier (binds once at construction, immutable afterwards).
     """
 
     attribute_name: str
     attribute_type: TmpType
     attribute_default_value: Optional[Expression] = None
+    is_const: bool = False
 
     dependencies: set[str] = field(default_factory=set)
 
@@ -57,6 +60,7 @@ class TmpAttribute:
                 if self.attribute_default_value is not None
                 else None
             ),
+            "is_const": self.is_const,
             "dependencies": sorted(self.dependencies),
         }
 

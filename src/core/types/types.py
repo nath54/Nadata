@@ -773,74 +773,120 @@ class TypeTensor(Type):
     Schema type representing a dense tensor with explicit dimensions.
 
     The shape is part of the type: values are flat row-major lists whose
-    length must equal the product of the dimensions.
+    length must equal the product of the dimensions. Dimensions are either
+    positive integer literals or the names of `const` integer attributes of
+    the owning struct (symbolic dims bound per instance).
 
     Attributes:
         value_type (Type): Type of elements.
-        dims (list[int]): Dimension extents (all >= 1).
+        dims (list[int | str]): Dimension extents (ints >= 1) or symbolic
+            names resolved against the owning struct's const attributes.
         default_value (list[Any]): Default empty payload.
     """
 
-    def __init__(self, value_type: Type, dims: list[int]) -> None:
+    def __init__(self, value_type: Type, dims: list[int | str]) -> None:
         """
         Initializes the TypeTensor instance.
 
         Args:
             value_type (Type): Type of elements.
-            dims (list[int]): Dimension extents (all >= 1).
+            dims (list[int | str]): Dimension extents (ints >= 1) or
+                symbolic constant names.
 
         Raises:
-            ValueError: If any dimension is below 1.
+            ValueError: If an integer dimension is below 1 or a symbolic
+                name is empty.
         """
 
         # Initialize parent class
         super().__init__()
 
-        if any(dim < 1 for dim in dims):
-            raise ValueError("Tensor dimensions must be >= 1")
+        for dim in dims:
+
+            if isinstance(dim, str):
+
+                if not dim:
+                    raise ValueError("Tensor dimension names must be non-empty")
+
+                continue
+
+            if dim < 1:
+                raise ValueError("Tensor dimensions must be >= 1")
 
         self.value_type: Type = value_type
-        self.dims: list[int] = list(dims)
+        self.dims: list[int | str] = list(dims)
 
         # Default value of the tensor type (never validated; tensors are
         # materialized explicitly)
         self.default_value: list[Any] = []
 
-    def length(self) -> int:
+    @property
+    def is_symbolic(self) -> bool:
         """
-        Returns the total element count of the shape.
+        Returns whether any dimension is a symbolic constant name.
 
         Returns:
-            int: Product of the dimensions.
+            bool: True if at least one dimension is symbolic.
+        """
+
+        return any(isinstance(dim, str) for dim in self.dims)
+
+    def symbolic_dims(self) -> list[str]:
+        """
+        Returns the symbolic dimension names in declaration order.
+
+        Returns:
+            list[str]: Names of the symbolic dimensions.
+        """
+
+        return [dim for dim in self.dims if isinstance(dim, str)]
+
+    def length(self) -> Optional[int]:
+        """
+        Returns the total element count of the shape when fully literal.
+
+        Returns:
+            Optional[int]: Product of the dimensions, or None if any
+                dimension is symbolic.
         """
 
         total: int = 1
 
         for dim in self.dims:
+
+            if isinstance(dim, str):
+                return None
+
             total *= dim
 
         return total
 
     def check_value(self, value: Any) -> None:
         """
-        Validates that a value is a flat row-major list of the exact shape.
+        Validates that a value is a flat row-major list matching the shape.
+
+        Symbolic dimensions cannot be checked without an instance (the
+        concrete extents live in the const attributes), so only fully
+        literal shapes enforce the length here.
 
         Args:
             value (Any): Tensor value to validate.
 
         Raises:
-            TypeError: If value is not a list, its length does not match
-                the shape, or an element violates value_type.
+            TypeError: If value is not a list, its length does not match a
+                literal shape, or an element violates value_type.
         """
 
         # Verify container type
         if not isinstance(value, list):
             raise TypeError(f"Expected list, got {type(value).__name__}")
 
-        # Verify exact shape
-        if len(value) != self.length():
+        # Verify exact shape (literal shapes only)
+        expected: Optional[int] = self.length()
+
+        if expected is not None and len(value) != expected:
             raise TypeError(
-                f"Expected {self.length()} elements for shape "
+                f"Expected {expected} elements for shape "
                 f"{self.dims}, got {len(value)}"
             )
 

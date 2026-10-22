@@ -135,6 +135,21 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "kernel sum: 11.75",
         "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
     ],
+    "ex9_constants": [
+        "small batch: 2",
+        "small dim: 4",
+        "wide batch: 3",
+        "wide dim: 2",
+        "small q cells: 8",
+        "wide q cells: 6",
+        "q rank: 2",
+        "small q sum: 36.0",
+        "wide q sum: 6.0",
+        "small q sum after write: 45.0",
+        "small batch again: 2",
+        "small label: renamed",
+        "Loaded 1 struct(s), 2 instance(s), 0 function(s).",
+    ],
 }
 
 # Every bundled example must be covered here
@@ -148,6 +163,7 @@ ALL_EXAMPLES: list[str] = [
     "ex6_loops_collections",
     "ex7_queues_sets",
     "ex8_grids_tensors",
+    "ex9_constants",
 ]
 
 

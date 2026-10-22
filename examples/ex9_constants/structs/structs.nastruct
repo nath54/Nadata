@@ -1,0 +1,28 @@
+# ==============================================================================
+# Example 9: Constants and Symbolic Tensor Dimensions
+# Exercises `const` attributes (bind once in the constructor, immutable
+# afterwards) and tensor shapes declared with symbolic dimensions that
+# reference those constants. Every instance binds its own extents; the
+# constructor validates payloads against the bound dims.
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+class Attention {
+    # Immutable per-instance parameters: the tensor shapes below refer
+    # to these names, so every tensor write is checked against them
+    const Batch: Int32;
+    const Dim: Int32 = 4;
+
+    label: Str;
+
+    # [Batch, Dim] matrices: the shape is validated at construction
+    q: Tensor[Float32, Batch, Dim];
+    k: Tensor[Float32, Batch, Dim];
+
+    # Total the q matrix by row-major iteration
+    @q_sum() -> Float32 {
+        total: Float32 = 0.0;
+        for (x: Float32 in self.q) { total = total + x; }
+        return total;
+    }
+}

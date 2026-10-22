@@ -93,7 +93,19 @@ def parse_struct_attribute(
     """
 
     # Extract the declaration text between the start and the closing ';'
-    attr_text: str = content[attr_start:attr_end]
+    attr_text: str = content[attr_start:attr_end].strip()
+
+    # Detect the leading 'const' modifier (bind-once attribute); the word
+    # must be followed by whitespace so an attribute named e.g. 'constant'
+    # is unaffected. 'const' itself is reserved and cannot be a name.
+    is_const: bool = False
+
+    if attr_text == "const" or attr_text.startswith("const "):
+        is_const = True
+        attr_text = attr_text[len("const"):].strip()
+
+        if not attr_text:
+            raise SyntaxError("Missing name after 'const' modifier")
 
     # Parse the declaration into name, type, and default value
     attr_name: str
@@ -128,5 +140,6 @@ def parse_struct_attribute(
         attribute_name=attr_name,
         attribute_type=attr_type,
         attribute_default_value=attr_default,
+        is_const=is_const,
         dependencies=dependencies
     )
