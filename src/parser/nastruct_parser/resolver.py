@@ -9,6 +9,7 @@ evaluated into typed values, and bodies are attached as statement blocks.
 
 # Import Modules
 from __future__ import annotations
+import re
 from typing import Any, Callable, Optional, cast
 
 from src.core.database.database import NaDataDatabase
@@ -381,6 +382,36 @@ class TypeResolver:
         raise TypeError(f"Unknown generic type '{tmp_type.name}'")
 
 
+# Identifiers naming attributes, parameters, and variables must be
+# lower_snake_case; upper camel case is reserved for types (structs and
+# builtin type names)
+NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _validate_identifier_name(name: str, kind: str, context: str) -> None:
+    """
+    Rejects attribute, parameter, or variable names starting uppercase.
+
+    Args:
+        name (str): The declared identifier name.
+        kind (str): Declaration kind for the error message (e.g.
+            'attribute', 'parameter', 'variable').
+        context (str): Where the declaration appears (e.g. struct name).
+
+    Raises:
+        SyntaxError: If the name does not start with a lowercase letter
+            or underscore.
+    """
+
+    if not NAME_PATTERN.match(name):
+        raise SyntaxError(
+            f"{kind.capitalize()} '{name}' in '{context}' must not start "
+            f"with an uppercase letter (lower_snake_case is reserved for "
+            f"attributes, parameters, and variables; types are "
+            f"UpperCamelCase)"
+        )
+
+
 class SchemaResolver:
     """
     Resolves the intermediate representation of a parsing session into the
@@ -577,6 +608,15 @@ class SchemaResolver:
                 self._collect_declared_names(statement=statement, names=declared_names)
 
             for declared_name in declared_names:
+
+                # Naming rule: locals and loop variables are lower_snake_case
+                _validate_identifier_name(
+                    name=declared_name,
+                    kind="variable",
+                    context=f"method '{tmp_function.fn_name}' of "
+                    f"'{struct.name}'",
+                )
+
                 if declared_name in attribute_names:
                     raise SyntaxError(
                         f"'{declared_name}' in method '{tmp_function.fn_name}' "
@@ -868,6 +908,13 @@ class SchemaResolver:
 
         attr_type: Type = self.type_resolver.resolve(tmp_type=tmp_attribute.attribute_type)
 
+        # Naming rule: attributes are lower_snake_case
+        _validate_identifier_name(
+            name=tmp_attribute.attribute_name,
+            kind="attribute",
+            context=struct.name,
+        )
+
         default_value: Any = None
         has_default: bool = False
         default_expr: Optional[Expression] = None
@@ -1019,6 +1066,13 @@ class SchemaResolver:
         default_param_exprs: dict[str, Expression] = {}
 
         for parameter in tmp_function.fn_argument.values():
+            # Naming rule: parameters are lower_snake_case
+            _validate_identifier_name(
+                name=parameter.attribute_name,
+                kind="parameter",
+                context=tmp_function.fn_name,
+            )
+
             param_type: Type = self.type_resolver.resolve(
                 tmp_type=parameter.attribute_type
             )

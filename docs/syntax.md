@@ -218,7 +218,7 @@ Method parameters may use symbolic dims, validated against the
 receiver's constants at call time:
 
 ```text
-@forward(x: Tensor[Float32, Batch, Dim]) -> Float32 { ... }
+@forward(x: Tensor[Float32, batch, dim]) -> Float32 { ... }
 ```
 
 Symbolic dims are not allowed on standalone function parameters or on
@@ -239,12 +239,12 @@ afterwards:
 
 ```text
 class Attention {
-    const Batch: Int32;              // required: no default
-    const Dim: Int32 = 4;            // optional: schema default
-    q: Tensor[Float32, Batch, Dim];  // shape refers to the constants
+    const batch: Int32;              // required: no default
+    const dim: Int32 = 4;            // optional: schema default
+    q: Tensor[Float32, batch, dim];  // shape refers to the constants
 }
 
-a = Attention(Batch = 2, q = ...);   // constructor binding only
+a = Attention(batch = 2, q = ...);   // constructor binding only
 ```
 
 - Constants bind through constructor arguments (or their schema
@@ -255,7 +255,7 @@ a = Attention(Batch = 2, q = ...);   // constructor binding only
   integer type. Declaration order inside the body is irrelevant.
 - Tensor payloads are validated at construction against the bound
   extents; two instances of the same struct may bind different values
-  (`Batch = 2` and `Batch = 3` coexist).
+  (`batch = 2` and `batch = 3` coexist).
 - A tensor with symbolic dims cannot be written until all its named
   constants are bound. Single-cell writes (`set_at`) never re-check
   the shape.
@@ -263,14 +263,14 @@ a = Attention(Batch = 2, q = ...);   // constructor binding only
   them through `self`:
 
   ```text
-  const Half: Int32 = self.Dim / 2;
-  const FourDim: Int32 = self.Dim * 4;
+  const half: Int32 = self.dim / 2;
+  const fourdim: Int32 = self.dim * 4;
   ```
 
   Derived constants are computed per instance at construction, in
   declaration order, and cannot be set directly. Referenced attributes
   must be consts; an integral float result coerces to the declared
-  integer type (a remainder, e.g. `Dim = 5` with `/ 2`, is a type
+  integer type (a remainder, e.g. `dim = 5` with `/ 2`, is a type
   error).
 - Constants persist as ordinary attributes; the binary format is
   unchanged.
@@ -323,6 +323,12 @@ name: Type = default;           // attribute with default value
 
 - Attributes end with a semicolon `;`.
 - The default value must type-check against the declared type.
+- **Naming rule**: attribute names, method parameter names, and local variables
+  must be `lower_snake_case` — they must not start with an uppercase letter.
+  UpperCamelCase is reserved for type names (structs and builtins such as
+  `Int32`, `Color`, `GridHex2D`). Underscore-prefixed names (`_count`) are
+  allowed. Violations are a `SyntaxError` at resolution time (or, for `.nadata`
+  script variables, when the statement executes).
 - Allowed default expressions: literals (`"Sensor_A"`, `21.5`, `-128`, `true`, `""`),
   constructor calls (`Color(0, 0, 0)`, `DateTime()`), function-like calls
   (`DateTime.now()`), and empty collections (`[]`, `{}`).

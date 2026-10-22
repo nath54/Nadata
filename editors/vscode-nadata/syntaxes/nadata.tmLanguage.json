@@ -11,9 +11,12 @@
 		{ "include": "#class-declaration" },
 		{ "include": "#function-declaration" },
 		{ "include": "#method-declaration" },
-		{ "include": "#declaration-keywords" },
+		{ "include": "#const-keyword" },
+		{ "include": "#member-access" },
+		{ "include": "#logical-operators" },
 		{ "include": "#control-keywords" },
-		{ "include": "#types" },
+		{ "include": "#builtin-types" },
+		{ "include": "#user-types" },
 		{ "include": "#numeric" },
 		{ "include": "#operators" },
 		{ "include": "#punctuation" }
@@ -51,15 +54,15 @@
 		"class-declaration": {
 			"match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)?\\s*\\)?",
 			"captures": {
-				"1": { "name": "keyword.declaration.class.nadata" },
+				"1": { "name": "keyword.declaration.class.nadata storage.type.class" },
 				"2": { "name": "entity.name.class.nadata" },
-				"3": { "name": "entity.name.class.inherited.nadata" }
+				"3": { "name": "entity.name.class.nadata" }
 			}
 		},
 		"function-declaration": {
 			"match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
 			"captures": {
-				"1": { "name": "keyword.declaration.function.nadata" },
+				"1": { "name": "keyword.declaration.function.nadata storage.type.function" },
 				"2": { "name": "entity.name.function.nadata" }
 			}
 		},
@@ -70,17 +73,29 @@
 				"2": { "name": "entity.name.function.nadata" }
 			}
 		},
-		"declaration-keywords": {
-			"name": "keyword.declaration.nadata",
+		"const-keyword": {
+			"name": "keyword.declaration.const.nadata storage.modifier.const",
 			"match": "\\b(const)\\b"
+		},
+		"member-access": {
+			"name": "variable.other.member.nadata",
+			"match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*"
+		},
+		"logical-operators": {
+			"name": "keyword.operator.logical.nadata",
+			"match": "\\b(and|or|not)\\b"
 		},
 		"control-keywords": {
 			"name": "keyword.control.nadata",
-			"match": "\\b(if|elif|else|for|in|not\\s+in|while|return|break|continue|pass|and|or|not)\\b"
+			"match": "\\b(if|elif|else|for|in|while|return|break|continue|pass)\\b"
 		},
-		"types": {
+		"builtin-types": {
 			"name": "support.type.nadata",
 			"match": "\\b(Array|Dict|Set|Queue|PriorityQueue|Tensor|GridSquare2D|GridHex2D|GridCube3D|DateTime|Color|Str|Bool|BFloat16|UBFloat16|U?Float(?:8_E4M3|8_E5M2|16|32|64)|U?Int[0-9]+)\\b"
+		},
+		"user-types": {
+			"name": "entity.name.type.nadata",
+			"match": "\\b[A-Z][A-Za-z0-9_]*\\b"
 		},
 		"numeric": {
 			"name": "constant.numeric.nadata",

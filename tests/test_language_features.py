@@ -202,10 +202,10 @@ class TestDerivedConsts:
 
     SCHEMA: str = """
     class M {
-        const Dim: Int32;
-        const Half: Int32 = self.Dim / 2;
-        const FourDim: Int32 = self.Dim * 4;
-        w: Tensor[Float32, Half];
+        const dim: Int32;
+        const half: Int32 = self.dim / 2;
+        const fourdim: Int32 = self.dim * 4;
+        w: Tensor[Float32, half];
     }
     """
 
@@ -230,13 +230,13 @@ class TestDerivedConsts:
 
         app: Nadata = self._app()
 
-        app.execute_data(data_text="m = M(Dim = 4, w = [1.0, 2.0]);\n")
+        app.execute_data(data_text="m = M(dim = 4, w = [1.0, 2.0]);\n")
 
         instance: Any = app.query(struct_name="M").first()
 
-        assert instance.attributes["Dim"].get() == 4
-        assert instance.attributes["Half"].get() == 2
-        assert instance.attributes["FourDim"].get() == 16
+        assert instance.attributes["dim"].get() == 4
+        assert instance.attributes["half"].get() == 2
+        assert instance.attributes["fourdim"].get() == 16
         assert instance.attributes["w"].concrete_dims == [2]
 
     def test_per_instance(self) -> None:
@@ -247,14 +247,14 @@ class TestDerivedConsts:
         app: Nadata = self._app()
 
         app.execute_data(data_text=(
-            "a = M(Dim = 4, w = [1.0, 2.0]);\n"
-            "b = M(Dim = 6, w = [1.0, 2.0, 3.0]);\n"
+            "a = M(dim = 4, w = [1.0, 2.0]);\n"
+            "b = M(dim = 6, w = [1.0, 2.0, 3.0]);\n"
         ))
 
         instances: Any = app.query(struct_name="M").to_list()
 
-        assert instances[0].attributes["Half"].get() == 2
-        assert instances[1].attributes["Half"].get() == 3
+        assert instances[0].attributes["half"].get() == 2
+        assert instances[1].attributes["half"].get() == 3
 
     def test_direct_set_rejected(self) -> None:
         """
@@ -265,7 +265,7 @@ class TestDerivedConsts:
 
         with pytest.raises(TypeError, match="derived"):
             app.create_instance(struct_name="M", attributes={
-                "Dim": 4, "Half": 3, "w": [1.0, 2.0],
+                "dim": 4, "half": 3, "w": [1.0, 2.0],
             })
 
     def test_non_integral_division_rejected(self) -> None:
@@ -277,7 +277,7 @@ class TestDerivedConsts:
 
         with pytest.raises(TypeError, match="Expected int"):
             app.create_instance(struct_name="M", attributes={
-                "Dim": 5, "w": [1.0],
+                "dim": 5, "w": [1.0],
             })
 
     def test_mutation_rejected(self) -> None:
@@ -287,10 +287,10 @@ class TestDerivedConsts:
 
         app: Nadata = self._app()
 
-        app.execute_data(data_text="m = M(Dim = 4, w = [1.0, 2.0]);\n")
+        app.execute_data(data_text="m = M(dim = 4, w = [1.0, 2.0]);\n")
 
         with pytest.raises(TypeError, match="immutable"):
-            app.set_attribute(symbol="m", name="Half", value=3)
+            app.set_attribute(symbol="m", name="half", value=3)
 
     def test_round_trip(self) -> None:
         """
@@ -299,7 +299,7 @@ class TestDerivedConsts:
 
         app: Nadata = self._app()
 
-        app.execute_data(data_text="m = M(Dim = 4, w = [1.0, 2.0]);\n")
+        app.execute_data(data_text="m = M(dim = 4, w = [1.0, 2.0]);\n")
 
         temp_dir: str = tempfile.mkdtemp()
         storage_path: str = os.path.join(temp_dir, "d.ndb")
@@ -312,10 +312,10 @@ class TestDerivedConsts:
 
         instance: Any = table.instances[0]
 
-        assert instance.attributes["Half"].get() == 2
-        assert instance.attributes["FourDim"].get() == 16
+        assert instance.attributes["half"].get() == 2
+        assert instance.attributes["fourdim"].get() == 16
 
-        struct_attr: Any = table.struct.get_attribute(name="Half")
+        struct_attr: Any = table.struct.get_attribute(name="half")
 
         assert struct_attr.is_const is True
         assert struct_attr.default_expr is not None
@@ -327,7 +327,7 @@ class TestDerivedConsts:
 
         with pytest.raises(TypeError, match="unknown attribute"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class X { const Bad: Int32 = self.Missing + 1; }"
+                "class X { const bad: Int32 = self.missing + 1; }"
             ))
 
     def test_non_const_reference_rejected(self) -> None:
@@ -337,8 +337,98 @@ class TestDerivedConsts:
 
         with pytest.raises(TypeError, match="non-const"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class X { v: Int32 = 0; const Bad: Int32 = self.v + 1; }"
+                "class X { v: Int32 = 0; const bad: Int32 = self.v + 1; }"
             ))
+
+
+class TestNaming:
+    """
+    Tests the lower_snake_case rule for attributes, params, and variables.
+    """
+
+    def test_uppercase_attribute_rejected(self) -> None:
+        """
+        Tests that struct attributes cannot start uppercase.
+        """
+
+        with pytest.raises(SyntaxError, match="must not start"):
+            Nadata(database=NaDataDatabase()).execute_schema(schema_text="class X { Name: Str; }")
+
+    def test_uppercase_const_rejected(self) -> None:
+        """
+        Tests that consts follow the same rule.
+        """
+
+        with pytest.raises(SyntaxError, match="must not start"):
+            Nadata(database=NaDataDatabase()).execute_schema(schema_text="class X { const Batch: Int32; }")
+
+    def test_lowercase_underscore_ok(self) -> None:
+        """
+        Tests that underscore-prefixed names are allowed.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text="class X { _count: Int32 = 0; }")
+
+        app.execute_data(data_text="x = X(_count = 1);")
+
+        assert app.query(struct_name="X").first() is not None
+
+    def test_uppercase_parameter_rejected(self) -> None:
+        """
+        Tests that method parameters cannot start uppercase.
+        """
+
+        with pytest.raises(SyntaxError, match="must not start"):
+            Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
+                "class X {\n"
+                "  @f(Value: Int32) -> Int32 { return Value; }\n"
+                "}"
+            ))
+
+    def test_uppercase_local_rejected(self) -> None:
+        """
+        Tests that typed local declarations cannot start uppercase.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text="class X { v: Int32 = 0; }")
+
+        with pytest.raises(SyntaxError, match="must not start"):
+            app.execute_data(data_text=(
+                "x = X();\n"
+                "Total: Int32 = 0;\n"
+            ))
+
+    def test_uppercase_script_var_rejected(self) -> None:
+        """
+        Tests that plain script assignments cannot create uppercase names.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text="class X { v: Int32 = 0; }")
+
+        with pytest.raises(SyntaxError, match="must not start"):
+            app.execute_data(data_text=(
+                "x = X();\n"
+                "Total = 5;\n"
+            ))
+
+    def test_class_names_still_uppercase(self) -> None:
+        """
+        Tests that struct names keep their UpperCamelCase convention.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text="class MyStruct { v: Int32 = 0; }")
+
+        app.execute_data(data_text="s = MyStruct();\n")
+
+        assert app.query(struct_name="MyStruct").first() is not None
 
 
 class TestMethodDims:
@@ -348,7 +438,7 @@ class TestMethodDims:
 
     def _app(self) -> Nadata:
         """
-        Builds an app with a scaling method over [Batch, Dim] tensors.
+        Builds an app with a scaling method over [batch, dim] tensors.
 
         Returns:
             Nadata: The prepared facade.
@@ -357,12 +447,12 @@ class TestMethodDims:
         app: Nadata = Nadata(database=NaDataDatabase())
 
         app.execute_schema(schema_text="""
-        class N {
-            const Batch: Int32;
-            const Dim: Int32 = 2;
-            data: Tensor[Float32, Batch, Dim];
+        class n {
+            const batch: Int32;
+            const dim: Int32 = 2;
+            data: Tensor[Float32, batch, dim];
 
-            @total(x: Tensor[Float32, Batch, Dim]) -> Float32 {
+            @total(x: Tensor[Float32, batch, dim]) -> Float32 {
                 t: Float32 = 0.0;
                 for (v: Float32 in x) { t = t + v; }
                 return t;
@@ -380,7 +470,7 @@ class TestMethodDims:
         app: Nadata = self._app()
 
         app.execute_data(data_text=(
-            "n = N(Batch = 2, data = [[1.0, 2.0], [3.0, 4.0]]);\n"
+            "n = n(batch = 2, data = [[1.0, 2.0], [3.0, 4.0]]);\n"
         ))
 
         result: Any = app.call_method(
@@ -397,7 +487,7 @@ class TestMethodDims:
         app: Nadata = self._app()
 
         app.execute_data(data_text=(
-            "n = N(Batch = 2, data = [[1.0, 2.0], [3.0, 4.0]]);\n"
+            "n = n(batch = 2, data = [[1.0, 2.0], [3.0, 4.0]]);\n"
         ))
 
         with pytest.raises(TypeError, match="must have 4 elements"):
@@ -410,7 +500,7 @@ class TestMethodDims:
 
         with pytest.raises(TypeError, match="not a basic integer const"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class B { const Dim: Int32 = 2;\n"
+                "class B { const dim: Int32 = 2;\n"
                 "  @f(x: Tensor[Float32, Nope]) -> Float32 { return 0.0; }\n"
                 "}"
             ))
@@ -422,7 +512,7 @@ class TestMethodDims:
 
         with pytest.raises(TypeError, match="only struct methods"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "fn g(x: Tensor[Float32, Batch]) -> Float32 { return 0.0; }"
+                "fn g(x: Tensor[Float32, batch]) -> Float32 { return 0.0; }"
             ))
 
     def test_symbolic_return_rejected(self) -> None:
@@ -432,7 +522,7 @@ class TestMethodDims:
 
         with pytest.raises(TypeError, match="symbolic tensor return type"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class B { const Dim: Int32 = 2;\n"
-                "  @f() -> Tensor[Float32, Dim] { return [1.0, 2.0]; }\n"
+                "class B { const dim: Int32 = 2;\n"
+                "  @f() -> Tensor[Float32, dim] { return [1.0, 2.0]; }\n"
                 "}"
             ))

@@ -25,11 +25,11 @@ from src.parser.nastruct_parser.resolver import TypeResolver
 
 SCHEMA: str = """
 class Attention {
-    const Batch: Int32;
-    const Dim: Int32 = 8;
+    const batch: Int32;
+    const dim: Int32 = 8;
     name: Str;
-    q: Tensor[Float32, Batch, Dim];
-    k: Tensor[Float32, Batch, Dim];
+    q: Tensor[Float32, batch, dim];
+    k: Tensor[Float32, batch, dim];
 }
 """
 
@@ -52,15 +52,15 @@ class TestResolution:
 
         struct: Any = app.database.tables_by_struct_name["Attention"].struct
 
-        assert struct.get_attribute(name="Batch").is_const is True
+        assert struct.get_attribute(name="batch").is_const is True
         assert struct.get_attribute(name="name").is_const is False
 
         q_type: Any = struct.get_attribute(name="q").attr_type
 
         assert isinstance(q_type, TypeTensor)
-        assert q_type.dims == ["Batch", "Dim"]
+        assert q_type.dims == ["batch", "dim"]
         assert q_type.is_symbolic is True
-        assert q_type.symbolic_dims() == ["Batch", "Dim"]
+        assert q_type.symbolic_dims() == ["batch", "dim"]
         assert q_type.length() is None
 
     def test_dim_must_exist(self) -> None:
@@ -70,7 +70,7 @@ class TestResolution:
 
         with pytest.raises(TypeError, match="does not match any attribute"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class X { q: Tensor[Float32, Missing]; }"
+                "class X { q: Tensor[Float32, missing]; }"
             ))
 
     def test_dim_must_be_const(self) -> None:
@@ -80,7 +80,7 @@ class TestResolution:
 
         with pytest.raises(TypeError, match="must reference a 'const'"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class X { Batch: Int32; q: Tensor[Float32, Batch]; }"
+                "class X { batch: Int32; q: Tensor[Float32, batch]; }"
             ))
 
     def test_dim_must_be_integer_const(self) -> None:
@@ -90,7 +90,7 @@ class TestResolution:
 
         with pytest.raises(TypeError, match="basic integer"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class X { const Name: Str; q: Tensor[Float32, Name]; }"
+                "class X { const name: Str; q: Tensor[Float32, name]; }"
             ))
 
     def test_dim_must_not_be_generic(self) -> None:
@@ -111,7 +111,7 @@ class TestResolution:
 
         with pytest.raises(TypeError, match="requires 4"):
             Nadata(database=NaDataDatabase()).execute_schema(schema_text=(
-                "class X { const N: Int32 = 4; q: Tensor[Float32, N] = [1.0]; }"
+                "class X { const n: Int32 = 4; q: Tensor[Float32, n] = [1.0]; }"
             ))
 
 
@@ -142,13 +142,13 @@ class TestConstruction:
         app: Nadata = self._app()
 
         app.execute_data(data_text=(
-            f"a = Attention(name = \"first\", Batch = 2, q = {Q_PAYLOAD});\n"
+            f"a = Attention(name = \"first\", batch = 2, q = {Q_PAYLOAD});\n"
         ))
 
         instance: Any = app.query(struct_name="Attention").first()
 
-        assert instance.attributes["Batch"].get() == 2
-        assert instance.attributes["Dim"].get() == 8
+        assert instance.attributes["batch"].get() == 2
+        assert instance.attributes["dim"].get() == 8
         assert instance.attributes["q"].concrete_dims == [2, 8]
         assert len(instance.attributes["q"].get()) == 16
 
@@ -160,7 +160,7 @@ class TestConstruction:
         app: Nadata = self._app()
 
         app.execute_data(data_text=(
-            f"a = Attention(q = {Q_PAYLOAD}, Batch = 2, name = \"x\");\n"
+            f"a = Attention(q = {Q_PAYLOAD}, batch = 2, name = \"x\");\n"
         ))
 
         instance: Any = app.query(struct_name="Attention").first()
@@ -176,7 +176,7 @@ class TestConstruction:
 
         with pytest.raises(TypeError, match="requires 16"):
             app.create_instance(struct_name="Attention", attributes={
-                "name": "bad", "Batch": 2, "q": [[1.0]],
+                "name": "bad", "batch": 2, "q": [[1.0]],
             })
 
     def test_unbound_dim_rejected(self) -> None:
@@ -186,7 +186,7 @@ class TestConstruction:
 
         app: Nadata = self._app()
 
-        with pytest.raises(TypeError, match="'Batch' is not bound"):
+        with pytest.raises(TypeError, match="'batch' is not bound"):
             app.create_instance(struct_name="Attention", attributes={
                 "name": "bad", "q": [[1.0, 2.0]],
             })
@@ -199,13 +199,13 @@ class TestConstruction:
         app: Nadata = self._app()
 
         app.execute_schema(schema_text=(
-            "class M { const N: Int32; w: Tensor[Float32, 3, N]; }"
+            "class M { const n: Int32; w: Tensor[Float32, 3, n]; }"
         ))
 
-        app.create_instance(struct_name="M", attributes={"N": 2, "w": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})
+        app.create_instance(struct_name="M", attributes={"n": 2, "w": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})
 
         with pytest.raises(TypeError, match="requires 6"):
-            app.create_instance(struct_name="M", attributes={"N": 2, "w": [1.0]})
+            app.create_instance(struct_name="M", attributes={"n": 2, "w": [1.0]})
 
     def test_instances_differ_in_dims(self) -> None:
         """
@@ -215,15 +215,15 @@ class TestConstruction:
         app: Nadata = self._app()
 
         app.execute_data(data_text=(
-            f"a = Attention(name = \"a\", Batch = 2, q = {Q_PAYLOAD});\n"
-            "b = Attention(name = \"b\", Batch = 3, Dim = 2, "
+            f"a = Attention(name = \"a\", batch = 2, q = {Q_PAYLOAD});\n"
+            "b = Attention(name = \"b\", batch = 3, dim = 2, "
             "q = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);\n"
         ))
 
         instances: Any = app.query(struct_name="Attention").to_list()
 
-        assert instances[0].attributes["Batch"].get() == 2
-        assert instances[1].attributes["Batch"].get() == 3
+        assert instances[0].attributes["batch"].get() == 2
+        assert instances[1].attributes["batch"].get() == 3
         assert instances[1].attributes["q"].concrete_dims == [3, 2]
 
 
@@ -245,7 +245,7 @@ class TestImmutability:
         app.execute_schema(schema_text=SCHEMA)
 
         app.execute_data(data_text=(
-            f"a = Attention(name = \"first\", Batch = 2, q = {Q_PAYLOAD});\n"
+            f"a = Attention(name = \"first\", batch = 2, q = {Q_PAYLOAD});\n"
         ))
 
         return app
@@ -258,7 +258,7 @@ class TestImmutability:
         app: Nadata = self._bound()
 
         with pytest.raises(TypeError, match="immutable"):
-            app.set_attribute(symbol="a", name="Batch", value=5)
+            app.set_attribute(symbol="a", name="batch", value=5)
 
     def test_language_assignment_rejected(self) -> None:
         """
@@ -268,7 +268,7 @@ class TestImmutability:
         app: Nadata = self._bound()
 
         with pytest.raises(TypeError, match="immutable"):
-            app.execute_data(data_text="a.Batch = 7;\n")
+            app.execute_data(data_text="a.batch = 7;\n")
 
     def test_method_body_assignment_rejected(self) -> None:
         """
@@ -278,12 +278,12 @@ class TestImmutability:
         app: Nadata = self._bound()
 
         app.execute_schema(schema_text=(
-            "class M { const N: Int32; v: Int32 = 0;\n"
-            "  @touch() -> Int32 { self.N = 5; return self.N; }\n"
+            "class M { const n: Int32; v: Int32 = 0;\n"
+            "  @touch() -> Int32 { self.n = 5; return self.n; }\n"
             "}"
         ))
 
-        app.execute_data(data_text="m = M(N = 1);\n")
+        app.execute_data(data_text="m = M(n = 1);\n")
 
         with pytest.raises(TypeError, match="immutable"):
             app.call_method(symbol="m", name="touch")
@@ -330,7 +330,7 @@ class TestPersistence:
         app.execute_schema(schema_text=SCHEMA)
 
         app.execute_data(data_text=(
-            f"a = Attention(name = \"first\", Batch = 2, q = {Q_PAYLOAD});\n"
+            f"a = Attention(name = \"first\", batch = 2, q = {Q_PAYLOAD});\n"
             "a.k = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],"
             " [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]];\n"
         ))
@@ -346,18 +346,18 @@ class TestPersistence:
 
         instance: Any = table.instances[0]
 
-        assert instance.attributes["Batch"].get() == 2
-        assert instance.attributes["Dim"].get() == 8
+        assert instance.attributes["batch"].get() == 2
+        assert instance.attributes["dim"].get() == 8
         assert instance.attributes["q"].get() == [
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
             8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0,
         ]
         assert instance.attributes["q"].concrete_dims == [2, 8]
-        assert table.struct.get_attribute(name="Batch").is_const is True
+        assert table.struct.get_attribute(name="batch").is_const is True
 
         # Post-reload immutability still enforced
         with pytest.raises(TypeError, match="immutable"):
-            instance.set_attribute(name="Batch", value=9)
+            instance.set_attribute(name="batch", value=9)
 
     def test_default_tensor_stamped(self) -> None:
         """
@@ -367,10 +367,10 @@ class TestPersistence:
         app: Nadata = Nadata(database=NaDataDatabase())
 
         app.execute_schema(schema_text=(
-            "class W { const N: Int32 = 2; w: Tensor[Float32, N] = [1.0, 2.0]; }"
+            "class W { const n: Int32 = 2; w: Tensor[Float32, n] = [1.0, 2.0]; }"
         ))
 
-        app.execute_data(data_text="w = W(N = 2);\n")
+        app.execute_data(data_text="w = W(n = 2);\n")
 
         instance: Any = app.query(struct_name="W").first()
 

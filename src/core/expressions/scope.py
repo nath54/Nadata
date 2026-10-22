@@ -7,9 +7,14 @@ self-instance bindings, return flow signals, and the shared loop fuel budget.
 
 # Import Modules
 from __future__ import annotations
+import re
 from typing import Any, Optional
 
 from src.core.values.values import Value
+
+# Identifiers naming variables must be lower_snake_case (types are
+# UpperCamelCase); mirrors the resolver-side rule for attributes/params
+NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 # Globals dict key holding the shared LoopFuel instance
 LOOP_FUEL_KEY: str = "__loop_fuel__"
@@ -178,6 +183,15 @@ class ExecutionScope:
 
         if not isinstance(value, Value):
             raise TypeError(f"Expected Value instance, got {type(value).__name__}")
+
+        # Naming rule: variables are lower_snake_case (types are
+        # UpperCamelCase); enforced here for scripts and loop variables
+        if not NAME_PATTERN.match(name):
+            raise SyntaxError(
+                f"Variable '{name}' must not start with an uppercase letter "
+                f"(lower_snake_case is reserved for attributes, parameters, "
+                f"and variables; types are UpperCamelCase)"
+            )
 
         # Store in current local scope variables
         self.variables[name] = value

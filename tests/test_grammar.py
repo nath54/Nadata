@@ -135,7 +135,7 @@ class TestGrammarSync:
 
         grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
 
-        type_pattern: str = grammar["repository"]["types"]["match"]
+        type_pattern: str = grammar["repository"]["builtin-types"]["match"]
 
         type_names: list[str] = [
             *TypeResolver().builtin_types.keys(),
@@ -169,7 +169,9 @@ class TestGrammarSync:
 
     def test_grammar_scopes_valid(self) -> None:
         """
-        Tests that every scope name ends with the nadata suffix.
+        Tests that every scope name is a compound scope ending with the
+        nadata suffix (the last token may be a canonical fallback so
+        themes match either form).
         """
 
         grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
@@ -181,4 +183,44 @@ class TestGrammarSync:
         ]
 
         assert scopes
-        assert all(scope.endswith(".nadata") for scope in scopes)
+        assert all(
+            any(token.endswith(".nadata") for token in scope.split(" "))
+            for scope in scopes
+        )
+
+    def test_user_types_highlighted(self) -> None:
+        """
+        Tests that the grammar colors user-defined type names (UpperCamel)
+        but leaves lowercase identifiers alone.
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        pattern: str = grammar["repository"]["user-types"]["match"]
+
+        assert re.search(pattern, "Animal") is not None
+        assert re.search(pattern, "GridHex2D") is not None
+        assert re.search(pattern, "animal_attr") is None
+
+    def test_naming_rule_scopes_present(self) -> None:
+        """
+        Tests that declarations, members, self, and constants all have
+        dedicated highlight scopes (class keyword, class name, member
+        access, storage modifier).
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        repository: dict[str, Any] = grammar["repository"]
+
+        assert "class-declaration" in repository
+        assert "method-declaration" in repository
+        assert "member-access" in repository
+        assert "const-keyword" in repository
+        assert "self" in repository
+
+        assert "storage.type.class" in repository["class-declaration"]["captures"]["1"]["name"]
+        assert "entity.name.class" in repository["class-declaration"]["captures"]["2"]["name"]
+        assert "entity.name.function" in repository["method-declaration"]["captures"]["2"]["name"]
+        assert "variable.other.member" in repository["member-access"]["name"]
+        assert "storage.modifier" in repository["const-keyword"]["name"]

@@ -4,32 +4,32 @@
 # ==============================================================================
 
 # --- Instances bind their own extents ---
-# 'small' uses the Dim default (4); 'wide' overrides it to 2.
+# 'small' uses the dim default (4); 'wide' overrides it to 2.
 small = Attention(
     label = "small",
-    Batch = 2,
+    batch = 2,
     q = [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]],
     k = [[0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 1.0]],
 );
 wide = Attention(
     label = "wide",
-    Batch = 3,
-    Dim = 2,
+    batch = 3,
+    dim = 2,
     q = [[1.0, 0.0], [0.0, 1.0], [2.0, 2.0]],
     k = [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
 );
 
 # --- Constants read like any attribute ---
-print("small batch:", small.Batch);
-print("small dim:", small.Dim);
-print("wide batch:", wide.Batch);
-print("wide dim:", wide.Dim);
+print("small batch:", small.batch);
+print("small dim:", small.dim);
+print("wide batch:", wide.batch);
+print("wide dim:", wide.dim);
 
-# --- Derived constants follow each instance's own Dim ---
-print("small half:", small.Half);
-print("wide half:", wide.Half);
-print("small fourdim:", small.FourDim);
-print("wide fourdim:", wide.FourDim);
+# --- Derived constants follow each instance's own dim ---
+print("small half:", small.half);
+print("wide half:", wide.half);
+print("small fourdim:", small.fourdim);
+print("wide fourdim:", wide.fourdim);
 
 # --- Tensor payloads match the bound shapes ---
 print("small q cells:", small.q.size());
@@ -59,7 +59,7 @@ small.q.set_at(0, 0, 10.0);
 print("small q sum after write:", small.q_sum());
 
 # --- Constants are visible through methods ---
-print("small batch again:", small.Batch);
+print("small batch again:", small.batch);
 
 # --- Non-const attributes stay mutable ---
 small.label = "renamed";

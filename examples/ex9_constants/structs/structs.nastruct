@@ -10,24 +10,24 @@
 class Attention {
     # Immutable per-instance parameters: the tensor shapes below refer
     # to these names, so every tensor write is checked against them
-    const Batch: Int32;
-    const Dim: Int32 = 4;
+    const batch: Int32;
+    const dim: Int32 = 4;
 
     # Derived constants: computed per instance from the bound constants
-    const Half: Int32 = self.Dim / 2;
-    const FourDim: Int32 = self.Dim * 4;
+    const half: Int32 = self.dim / 2;
+    const fourdim: Int32 = self.dim * 4;
 
     label: Str;
 
-    # [Batch, Dim] matrices: the shape is validated at construction
-    q: Tensor[Float32, Batch, Dim];
-    k: Tensor[Float32, Batch, Dim];
+    # [batch, dim] matrices: the shape is validated at construction
+    q: Tensor[Float32, batch, dim];
+    k: Tensor[Float32, batch, dim];
 
-    # A [Half] vector: its length follows the instance's own Dim
-    proj: Tensor[Float32, Half] = [];
+    # A [half] vector: its length follows the instance's own dim
+    proj: Tensor[Float32, half] = [];
 
-    # Total a [Batch, Dim] argument against this instance's extents
-    @match_total(x: Tensor[Float32, Batch, Dim]) -> Float32 {
+    # Total a [batch, dim] argument against this instance's extents
+    @match_total(x: Tensor[Float32, batch, dim]) -> Float32 {
         total: Float32 = 0.0;
         for (v: Float32 in x) { total = total + v; }
         return total;

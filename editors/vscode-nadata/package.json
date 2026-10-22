@@ -1,57 +1,57 @@
 {
-	"name": "nadata-support",
-	"displayName": "Nadata Language Support",
-	"description": "Syntax highlighting for Nadata .nastruct schema files and .nadata data files",
-	"version": "0.1.0",
-	"publisher": "nadata",
-	"license": "MIT",
-	"engines": {
-		"vscode": "^1.60.0"
-	},
-	"categories": [
-		"Programming Languages"
-	],
-	"keywords": [
-		"nadata",
-		"nastruct",
-		"syntax"
-	],
-	"contributes": {
-		"languages": [
-			{
-				"id": "nadata",
-				"aliases": [
-					"Nadata Data",
-					"nadata"
-				],
-				"extensions": [
-					".nadata"
-				],
-				"configuration": "./language-configuration.json"
-			},
-			{
-				"id": "nastruct",
-				"aliases": [
-					"Nastruct Schema",
-					"nastruct"
-				],
-				"extensions": [
-					".nastruct"
-				],
-				"configuration": "./language-configuration.json"
-			}
-		],
-		"grammars": [
-			{
-				"language": "nadata",
-				"scopeName": "source.nadata",
-				"path": "./syntaxes/nadata.tmLanguage.json"
-			},
-			{
-				"language": "nastruct",
-				"scopeName": "source.nastruct",
-				"path": "./syntaxes/nastruct.tmLanguage.json"
-			}
-		]
-	}
+  "name": "nadata-support",
+  "displayName": "Nadata Language Support",
+  "description": "Syntax highlighting for Nadata .nastruct schema files and .nadata data files",
+  "version": "0.2.0",
+  "publisher": "nadata",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "nadata",
+    "nastruct",
+    "syntax"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nadata",
+        "aliases": [
+          "Nadata Data",
+          "nadata"
+        ],
+        "extensions": [
+          ".nadata"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "nastruct",
+        "aliases": [
+          "Nastruct Schema",
+          "nastruct"
+        ],
+        "extensions": [
+          ".nastruct"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nadata",
+        "scopeName": "source.nadata",
+        "path": "./syntaxes/nadata.tmLanguage.json"
+      },
+      {
+        "language": "nastruct",
+        "scopeName": "source.nastruct",
+        "path": "./syntaxes/nastruct.tmLanguage.json"
+      }
+    ]
+  }
 }
