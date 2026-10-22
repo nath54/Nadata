@@ -513,6 +513,154 @@ class TestConvolutions:
             ))
 
 
+class TestHigherOrder:
+    """
+    Tests value-wise function application (map) and math builtins.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema and a named function.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "fn scale(v: Float32) -> Float32 { return v * 3.0; }\n"
+            "class P {\n"
+            "  v: Float32 = 0.0;\n"
+            "  sig: Tensor[Float32, 4] = [1.0, -2.0, 3.0, -4.0];\n"
+            "  out: Tensor[Float32, 4] = [0.0, 0.0, 0.0, 0.0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_map_lambda(self) -> None:
+        """
+        Tests mapping a lambda over a tensor.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.out = p.sig.map((v: Float32) -> v * 2.0);\n",
+            attribute="out",
+        ) == [2.0, -4.0, 6.0, -8.0]
+
+    def test_map_named_function(self) -> None:
+        """
+        Tests mapping a named standalone function over a tensor.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.out = p.sig.map(scale);\n",
+            attribute="out",
+        ) == [3.0, -6.0, 9.0, -12.0]
+
+    def test_map_composition(self) -> None:
+        """
+        Tests composing map with math builtins and reductions.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text=(
+                "p = P();\n"
+                "p.out = p.sig.map((v: Float32) -> abs(v));\n"
+                "p.v = p.out.sum();\n"
+            ),
+            attribute="v",
+        ) == 10.0
+
+    def test_map_result_type_enforced(self) -> None:
+        """
+        Tests that results violating the element type raise TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError):
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "p.out = p.sig.map((v: Float32) -> exp(v));\n"
+                "p.out = p.sig.map((w: Float32) -> w > 0.0);\n"
+            ))
+
+    def test_map_requires_function(self) -> None:
+        """
+        Tests that a non-callable argument raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="lambda or function"):
+            app.execute_data(data_text="p = P();\n p.out = p.sig.map(2.0);\n")
+
+    def test_math_builtins(self) -> None:
+        """
+        Tests the exp/sqrt/log/pow math builtins.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.v = exp(0.0);\n",
+            attribute="v",
+        ) == 1.0
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.v = sqrt(16.0);\n",
+            attribute="v",
+        ) == 4.0
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.v = pow(2.0, 10.0);\n",
+            attribute="v",
+        ) == 1024.0
+
+    def test_math_builtin_rejects_non_numeric(self) -> None:
+        """
+        Tests that math builtins reject non-numeric arguments.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="numeric"):
+            app.execute_data(data_text="p = P();\n p.v = sqrt(\"x\");\n")
+
+
 class TestPooling:
     """
     Tests max/min/avg pooling on 1-D and 2-D tensors.

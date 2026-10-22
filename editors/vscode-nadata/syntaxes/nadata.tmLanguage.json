@@ -85,11 +85,11 @@
 		},
 		"builtin-function-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "\\b(print)(?=\\s*\\()"
+			"match": "\\b(print|zeros|fill|eye|abs|exp|sqrt|log|pow)(?=\\s*\\()"
 		},
 		"builtin-method-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill|conv1d|conv2d|max_pool|min_pool|avg_pool)(?=\\s*\\()"
+			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill|map|conv1d|conv2d|max_pool|min_pool|avg_pool)(?=\\s*\\()"
 		},
 		"member-call": {
 			"name": "entity.name.function.call.nadata",

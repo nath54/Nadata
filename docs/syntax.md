@@ -244,6 +244,21 @@ numeric scalar (broadcast); results keep the base tensor's shape and
 element type. Division on integer element types is a `TypeError`
 (the result would be fractional).
 
+**Value-wise function application** — `map` applies a function to
+every cell. The function is a lambda or a named standalone function
+passed by identifier; results must satisfy the element type:
+
+```text
+y = x.map((v: Float32) -> v * 2.0);   // lambda
+y = x.map(relu);                      // named function (fn declared in schema)
+soft = z.map((v: Float32) -> exp(v)); // compose with the math builtins
+soft = soft / soft.sum();             // e.g. a softmax
+```
+
+**Math builtins** — `abs(v)`, `exp(v)`, `sqrt(v)`, `log(v)`, and
+`pow(base, exponent)` operate on numeric values (and through `map`
+on every tensor cell).
+
 **Convolutions and pooling** — deep-learning style valid
 cross-correlation (no kernel flip, no padding), on 1-D and 2-D
 numeric tensors:

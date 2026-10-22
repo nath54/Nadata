@@ -12,6 +12,7 @@ imports the core struct classes (which import expressions).
 
 # Import Modules
 from __future__ import annotations
+import math
 from collections import deque
 from typing import Any, Optional, cast
 
@@ -667,6 +668,11 @@ def build_type_globals() -> dict[str, Any]:
         "zeros": TensorInitializer(kind="zeros"),
         "fill": TensorInitializer(kind="fill"),
         "eye": TensorInitializer(kind="eye"),
+        "abs": _math_unary("abs", math.fabs),
+        "exp": _math_unary("exp", math.exp),
+        "sqrt": _math_unary("sqrt", math.sqrt),
+        "log": _math_unary("log", math.log),
+        "pow": _math_binary("pow", lambda a, b: a ** b),
     }
 
 
@@ -1109,6 +1115,9 @@ class TensorCallable:
                 cells=transposed,
             )
 
+        if self.member == "map":
+            return self._map(args=args)
+
         if self.member in ("conv1d", "conv2d"):
             return self._conv(args=args)
 
@@ -1116,6 +1125,73 @@ class TensorCallable:
             return self._pool(args=args)
 
         raise TypeError(f"Unknown tensor member '{self.member}'")
+
+    def _map(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Applies a function value-wise over every tensor cell.
+
+        The function may be a lambda ('(v: Float32) -> v * 2.0') or a
+        named standalone function passed by identifier; struct methods
+        are not supported as values.
+
+        Args:
+            args (tuple[Value, ...]): The function Value.
+
+        Returns:
+            ValueTensor: New tensor with the mapped cells.
+
+        Raises:
+            TypeError: On a missing/invalid function or a result
+                violating the element type.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if len(args) != 1 or not isinstance(args[0], Value):
+            raise TypeError("Member 'map' expects exactly one function")
+
+        fn: Any = args[0].get()
+
+        if not callable(fn) and not hasattr(fn, "execute"):
+            raise TypeError(
+                f"Member 'map' expects a lambda or function, got "
+                f"'{repr(fn)}'"
+            )
+
+        element_type: Type = tensor.value_type.value_type
+        mapped: list[Any] = []
+
+        for cell in tensor.cells:
+
+            if hasattr(fn, "execute"):
+
+                result: Any = fn.execute(
+                    self_instance=None,
+                    args=[make_value(value_type=element_type, raw=cell)],
+                    kwargs={},
+                    globals_dict=build_type_globals(),
+                )
+
+                if isinstance(result, Value):
+                    result = result.get()
+
+            else:
+                result = fn(cell)
+
+                if isinstance(result, Value):
+                    result = result.get()
+
+            element_type.check_value(value=result)
+
+            mapped.append(result)
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=element_type,
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=mapped,
+        )
 
     def _conv(self, args: tuple[Value, ...]) -> ValueTensor:
         """
@@ -1544,6 +1620,69 @@ def materialize_tensor_init(
 # Names that produce pending tensor initializations (materialized
 # against the target's declared type)
 TENSOR_INIT_NAMES: frozenset[str] = frozenset({"zeros", "fill", "eye"})
+
+
+def _math_unary(name: str, op: Any) -> Any:
+    """
+    Builds a builtin single-float math function over Value arguments.
+
+    Args:
+        name (str): Function name (for error messages).
+        op (Any): Underlying float -> float operation.
+
+    Returns:
+        Any: A callable taking one Value and returning a float.
+    """
+
+    def apply(*args: Value) -> float:
+        """Applies the operation to the unwrapped argument."""
+
+        if len(args) != 1:
+            raise TypeError(f"{name}() expects exactly one argument")
+
+        raw: Any = args[0].get()
+
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise TypeError(
+                f"{name}() expects a numeric argument, got '{repr(raw)}'"
+            )
+
+        return float(op(raw))
+
+    return apply
+
+
+def _math_binary(name: str, op: Any) -> Any:
+    """
+    Builds a builtin two-float math function over Value arguments.
+
+    Args:
+        name (str): Function name (for error messages).
+        op (Any): Underlying (float, float) -> float operation.
+
+    Returns:
+        Any: A callable taking two Values and returning a float.
+    """
+
+    def apply(*args: Value) -> float:
+        """Applies the operation to the unwrapped arguments."""
+
+        if len(args) != 2:
+            raise TypeError(f"{name}() expects exactly two arguments")
+
+        left: Any = args[0].get()
+        right: Any = args[1].get()
+
+        for raw in (left, right):
+
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise TypeError(
+                    f"{name}() expects numeric arguments, got '{repr(raw)}'"
+                )
+
+        return float(op(float(left), float(right)))
+
+    return apply
 
 
 def _conv_valid_length(length: int, kernel: int, stride: int) -> int:

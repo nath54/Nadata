@@ -209,6 +209,13 @@ class IdentifierExpr(Expression):
         if isinstance(resolved, Value):
             return resolved
 
+        # Callables (standalone functions, builtin constructors) pass as
+        # opaque values so they can be handed to higher-order members
+        # like Tensor.map(); call resolution goes through evaluate_symbol
+        # and never reaches this path
+        if callable(resolved) or hasattr(resolved, "execute"):
+            return ValueExternal(payload=resolved)
+
         raise TypeError(
             f"Identifier '{self.name}' resolved to non-Value object '{type(resolved).__name__}'"
         )
@@ -943,7 +950,7 @@ class MemberAccessExpr(Expression):
             isinstance(target_obj, ValueTensor)
             and self.member in (
                 "at", "set_at", "size", "shape",
-                "sum", "min", "max", "transpose", "fill",
+                "sum", "min", "max", "transpose", "fill", "map",
                 "conv1d", "conv2d", "max_pool", "min_pool", "avg_pool",
             )
         ):
@@ -2135,23 +2142,34 @@ class LambdaPredicate:
         self.body: Expression = body
         self.scope: ExecutionScope = scope
 
-    def __call__(self, candidate: Any) -> bool:
+    def __call__(self, candidate: Any) -> Any:
         """
         Evaluates the lambda body with the candidate bound to the parameter.
 
         Args:
-            candidate (Any): Candidate payload (e.g. a StructInstance).
+            candidate (Any): Candidate payload (e.g. a StructInstance or a
+                tensor element).
 
         Returns:
-            bool: Boolean result of the body expression.
+            Any: The raw body result (filters treat it as a boolean;
+                value-wise callers use it directly).
         """
 
         child_scope: ExecutionScope = self.scope.create_child_scope()
-        child_scope.globals_dict[self.param_name] = ValueExternal(payload=candidate)
+
+        # Struct candidates bind opaquely; basic scalars bind with their
+        # runtime type so arithmetic inside the body works
+        if isinstance(candidate, (bool, int, float, str)):
+            bound: Value = LiteralExpr(value=candidate).evaluate(scope=child_scope)
+
+        else:
+            bound = ValueExternal(payload=candidate)
+
+        child_scope.globals_dict[self.param_name] = bound
 
         result: Value = self.body.evaluate(scope=child_scope)
 
-        return bool(result.get())
+        return result.get()
 
     def __repr__(self) -> str:
         """
