@@ -51,6 +51,12 @@ from src.core.values.values import (
 )
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
+from src.core.expressions.autograd import (
+    Optimizer,
+    maybe_record_binary,
+    maybe_record_member,
+    maybe_record_slice,
+)
 from src.core.expressions.builtins import (
     DictCollectionCallable,
     GridCallable,
@@ -738,6 +744,31 @@ class BinaryOpExpr(Expression):
         arith_res: Optional[Value] = self._eval_arithmetic(left_val, self.op, right_val)
 
         if arith_res is not None:
+
+            # Autograd: record tensor arithmetic when any Float input tracks
+            if isinstance(left_val, ValueTensor) or isinstance(
+                right_val, ValueTensor
+            ):
+                maybe_record_binary(
+                    op=self.op,
+                    left=left_val,
+                    right=right_val,
+                    result=arith_res,
+                    tape=scope.tape,
+                )
+
+            # Autograd: record scalar float chains rooted at recorded ops
+            elif (
+                isinstance(left_val, (ValueFloat, ValueInt))
+                and isinstance(right_val, (ValueFloat, ValueInt))
+                and scope.tape is not None
+            ):
+                scope.tape.maybe_record_scalar(
+                    op=self.op,
+                    inputs=[left_val, right_val],
+                    output=arith_res,
+                )
+
             return arith_res
 
         # 2. Attempt comparison evaluation
@@ -953,6 +984,7 @@ class MemberAccessExpr(Expression):
                 "sum", "min", "max", "transpose", "fill", "map", "mean",
                 "argmax", "argmin", "matmul", "concat", "reshape",
                 "flatten", "gather", "topk", "to_float", "to_int", "permute",
+                "relu", "grad",
                 "conv1d", "conv2d", "max_pool", "min_pool", "avg_pool",
             )
         ):
@@ -1369,7 +1401,25 @@ class IndexExpr(Expression):
             dims=result_dims,
         )
 
-        return ValueTensor(value_type=result_type, cells=cells)
+        result: ValueTensor = ValueTensor(value_type=result_type, cells=cells)
+
+        # Autograd: record the read so backward scatters into the source
+        maybe_record_slice(
+            target=target_obj,
+            spec=[
+                (is_slice, dim_range.start, dim_range.stop)
+                for is_slice, dim_range in spec
+            ],
+            indices=[
+                dim_range.start
+                for is_slice, dim_range in spec
+                if not is_slice
+            ],
+            result=result,
+            tape=scope.tape,
+        )
+
+        return result
 
     def _has_slices(self) -> bool:
         """
@@ -1728,6 +1778,7 @@ class IndexExpr(Expression):
         container.value_type.value_type.check_value(value=value.get())
 
         container.cells[raw_index] = value.get()
+        container.bump_version()
 
     def _assign_tensor(
         self,
@@ -1833,6 +1884,8 @@ class IndexExpr(Expression):
             element_type.check_value(value=element)
 
             container.cells[position] = element
+
+        container.bump_version()
 
     def _assign_array(
         self,
@@ -2026,15 +2079,13 @@ class CallExpr(Expression):
             k: v.evaluate(scope=scope) for k, v in self.kwargs.items()
         }
 
-        # Scope-aware natives (e.g. set_loop_limit) receive the live scope
+        # Scope-aware natives (e.g. set_loop_limit, backward) receive the
+        # live scope alongside the evaluated argument Values
         if isinstance(callable_obj, ScopeAwareFunction):
-            native_args: list[Any] = [a.get() for a in eval_args]
-            native_kwargs: dict[str, Any] = {k: v.get() for k, v in eval_kwargs.items()}
-
             native_res: Any = callable_obj.invoke(
                 scope=scope,
-                args=native_args,
-                kwargs=native_kwargs,
+                args=eval_args,
+                kwargs=eval_kwargs,
             )
 
             if isinstance(native_res, Value):
@@ -2060,6 +2111,16 @@ class CallExpr(Expression):
             else:
                 res = callable_obj(*eval_args, **eval_kwargs)
 
+                # Autograd: record differentiable tensor member calls
+                if isinstance(callable_obj, TensorCallable):
+                    maybe_record_member(
+                        member=callable_obj.member,
+                        receiver=callable_obj.target,
+                        args=eval_args,
+                        result=res,
+                        tape=scope.tape,
+                    )
+
 
             if isinstance(res, Value):
                 return res
@@ -2074,6 +2135,11 @@ class CallExpr(Expression):
 
             # Raw lists (e.g. QuerySet.to_list()) stay iterable in for-in
             if isinstance(res, list):
+                return ValueExternal(payload=res)
+
+            # Wrap optimizer instances (autograd) as opaque Values so
+            # opt.step(model) resolves through the attribute fallback
+            if isinstance(res, Optimizer):
                 return ValueExternal(payload=res)
 
             # Wrap query-like results (duck-typed QuerySet API) as opaque Values

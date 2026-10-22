@@ -792,12 +792,22 @@ class ValueTensor(Value):
         cells (list[Any]): Flat row-major element payload.
         concrete_dims (Optional[list[int]]): Resolved extents for symbolic
             shapes (stamped at binding/decode time); None for unbound.
+        grad (Optional[list[float]]): Accumulated gradient payload (lazy,
+            None until backward deposits one); same length as cells.
+        tracked (bool): Whether ops consuming this tensor record on the
+            autograd tape (Float element types only).
+        learnable (bool): Whether backward may deposit a gradient on this
+            tensor (produced values default False; fresh values True).
+        version (int): Mutation counter bumped by in-place writes; tape
+            records snapshot it to detect unsafe mid-graph mutation.
     """
 
     def __init__(
         self,
         value_type: TypeTensor,
-        cells: Optional[Any] = None
+        cells: Optional[Any] = None,
+        tracked: bool = True,
+        learnable: bool = True,
     ) -> None:
         """
         Initializes the ValueTensor instance.
@@ -808,6 +818,10 @@ class ValueTensor(Value):
             cells (Optional[Any], optional): Flat row-major payload.
                 Defaults to None (all-shape zero-length is impossible, so
                 an explicit payload is expected for valid shapes).
+            tracked (bool, optional): Autograd recording flag. Defaults to
+                True.
+            learnable (bool, optional): Gradient deposit flag. Defaults to
+                True.
 
         Raises:
             TypeError: If the payload length does not match the shape or an
@@ -825,6 +839,17 @@ class ValueTensor(Value):
         self.value_type: TypeTensor = value_type
         self.cells: list[Any] = resolved_cells
         self.concrete_dims: Optional[list[int]] = None
+        self.grad: Optional[list[float]] = None
+        self.tracked: bool = tracked
+        self.learnable: bool = learnable
+        self.version: int = 0
+
+    def bump_version(self) -> None:
+        """
+        Counts one in-place mutation of the payload.
+        """
+
+        self.version += 1
 
     def flat_index(self, indices: tuple[int, ...]) -> int:
         """

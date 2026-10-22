@@ -92,6 +92,7 @@ from src.core.types.types import (
 )
 from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.nastruct_parser.parser_state import NaStructParserState
+from src.core.values.values import ValueTensor
 from src.parser.nastruct_parser.tmp_structs import TmpAttribute, TmpFunction, TmpStruct
 
 
@@ -391,6 +392,27 @@ class TypeResolver:
 # lower_snake_case; upper camel case is reserved for types (structs and
 # builtin type names)
 NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+# Names that produce pending tensor initializations (materialized
+# against the target's declared type)
+def _is_tensor_conversion_default(expression: Any) -> bool:
+    """
+    Returns whether an expression is an array_to_tensor default call.
+
+    Args:
+        expression (Any): Candidate default expression.
+
+    Returns:
+        bool: True for array_to_tensor(...) calls; the result carries
+            autograd flags that per-instance evaluation must preserve.
+    """
+
+    return (
+        isinstance(expression, CallExpr)
+        and isinstance(expression.callee, IdentifierExpr)
+        and expression.callee.name == "array_to_tensor"
+    )
 
 
 def _is_tensor_init_default(expression: Any) -> bool:
@@ -959,8 +981,13 @@ class SchemaResolver:
         # resolve from the bound constants
         elif (
             isinstance(attr_type, TypeTensor)
-            and _is_tensor_init_default(
-                expression=tmp_attribute.attribute_default_value
+            and (
+                _is_tensor_init_default(
+                    expression=tmp_attribute.attribute_default_value
+                )
+                or _is_tensor_conversion_default(
+                    expression=tmp_attribute.attribute_default_value
+                )
             )
         ):
             default_expr = tmp_attribute.attribute_default_value
@@ -1254,6 +1281,13 @@ class SchemaResolver:
         # Nested array literals flatten into the flat tensor payload
         if isinstance(resolved_type, TypeTensor) and isinstance(raw_value, list):
             raw_value = flatten_nested_lists(raw=raw_value)
+
+        # A produced tensor value (e.g. array_to_tensor) is stored as-is:
+        # re-wrapping would drop its autograd flags
+        if isinstance(value, ValueTensor) and isinstance(resolved_type, TypeTensor):
+            resolved_type.check_value(value=raw_value)
+
+            return value
 
         # Validate against the declared type (Struct is duck typed as Type)
         resolved_type.check_value(value=raw_value)

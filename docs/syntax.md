@@ -370,6 +370,58 @@ return types. Arrays and strings expose `.length()`; typed containers
 - Tensors persist in the binary format as a varint count followed by
   the flat row-major elements (the shape lives in the schema).
 
+**Autograd** — every Float tensor carries gradient machinery.
+Forward operations on tracked tensors record on a per-pass tape;
+`backward(loss)` walks it in reverse and deposits gradients onto
+**learnable** inputs. `p.w.grad()` returns the accumulated gradient
+(a zero tensor when nothing was computed). Only Float tensors
+participate; `map` is permanently gradient-free — use explicit
+activation members (`relu`; `sigmoid`/`gelu`/`softmax`/`exp` on the
+roadmap) so the tape sees whole ops:
+
+```text
+loss = (pred - y).mean();              // differentiable reductions
+backward(loss);                        // deposit gradients
+opt = SGD(lr = 0.05);                  // built-in optimizer
+opt.step(p);                           // apply + clear accumulated grads
+opt.zero_grad(p);                      // clear without stepping
+```
+
+- Supported ops: arithmetic (`+ - * /`, tensor and scalar chains),
+  `matmul` (all four rank cases), `sum`/`mean`/`max`/`min`,
+  `transpose`/`permute`/`reshape`/`flatten`, `concat`, `gather`,
+  sliced reads, and `relu`. Conv/pool rules are on the roadmap.
+- Mutating a tensor between its use and `backward()` is detected via
+  version counters and raises a `RuntimeError` — copy or `detach()`
+  first.
+- `set_learnable(x, false)` stops gradient deposits (recording
+  follows); `set_trackable(x, false)` stops op recording without
+  touching learnability — both recurse over structs/arrays/tensors.
+  Initializers take the same flags: `randn(7, learnable = false)`,
+  `zeros(trackable = false)`.
+- `array_to_tensor(nested)` converts a rectangular nested array into a
+  tensor (shape from the nesting, element type from the declared
+  target; ragged nesting is a `ValueError`), and `tensor_to_array(t)`
+  round-trips back. `detach(x)` returns an untracked copy.
+
+**Training data** — partitions split a dataset into train/valid/test
+with one seed-fixed permutation shared across every partition
+(stable membership), largest-remainder sizing, and short tail
+batches; an over-run iteration hard-stops with an empty array (reset
+the epoch by looping again from iteration 0):
+
+```text
+total = get_partition_iteration_count(rows, 7, [0.8, 0.2], 32, 0);
+for (it: Int64 = 0 :: it < total :: it++) {
+  batch: Array[Array[Float32]] =
+    get_batch_of_partition(rows, 7, [0.8, 0.2], 32, 0, it);
+  ...
+}
+```
+
+Weights must be positive and sum to 1 (within 1e-9); each partition
+keeps its own iteration counter via the `iteration` argument.
+
 ### 5.7 Constants and symbolic dimensions
 
 A `const` attribute binds once — in the constructor — and is immutable

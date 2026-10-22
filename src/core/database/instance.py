@@ -91,9 +91,29 @@ class StructInstance:
         if attr_def is not None and attr_def.has_default:
 
             # Expression-backed defaults (tensor initializers, derived
-            # consts) materialize through their expression
+            # consts) materialize through their expression. Tensor results
+            # are cached so identity stays stable across reads: autograd
+            # flags, gradients, and version counters live on the tensor
+            # object itself.
             if attr_def.default_expr is not None:
-                return self._evaluate_derived_default(attr_def=attr_def)
+
+                value: Value = self._evaluate_derived_default(
+                    attr_def=attr_def
+                )
+
+                if isinstance(attr_def.attr_type, TypeTensor):
+                    self.attributes[name] = value
+
+                return value
+
+            if isinstance(attr_def.attr_type, TypeTensor):
+
+                self.attributes[name] = make_value(
+                    value_type=attr_def.attr_type,
+                    raw=attr_def.default_value
+                )
+
+                return self.attributes[name]
 
             return make_value(
                 value_type=attr_def.attr_type,

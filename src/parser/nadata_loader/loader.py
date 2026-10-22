@@ -13,7 +13,14 @@ from typing import Any, Optional, cast
 
 from src.core.struct.struct import Struct
 from src.core.values.values import Value, ValueExternal
-from src.core.expressions.scope import DEFAULT_LOOP_LIMIT, LOOP_FUEL_KEY, ExecutionScope, LoopFuel
+from src.core.expressions.autograd import Tape
+from src.core.expressions.scope import (
+    DEFAULT_LOOP_LIMIT,
+    LOOP_FUEL_KEY,
+    TAPE_KEY,
+    ExecutionScope,
+    LoopFuel,
+)
 from src.core.expressions.statement import (
     AssignStmt,
     BlockStmt,
@@ -819,5 +826,12 @@ class NaDataLoader:
 
         self.scope.variables.update(previous_variables)
 
+        # One autograd tape per execution pass; gradients deposited on
+        # attributes survive, the tape itself is discarded
+        self.scope.globals_dict[TAPE_KEY] = Tape()
+
         self._populate_instances()
         self._execute_scripts()
+
+        # The tape never outlives the pass
+        self.scope.globals_dict.pop(TAPE_KEY, None)

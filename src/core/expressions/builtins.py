@@ -17,6 +17,18 @@ import random
 from collections import deque
 from typing import Any, Optional, cast
 
+from src.core.expressions.autograd import (
+    BackwardFunction,
+    DetachFunction,
+    Optimizer,
+    SGD,
+    SetLearnableFunction,
+    SetTrackableFunction,
+    array_to_tensor,
+    get_batch_of_partition,
+    get_partition_iteration_count,
+    tensor_to_array,
+)
 from src.core.expressions.scope import ScopeAwareFunction
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
@@ -671,6 +683,15 @@ def build_type_globals() -> dict[str, Any]:
         "eye": TensorInitializer(kind="eye"),
         "randn": TensorInitializer(kind="randn"),
         "arange": ArangeFunction(),
+        "backward": BackwardFunction(),
+        "set_learnable": SetLearnableFunction(),
+        "set_trackable": SetTrackableFunction(),
+        "detach": DetachFunction(),
+        "array_to_tensor": array_to_tensor,
+        "tensor_to_array": tensor_to_array,
+        "get_batch_of_partition": get_batch_of_partition,
+        "get_partition_iteration_count": get_partition_iteration_count,
+        "SGD": SGD,
         "abs": _math_unary("abs", math.fabs),
         "exp": _math_unary("exp", math.exp),
         "sqrt": _math_unary("sqrt", math.sqrt),
@@ -1033,6 +1054,7 @@ class TensorCallable:
             tensor.value_type.value_type.check_value(value=raw_args[dims])
 
             tensor.cells[tensor.flat_index(indices=indices)] = raw_args[dims]
+            tensor.bump_version()
 
             return ValueExternal(payload=None)
 
@@ -1090,6 +1112,7 @@ class TensorCallable:
             tensor.value_type.value_type.check_value(value=raw_args[0])
 
             tensor.cells = [raw_args[0]] * len(tensor.cells)
+            tensor.bump_version()
 
             return ValueExternal(payload=None)
 
@@ -1146,7 +1169,14 @@ class TensorCallable:
         if self.member == "topk":
             return self._topk(args=args)
 
+        if self.member == "relu":
+            return self._relu()
+
+        if self.member == "grad":
+            return self._grad()
+
         if self.member in ("to_float", "to_int"):
+            return self._to_numeric(member=self.member)
             return self._to_numeric(member=self.member)
 
         if self.member in ("conv1d", "conv2d"):
@@ -1977,6 +2007,55 @@ class TensorCallable:
             cells=order[:count],
         )
 
+    def _relu(self) -> ValueTensor:
+        """
+        Applies rectified linear unit elementwise.
+
+        Returns:
+            ValueTensor: Same-shape tensor of max(cell, 0).
+
+        Raises:
+            TypeError: On a non-float element type.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not isinstance(tensor.value_type.value_type, TypeFloat):
+            raise TypeError("Member 'relu' requires a float element type")
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=[
+                cell if cell > 0 else 0.0 for cell in tensor.cells
+            ],
+        )
+
+    def _grad(self) -> ValueTensor:
+        """
+        Returns the accumulated gradient as a same-shape tensor.
+
+        Returns:
+            ValueTensor: The deposited gradient, or zeros when none has
+                been computed yet.
+        """
+
+        tensor: ValueTensor = self.target
+        cells: list[float] = (
+            list(tensor.grad) if tensor.grad is not None
+            else [0.0] * len(tensor.cells)
+        )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=TypeFloat(num_bits=32),
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=cells,
+        )
+
     def _to_numeric(self, member: str) -> ValueTensor:
         """
         Converts every cell to a different numeric element type.
@@ -2243,6 +2322,8 @@ class TensorInit(Value):
         kind (str): Initializer kind ('zeros', 'fill', 'eye', or 'randn').
         fill_value (Optional[Any]): Value for 'fill' initializers.
         seed (Optional[int]): Deterministic seed for 'randn'.
+        learnable (bool): Whether backward may deposit a gradient.
+        trackable (bool): Whether ops consuming the tensor record.
     """
 
     def __init__(
@@ -2250,6 +2331,8 @@ class TensorInit(Value):
         kind: str,
         fill_value: Optional[Any],
         seed: Optional[int] = None,
+        learnable: bool = True,
+        trackable: bool = True,
     ) -> None:
         """
         Initializes the TensorInit instance.
@@ -2258,6 +2341,10 @@ class TensorInit(Value):
             kind (str): Initializer kind.
             fill_value (Optional[Any]): Value for 'fill' initializers.
             seed (Optional[int]): Deterministic seed for 'randn'.
+            learnable (bool, optional): Gradient deposit flag. Defaults
+                to True.
+            trackable (bool, optional): Autograd recording flag.
+                Defaults to True.
         """
 
         # Placeholder type; the marker is never stored or checked as-is
@@ -2266,6 +2353,8 @@ class TensorInit(Value):
         self.kind: str = kind
         self.fill_value: Optional[Any] = fill_value
         self.seed: Optional[int] = seed
+        self.learnable: bool = learnable
+        self.trackable: bool = trackable
 
     def get(self) -> Any:
         """
@@ -2322,26 +2411,36 @@ class TensorInitializer:
 
         self.kind: str = kind
 
-    def __call__(self, *values: Value) -> TensorInit:
+    def __call__(self, *values: Value, **kwargs: Value) -> TensorInit:
         """
         Builds the pending initialization request.
 
         Args:
-            *values (Value): Call arguments (one fill value for 'fill').
+            *values (Value): Call arguments (one fill value for 'fill',
+                one optional seed for 'randn').
+            **kwargs (Value): Optional 'learnable' / 'trackable' flags.
 
         Returns:
             TensorInit: The pending marker.
 
         Raises:
-            TypeError: On wrong arity or a non-Value fill argument.
+            TypeError: On wrong arity, a non-Value fill argument, or an
+                invalid flag.
         """
+
+        learnable, trackable = _init_flags(kwargs=kwargs)
 
         if self.kind == "fill":
 
             if len(values) != 1 or not isinstance(values[0], Value):
                 raise TypeError("fill() expects exactly one value")
 
-            return TensorInit(kind=self.kind, fill_value=values[0].get())
+            return TensorInit(
+                kind=self.kind,
+                fill_value=values[0].get(),
+                learnable=learnable,
+                trackable=trackable,
+            )
 
         if self.kind == "randn":
 
@@ -2356,15 +2455,29 @@ class TensorInitializer:
                     raise TypeError("randn() seed must be an integer")
 
                 return TensorInit(
-                    kind=self.kind, fill_value=None, seed=raw_seed
+                    kind=self.kind,
+                    fill_value=None,
+                    seed=raw_seed,
+                    learnable=learnable,
+                    trackable=trackable,
                 )
 
-            return TensorInit(kind=self.kind, fill_value=None)
+            return TensorInit(
+                kind=self.kind,
+                fill_value=None,
+                learnable=learnable,
+                trackable=trackable,
+            )
 
         if values:
             raise TypeError(f"{self.kind}() takes no arguments")
 
-        return TensorInit(kind=self.kind, fill_value=None)
+        return TensorInit(
+            kind=self.kind,
+            fill_value=None,
+            learnable=learnable,
+            trackable=trackable,
+        )
 
     def __repr__(self) -> str:
         """
@@ -2486,6 +2599,8 @@ def materialize_tensor_init(
             dims=cast("list[int | str]", resolved),
         ),
         cells=cells,
+        tracked=init.trackable,
+        learnable=init.learnable,
     )
 
     # Symbolic shapes stamp their resolved extents for shape()/slicing
@@ -2499,6 +2614,42 @@ def materialize_tensor_init(
 # Names that produce pending tensor initializations (materialized
 # against the target's declared type)
 TENSOR_INIT_NAMES: frozenset[str] = frozenset({"zeros", "fill", "eye", "randn"})
+
+
+def _init_flags(kwargs: dict[str, Value]) -> tuple[bool, bool]:
+    """
+    Reads the optional learnable/trackable initializer flags.
+
+    Args:
+        kwargs (dict[str, Value]): Keyword arguments of the call.
+
+    Returns:
+        tuple[bool, bool]: (learnable, trackable).
+
+    Raises:
+        TypeError: On unknown or non-boolean flags.
+    """
+
+    learnable: bool = True
+    trackable: bool = True
+
+    for key, value in kwargs.items():
+
+        raw: Any = value.get()
+
+        if not isinstance(raw, bool):
+            raise TypeError(f"Flag '{key}' must be a boolean")
+
+        if key == "learnable":
+            learnable = raw
+
+        elif key == "trackable":
+            trackable = raw
+
+        else:
+            raise TypeError(f"Unknown initializer flag '{key}'")
+
+    return learnable, trackable
 
 
 class ArangeFunction:

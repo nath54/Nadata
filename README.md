@@ -44,6 +44,10 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   `schema_classes()` / `schema_functions()`
 - **Persistence** — whole-database dumps and incremental delta appends to a
   single `.ndb` file
+- **Autograd and training** — tape-based reverse-mode differentiation on Float
+  tensors (arithmetic, `matmul`, reductions, shape ops, `gather`, slices,
+  `relu`), seeded data partitioning for train/valid/test splits, and built-in
+  `SGD` — train models end-to-end in `.nadata` scripts
 - **Interactive console** — `nadata console <path>` REPL over any loaded
   database, with persistent state and expression echoing
 - **Python API** — load, query, mutate, execute raw source, persist

@@ -19,6 +19,9 @@ NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z_][a-z0-9_]*$")
 # Globals dict key holding the shared LoopFuel instance
 LOOP_FUEL_KEY: str = "__loop_fuel__"
 
+# Globals dict key holding the autograd Tape of the current execution
+TAPE_KEY: str = "__tape__"
+
 # Default maximum number of iterations per loop
 DEFAULT_LOOP_LIMIT: int = 10_000
 
@@ -81,8 +84,8 @@ class ScopeAwareFunction:
 
         Args:
             scope (ExecutionScope): Live execution scope of the call site.
-            args (list[Any]): Marshaled positional argument payloads.
-            kwargs (dict[str, Any]): Marshaled keyword argument payloads.
+            args (list[Value]): Evaluated argument Values.
+            kwargs (dict[str, Value]): Evaluated keyword argument Values.
 
         Returns:
             Any: Call result (wrapped by CallExpr if not a Value).
@@ -168,6 +171,27 @@ class ExecutionScope:
             self.fuel = self.globals_dict[LOOP_FUEL_KEY]
         else:
             self.fuel = LoopFuel()
+
+    @property
+    def tape(self) -> Optional[Any]:
+        """
+        Resolves the autograd tape of the current execution pass.
+
+        The tape travels through the reserved globals entry (like loop
+        fuel), so copies of the globals dict share the same tape object.
+
+        Returns:
+            Optional[Any]: The live Tape, or None outside script
+                execution (schema-default evaluation, probes).
+        """
+
+        if TAPE_KEY in self.globals_dict:
+            return self.globals_dict[TAPE_KEY]
+
+        if self.parent is not None:
+            return self.parent.tape
+
+        return None
 
     def define(self, name: str, value: Value) -> None:
         """
