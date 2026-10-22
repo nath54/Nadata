@@ -208,11 +208,32 @@ t = m.at(0, 2);                       // bounds-checked element read
 m.set_at(1, 3, 0.5);                  // element write (flat index 7)
 x = m[1, 3];                           // multi-index read (per-dim)
 m[0, 1] = 0.5;                         // multi-index write
+row = m[1, :];                         // slice: whole second row
+block = m[0:2, 1:3];                   // slice: 2x2 sub-block (copy)
+m[0:2, 1] = [0.1, 0.2];                // block write (row-major payload)
+m[:, 0] = 0.0;                         // block write (scalar broadcast)
 s = m.shape();                         // Array[Int32] of dimensions
 n = m.size();                          // total element count
 for (x: Float32 in m) { ... }         // row-major iteration
 "x" in m                               // membership probe (flat values)
 ```
+
+**Slicing** — each index position may be an integer (drops the
+dimension, returning an element) or a `start:stop` slice (keeps the
+dimension, returning a new copied tensor):
+
+- Bounds are optional: `[:2]` starts at 0, `[1:]` runs to the end,
+  `[:]` selects the whole axis; both bounds accept arbitrary integer
+  expressions.
+- Bounds are strict: `0 <= start <= stop <= dim` (no negatives, no
+  steps); an empty or reversed slice is a `ValueError`, an integer
+  index out of range is an `IndexError`.
+- The result of a slice is an **independent copy** with the sliced
+  shape (`m[0:2, 1:3]` of a 3x4 is a 2x2 `Tensor[Float32, 2, 2]`).
+- Slice **assignment** takes a flat or nested array literal whose
+  row-major length matches the sliced shape, or a scalar that is
+  broadcast to every selected cell; elements are type-checked against
+  the tensor's element type.
 
 Method parameters may use symbolic dims, validated against the
 receiver's constants at call time:

@@ -22,6 +22,7 @@ from src.core.expressions.expression import (
     LiteralExpr,
     MemberAccessExpr,
     SetLiteralExpr,
+    SliceOperand,
     UnaryOpExpr,
 )
 from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
@@ -389,14 +390,15 @@ class ExpressionParser:
                 )
 
             # Indexing '[index]' — arrays, dictionaries, and multi-index
-            # tensors (comma-separated), chainable
+            # tensors (comma-separated, 'start:stop' slices allowed),
+            # chainable
             elif self._match_punctuation("["):
-                index_expr: Expression = self._parse_or()
+                index_expr: Expression = self._parse_index_item()
                 extra_indices: list[Expression] = []
 
                 # Comma-separated indices form a multi-index tensor access
                 while self._match_punctuation(","):
-                    extra_indices.append(self._parse_or())
+                    extra_indices.append(self._parse_index_item())
 
                 self._expect_punctuation("]")
 
@@ -586,6 +588,46 @@ class ExpressionParser:
         raise SyntaxError(
             f"Unexpected token '{token.value}' at index {token.position}"
         )
+
+    def _parse_index_item(self) -> Expression:
+        """
+        Parses one index operand: an expression or a 'start:stop' slice.
+
+        Slice bounds are optional ('[:2]', '[1:]', '[:]' are valid);
+        steps are not supported.
+
+        Returns:
+            Expression: The parsed index or SliceOperand.
+
+        Raises:
+            SyntaxError: If brackets contain neither an expression nor a
+                slice (e.g. '[]' without contents is still handled
+                elsewhere; here only ':' forms are slice candidates).
+        """
+
+        start: Optional[Expression] = None
+
+        # Leading colon: slice from the beginning
+        if not self._check_punctuation(":"):
+            start = self._parse_or()
+
+        # No colon: a plain index expression
+        if not self._match_punctuation(":"):
+
+            if start is None:
+                raise SyntaxError("Expected index expression inside brackets")
+
+            return start
+
+        # Slice: the stop bound is optional before ',' or ']'
+        stop: Optional[Expression] = None
+
+        if not (
+            self._check_punctuation(",") or self._check_punctuation("]")
+        ):
+            stop = self._parse_or()
+
+        return SliceOperand(start=start, stop=stop)
 
     def _parse_array_literal(self) -> ArrayLiteralExpr:
         """
@@ -831,6 +873,25 @@ class ExpressionParser:
             return True
 
         return False
+
+    def _check_punctuation(self, punctuation: str) -> bool:
+        """
+        Returns whether the current token is the given punctuation
+        without consuming it.
+
+        Args:
+            punctuation (str): Punctuation value to peek for.
+
+        Returns:
+            bool: True if the current token matches.
+        """
+
+        token: Token = self._current()
+
+        return (
+            token.token_type == TokenType.PUNCTUATION
+            and token.value == punctuation
+        )
 
     def _expect_punctuation(self, punctuation: str) -> None:
         """

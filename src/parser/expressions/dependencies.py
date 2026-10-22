@@ -20,6 +20,7 @@ from src.core.expressions.expression import (
     IndexExpr,
     LiteralExpr,
     MemberAccessExpr,
+    SliceOperand,
     UnaryOpExpr,
 )
 from src.core.expressions.statement import (
@@ -89,6 +90,16 @@ def _collect_from(
 
         for index_expr in node.indices:
             _collect_from(node=index_expr, dependencies=dependencies)
+
+        return
+
+    # Slices: recurse into both optional bounds
+    if isinstance(node, SliceOperand):
+
+        for bound in (node.start, node.stop):
+
+            if bound is not None:
+                _collect_from(node=bound, dependencies=dependencies)
 
         return
 

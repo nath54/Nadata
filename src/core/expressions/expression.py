@@ -8,6 +8,7 @@ binary operations, member accesses, and function/method calls operating on Value
 # Import Modules
 from __future__ import annotations
 from collections import deque
+from itertools import product
 from typing import Any, Optional
 
 from src.core.types.types import (
@@ -26,6 +27,8 @@ from src.core.types.types import (
     TypeSet,
     Float64,
     UInt64,
+    TypeTensor,
+    flatten_nested_lists,
 )
 from src.core.values.values import (
     TYPE_EXTERNAL,
@@ -919,13 +922,75 @@ def _wrap_indexed_element(raw: Any, element_type: Type) -> Value:
     return make_value(value_type=element_type, raw=raw)
 
 
+class SliceOperand(Expression):
+    """
+    AST node representing a slice inside index brackets: 'start:stop'.
+
+    Both bounds are optional and default to the dimension extent (0 and
+    dim). Slices are only valid inside tensor index brackets; evaluating
+    one anywhere else is an error.
+
+    Attributes:
+        start (Optional[Expression]): Inclusive lower bound expression,
+            or None for 'from the beginning'.
+        stop (Optional[Expression]): Exclusive upper bound expression,
+            or None for 'through the end'.
+    """
+
+    def __init__(
+        self,
+        start: Optional[Expression],
+        stop: Optional[Expression]
+    ) -> None:
+        """
+        Initializes the SliceOperand instance.
+
+        Args:
+            start (Optional[Expression]): Inclusive lower bound, or None.
+            stop (Optional[Expression]): Exclusive upper bound, or None.
+        """
+
+        self.start: Optional[Expression] = start
+        self.stop: Optional[Expression] = stop
+
+    def evaluate(self, scope: ExecutionScope) -> Value:
+        """
+        Raises: slices are not first-class values.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            TypeError: Always; slices are only valid inside index
+                brackets.
+        """
+
+        raise TypeError(
+            "Slices are only valid inside tensor index brackets"
+        )
+
+    def __repr__(self) -> str:
+        """
+        Returns the slice representation.
+
+        Returns:
+            str: 'start:stop' style representation.
+        """
+
+        start: str = repr(self.start) if self.start is not None else ""
+        stop: str = repr(self.stop) if self.stop is not None else ""
+
+        return f"{start}:{stop}"
+
+
 class IndexExpr(Expression):
     """
     AST node representing indexing: target[index] or target[i0, i1, ...].
 
     Works on arrays (integer index, Python semantics including negatives),
     dictionaries (any hashable key), and tensors (multi-index resolved to
-    a flat row-major offset).
+    a flat row-major offset, with optional 'start:stop' slices per
+    dimension).
 
     Attributes:
         target (Expression): Expression resolving to the indexed container.
@@ -983,11 +1048,14 @@ class IndexExpr(Expression):
         """
 
         target_obj: Any = self.target.evaluate(scope=scope)
-        index_val: Value = self.index.evaluate(scope=scope)
 
-        # Multi-index tensors resolve to a flat row-major offset
-        if self.extra_indices:
+        # Multi-index and sliced tensors resolve through the flat
+        # row-major payload (slices are not first-class values, so the
+        # dispatch must happen before evaluating the first index)
+        if self._has_slices() or self.extra_indices:
             return self._index_tensor(target_obj=target_obj, scope=scope)
+
+        index_val: Value = self.index.evaluate(scope=scope)
 
         if isinstance(target_obj, ValueArray):
             return self._index_array(array=target_obj, index=index_val)
@@ -1020,18 +1088,24 @@ class IndexExpr(Expression):
 
     def _index_tensor(self, target_obj: Any, scope: ExecutionScope) -> Value:
         """
-        Indexes a tensor with one index expression per dimension.
+        Indexes a tensor with one index or slice per dimension.
+
+        Integer indices drop their dimension (element access); slices
+        keep it (sub-tensor view copied row-major into a new tensor).
 
         Args:
             target_obj (Any): Evaluated target (expected ValueTensor).
             scope (ExecutionScope): Current execution scope.
 
         Returns:
-            Value: The element wrapped in its declared type.
+            Value: The element wrapped in its declared type, or a new
+                ValueTensor for sliced access.
 
         Raises:
-            TypeError: If the target is not a tensor.
+            TypeError: If the target is not a tensor or an index is not
+                an integer.
             IndexError: If any index is out of range.
+            ValueError: If a slice produces an empty result.
         """
 
         if not isinstance(target_obj, ValueTensor):
@@ -1040,25 +1114,195 @@ class IndexExpr(Expression):
                 f"'{repr(target_obj)}'"
             )
 
-        indices: list[int] = []
+        if not self._has_slices():
+            indices: list[int] = []
 
-        for index_expr in self.indices:
-            index_val: Value = index_expr.evaluate(scope=scope)
-            raw_index: Any = index_val.get()
+            for index_expr in self.indices:
+                index_val: Value = index_expr.evaluate(scope=scope)
+                raw_index: Any = index_val.get()
 
-            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
-                raise TypeError(
-                    f"Tensor index must be an integer, got '{repr(raw_index)}'"
+                if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                    raise TypeError(
+                        f"Tensor index must be an integer, got '{repr(raw_index)}'"
+                    )
+
+                indices.append(raw_index)
+
+            element: Any = target_obj.cells[
+                target_obj.flat_index(indices=tuple(indices))
+            ]
+
+            return _wrap_indexed_element(
+                raw=element,
+                element_type=target_obj.value_type.value_type,
+            )
+
+        # Sliced access: gather the selected sub-block into a new tensor
+        dims: list[int] = self._tensor_dims(tensor=target_obj)
+
+        if len(self.indices) != len(dims):
+            raise TypeError(
+                f"Tensor access expects {len(dims)} index expression(s), "
+                f"got {len(self.indices)}"
+            )
+
+        spec: list[tuple[bool, range]] = [
+            (
+                isinstance(index_expr, SliceOperand),
+                self._index_range(index_expr=index_expr, dim=dim, scope=scope),
+            )
+            for index_expr, dim in zip(self.indices, dims)
+        ]
+
+        result_dims: list[int | str] = [
+            len(dim_range) for is_slice, dim_range in spec if is_slice
+        ]
+
+        positions: list[int] = [
+            target_obj.flat_index(indices=tuple(combo))
+            for combo in product(*(dim_range for _, dim_range in spec))
+        ]
+
+        cells: list[Any] = [target_obj.cells[position] for position in positions]
+
+        result_type: TypeTensor = TypeTensor(
+            value_type=target_obj.value_type.value_type,
+            dims=result_dims,
+        )
+
+        return ValueTensor(value_type=result_type, cells=cells)
+
+    def _has_slices(self) -> bool:
+        """
+        Returns whether any index in the bracket is a slice.
+
+        Returns:
+            bool: True if at least one index operand is a SliceOperand.
+        """
+
+        return any(
+            isinstance(index_expr, SliceOperand)
+            for index_expr in self.indices
+        )
+
+    @staticmethod
+    def _tensor_dims(tensor: ValueTensor) -> list[int]:
+        """
+        Returns the concrete per-axis extents of a tensor.
+
+        Args:
+            tensor (ValueTensor): Tensor to inspect.
+
+        Returns:
+            list[int]: Extents in axis order.
+
+        Raises:
+            TypeError: If the tensor has unbound symbolic dimensions.
+        """
+
+        if tensor.concrete_dims is not None:
+            return list(tensor.concrete_dims)
+
+        if tensor.value_type.is_symbolic:
+            raise TypeError(
+                "Cannot index a tensor with unbound symbolic dimensions"
+            )
+
+        return [dim for dim in tensor.value_type.dims if isinstance(dim, int)]
+
+    def _index_range(
+        self,
+        index_expr: Expression,
+        dim: int,
+        scope: ExecutionScope,
+    ) -> range:
+        """
+        Resolves one index operand against a dimension extent.
+
+        Args:
+            index_expr (Expression): Integer index or SliceOperand.
+            dim (int): Extent of the dimension being indexed.
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            range: Selected positions along the dimension (a single
+                position for integer indices).
+
+        Raises:
+            TypeError: If a bound is not an integer.
+            IndexError: If an index is out of range.
+            ValueError: If a slice is empty or reversed.
+        """
+
+        if isinstance(index_expr, SliceOperand):
+            start: int = 0
+
+            if index_expr.start is not None:
+                start = self._index_int(
+                    expression=index_expr.start, scope=scope
                 )
 
-            indices.append(raw_index)
+            stop: int = dim
 
-        element: Any = target_obj.cells[target_obj.flat_index(indices=tuple(indices))]
+            if index_expr.stop is not None:
+                stop = self._index_int(
+                    expression=index_expr.stop, scope=scope
+                )
 
-        return _wrap_indexed_element(
-            raw=element,
-            element_type=target_obj.value_type.value_type,
-        )
+            if not 0 <= start <= stop <= dim:
+                raise ValueError(
+                    f"Invalid slice {start}:{stop} for dimension of size "
+                    f"{dim}"
+                )
+
+            if start == stop:
+                raise ValueError(
+                    f"Slice {start}:{stop} produces an empty result"
+                )
+
+            return range(start, stop)
+
+        index_val: Value = index_expr.evaluate(scope=scope)
+        raw_index: Any = index_val.get()
+
+        if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+            raise TypeError(
+                f"Tensor index must be an integer, got '{repr(raw_index)}'"
+            )
+
+        if not 0 <= raw_index < dim:
+            raise IndexError(
+                f"Tensor index {raw_index} out of range for dimension of "
+                f"size {dim}"
+            )
+
+        return range(raw_index, raw_index + 1)
+
+    @staticmethod
+    def _index_int(expression: Expression, scope: ExecutionScope) -> int:
+        """
+        Evaluates an expression that must be an integer.
+
+        Args:
+            expression (Expression): Bound expression of a slice.
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            int: The evaluated integer bound.
+
+        Raises:
+            TypeError: If the bound is not an integer.
+        """
+
+        bound: Value = expression.evaluate(scope=scope)
+        raw_bound: Any = bound.get()
+
+        if isinstance(raw_bound, bool) or not isinstance(raw_bound, int):
+            raise TypeError(
+                f"Slice bounds must be integers, got '{repr(raw_bound)}'"
+            )
+
+        return raw_bound
 
     def _index_array(self, array: ValueArray, index: Value) -> Value:
         """
@@ -1201,8 +1445,9 @@ class IndexExpr(Expression):
 
         container: Any = self.target.evaluate(scope=scope)
 
-        # Multi-index tensors assign through the flat row-major offset
-        if self.extra_indices:
+        # Multi-index and sliced tensors assign through the flat
+        # row-major payload
+        if self._has_slices() or self.extra_indices:
             self._assign_tensor(container=container, scope=scope, value=value)
 
             return None
@@ -1248,17 +1493,24 @@ class IndexExpr(Expression):
         value: Value,
     ) -> None:
         """
-        Assigns into a tensor through one index expression per dimension.
+        Assigns into a tensor through one index or slice per dimension.
+
+        Integer indices write a single element; slices write a block —
+        the payload must be a (possibly nested) array literal matching
+        the sliced shape in row-major order, or a scalar broadcast to
+        every selected cell.
 
         Args:
             container (Any): Evaluated target (expected ValueTensor).
             scope (ExecutionScope): Current execution scope.
-            value (Value): The new element Value.
+            value (Value): The new element Value, block payload, or
+                broadcast scalar.
 
         Raises:
-            TypeError: If the target is not a tensor or the element
+            TypeError: If the target is not a tensor or an element
                 violates the declared element type.
             IndexError: If any index is out of range.
+            ValueError: If a slice produces an empty result.
         """
 
         if not isinstance(container, ValueTensor):
@@ -1267,22 +1519,77 @@ class IndexExpr(Expression):
                 f"'{repr(container)}'"
             )
 
-        indices: list[int] = []
+        if not self._has_slices():
+            indices: list[int] = []
 
-        for index_expr in self.indices:
-            index_val: Value = index_expr.evaluate(scope=scope)
-            raw_index: Any = index_val.get()
+            for index_expr in self.indices:
+                index_val: Value = index_expr.evaluate(scope=scope)
+                raw_index: Any = index_val.get()
 
-            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                    raise TypeError(
+                        f"Tensor index must be an integer, got '{repr(raw_index)}'"
+                    )
+
+                indices.append(raw_index)
+
+            container.value_type.value_type.check_value(value=value.get())
+
+            container.cells[container.flat_index(indices=tuple(indices))] = value.get()
+
+            return None
+
+        # Sliced assignment: validate the payload against the block shape
+        dims: list[int] = self._tensor_dims(tensor=container)
+
+        if len(self.indices) != len(dims):
+            raise TypeError(
+                f"Tensor assignment expects {len(dims)} index expression(s), "
+                f"got {len(self.indices)}"
+            )
+
+        spec: list[tuple[bool, range]] = [
+            (
+                isinstance(index_expr, SliceOperand),
+                self._index_range(index_expr=index_expr, dim=dim, scope=scope),
+            )
+            for index_expr, dim in zip(self.indices, dims)
+        ]
+
+        count: int = 1
+
+        for is_slice, dim_range in spec:
+
+            if is_slice:
+                count *= len(dim_range)
+
+        positions: list[int] = [
+            container.flat_index(indices=tuple(combo))
+            for combo in product(*(dim_range for _, dim_range in spec))
+        ]
+
+        element_type: Type = container.value_type.value_type
+        raw_value: Any = value.get()
+
+        if isinstance(raw_value, list):
+            payload: list[Any] = flatten_nested_lists(raw=raw_value)
+
+            if len(payload) != count:
                 raise TypeError(
-                    f"Tensor index must be an integer, got '{repr(raw_index)}'"
+                    f"Slice assignment expects {count} element(s), got "
+                    f"{len(payload)}"
                 )
 
-            indices.append(raw_index)
+        else:
+            element_type.check_value(value=raw_value)
 
-        container.value_type.value_type.check_value(value=value.get())
+            payload = [raw_value] * count
 
-        container.cells[container.flat_index(indices=tuple(indices))] = value.get()
+        for position, element in zip(positions, payload):
+
+            element_type.check_value(value=element)
+
+            container.cells[position] = element
 
     def _assign_array(
         self,
@@ -1391,7 +1698,7 @@ class IndexExpr(Expression):
             str: Bracketed index representation.
         """
 
-        return f"{repr(self.target)}[{repr(self.index)}]"
+        return f"{repr(self.target)}[{', '.join(repr(index_expr) for index_expr in self.indices)}]"
 
 
 class CallExpr(Expression):
