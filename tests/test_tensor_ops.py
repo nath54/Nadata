@@ -1659,3 +1659,149 @@ class TestCasts:
 
         assert result[0] == 0.0
         assert round(result[3], 3) == 0.682
+
+
+class TestPermute:
+    """
+    Tests general axis permutation on tensors.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  t: Tensor[Int32, 2, 3, 4] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9,"
+            " 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];\n"
+            "  p: Tensor[Int32, 4, 2, 3] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0,"
+            " 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];\n"
+            "  q: Tensor[Int32, 2, 3, 4] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0,"
+            " 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];\n"
+            "  m: Tensor[Int32, 4, 3] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];\n"
+            "  i: Int32 = 0;\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_permute_3d(self) -> None:
+        """
+        Tests a 3-D permutation against hand-computed cells.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.p = p.t.permute(2, 0, 1);\n",
+            attribute="p",
+        ) == [
+            0, 4, 8, 12, 16, 20,
+            1, 5, 9, 13, 17, 21,
+            2, 6, 10, 14, 18, 22,
+            3, 7, 11, 15, 19, 23,
+        ]
+
+    def test_permute_2d_matches_transpose(self) -> None:
+        """
+        Tests that permute(1, 0) agrees with transpose() on a 2-D slice.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.m = p.t[0, :, :].permute(1, 0);\n",
+            attribute="m",
+        ) == [0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]
+
+    def test_permute_identity_copy(self) -> None:
+        """
+        Tests that the identity permutation returns the same cells.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.q = p.t.permute(0, 1, 2);\n",
+            attribute="q",
+        ) == list(range(24))
+
+    def test_permute_is_not_in_place(self) -> None:
+        """
+        Tests that the receiver is untouched and the copy is independent.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text=(
+                "p = P();\n"
+                "p.p = p.t.permute(2, 0, 1);\n"
+                "p.p[0, 0, 0] = 99;\n"
+                "p.i = p.t[0];\n"
+            ),
+            attribute="i",
+        ) == 0
+
+    def test_permute_rejects_duplicate_axes(self) -> None:
+        """
+        Tests that non-permutation axis lists raise ValueError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(ValueError, match="permutation"):
+            app.execute_data(data_text=(
+                "p = P();\n p.p = p.t.permute(0, 0, 1);\n"
+            ))
+
+    def test_permute_rejects_wrong_arity(self) -> None:
+        """
+        Tests that the axis count must match the rank.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="expects 3"):
+            app.execute_data(data_text="p = P();\n p.p = p.t.permute(0, 1);\n")
+
+    def test_permute_rejects_non_integer_axis(self) -> None:
+        """
+        Tests that non-integer axes raise TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="integer axes"):
+            app.execute_data(data_text=(
+                "p = P();\n p.p = p.t.permute(2, 0, 1.0);\n"
+            ))

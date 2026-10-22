@@ -264,13 +264,19 @@ on every tensor cell).
 **Shape operations** — `concat` joins tensors (axis 0 by default;
 axis 1 for 2-D via a second argument), `reshape` reinterprets the
 flat row-major payload with integer dimensions (at most one `-1`,
-inferred from the cell count), and `flatten` collapses to 1-D:
+inferred from the cell count), `flatten` collapses to 1-D, and
+`permute` reorders the axes of any rank into a fresh copy (with
+`transpose` as the 2-D special case). None of these mutate the
+receiver, and a result's new dimensions live on the new value —
+assign it to a variable declared with the matching shape:
 
 ```text
-stacked = a.concat(b);          // (M,K) + (N,K) -> (M+N,K)
-wide    = a.concat(b, 1);       // (M,K) + (M,N) -> (M,K+N)
-flat    = img.flatten();        // (M,N) -> (M*N)
-img2    = flat.reshape(4, -1);  // -1 inferred from the cell count
+stacked = a.concat(b);                 // (M,K) + (N,K) -> (M+N,K)
+wide    = a.concat(b, 1);              // (M,K) + (M,N) -> (M,K+N)
+flat    = img.flatten();               // (M,N) -> (M*N)
+img2    = flat.reshape(4, -1);         // -1 inferred from the cell count
+swapped = q.permute(2, 0, 1);          // (A,B,C) -> (C,A,B), new tensor
+kt      = k.transpose();               // (T,D) -> (D,T), new tensor
 ```
 
 **Indexing helpers** — `gather` collects rows by integer indices

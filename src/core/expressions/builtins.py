@@ -1107,21 +1107,17 @@ class TensorCallable:
             cols: int = extents[1]
 
             # Non-in-place: the result is a fresh tensor; the receiver
-            # keeps its shape and cells untouched. Result cell (i, j)
-            # reads original cell (j, i) from the row-major payload.
-            transposed: list[Any] = [
-                tensor.cells[col * cols + row]
-                for row in range(cols)
-                for col in range(rows)
-            ]
-
+            # keeps its shape and cells untouched
             return ValueTensor(
                 value_type=TypeTensor(
                     value_type=tensor.value_type.value_type,
                     dims=[cols, rows],
                 ),
-                cells=transposed,
+                cells=self._permuted_cells(tensor=tensor, perm=[1, 0]),
             )
+
+        if self.member == "permute":
+            return self._permute(args=args)
 
         if self.member == "map":
             return self._map(args=args)
@@ -1696,6 +1692,120 @@ class TensorCallable:
                 dims=cast("list[int | str]", dims),
             ),
             cells=list(tensor.cells),
+        )
+
+    def _permuted_cells(self, tensor: ValueTensor, perm: list[int]) -> list[Any]:
+        """
+        Builds the flat payload of a permuted copy.
+
+        Args:
+            tensor (ValueTensor): Source tensor.
+            perm (list[int]): Output axis d reads source axis perm[d].
+
+        Returns:
+            list[Any]: Row-major cells of the permuted tensor.
+        """
+
+        extents: list[int] = _tensor_extents(tensor=tensor)
+        rank: int = len(extents)
+
+        # Strides of the source axes and of the output axes
+        src_strides: list[int] = [1] * rank
+        out_strides: list[int] = [1] * rank
+
+        running: int = 1
+
+        for axis in range(rank - 1, -1, -1):
+            src_strides[axis] = running
+            running *= extents[axis]
+
+        out_extents: list[int] = [extents[axis] for axis in perm]
+
+        running = 1
+
+        for axis in range(rank - 1, -1, -1):
+            out_strides[axis] = running
+            running *= out_extents[axis]
+
+        cells: list[Any] = []
+
+        for out_flat in range(len(tensor.cells)):
+
+            remaining: int = out_flat
+            src_flat: int = 0
+
+            for axis in range(rank):
+
+                coordinate: int = remaining // out_strides[axis]
+                remaining %= out_strides[axis]
+
+                # Output axis 'axis' addresses source axis perm[axis]
+                src_flat += coordinate * src_strides[perm[axis]]
+
+            cells.append(tensor.cells[src_flat])
+
+        return cells
+
+    def _permute(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Returns a copy with the axes reordered (non-in-place).
+
+        The result of permute(a0, a1, ...) is a fresh tensor whose axis d
+        holds the source's axis a_d; the receiver keeps its shape, cells,
+        and identity.
+
+        Args:
+            args (tuple[Value, ...]): One axis index per source rank.
+
+        Returns:
+            ValueTensor: The permuted copy.
+
+        Raises:
+            TypeError: On a wrong axis count or non-integer axes.
+            ValueError: If the axes are not a permutation of 0..rank-1.
+        """
+
+        tensor: ValueTensor = self.target
+        extents: list[int] = _tensor_extents(tensor=tensor)
+        rank: int = len(extents)
+
+        if len(args) != rank:
+            raise TypeError(
+                f"Member 'permute' expects {rank} axis indices for a "
+                f"{rank}-D tensor, got {len(args)}"
+            )
+
+        perm: list[int] = []
+
+        for argument in args:
+
+            if not isinstance(argument, Value):
+                raise TypeError("Member 'permute' expects integer axes")
+
+            raw_axis: Any = argument.get()
+
+            if isinstance(raw_axis, bool) or not isinstance(raw_axis, int):
+                raise TypeError(
+                    f"Member 'permute' expects integer axes, got "
+                    f"'{repr(raw_axis)}'"
+                )
+
+            perm.append(raw_axis)
+
+        if sorted(perm) != list(range(rank)):
+            raise ValueError(
+                f"Member 'permute' axes {perm} are not a permutation of "
+                f"0..{rank - 1}"
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", [
+                    extents[axis] for axis in perm
+                ]),
+            ),
+            cells=self._permuted_cells(tensor=tensor, perm=perm),
         )
 
     def _flatten(self) -> ValueTensor:
