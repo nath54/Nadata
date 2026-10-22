@@ -23,6 +23,7 @@
 		{ "include": "#call" },
 		{ "include": "#user-types" },
 		{ "include": "#numeric" },
+		{ "include": "#statement-separator" },
 		{ "include": "#operators" },
 		{ "include": "#punctuation" }
 	],
@@ -129,9 +130,13 @@
 			"name": "constant.numeric.nadata",
 			"match": "\\b[0-9][0-9_]*(?:\\.[0-9_]+)?(?:[eE][+-]?[0-9]+)?\\b"
 		},
+		"statement-separator": {
+			"name": "punctuation.separator.statement.nadata",
+			"match": "::"
+		},
 		"operators": {
 			"name": "keyword.operator.nadata",
-			"match": "\\+\\+|--|\\+=|-=|\\*=|/=|%=|==|!=|<=|>=|->|::|[-+*/%<>=]"
+			"match": "\\+\\+|--|\\+=|-=|\\*=|/=|%=|==|!=|<=|>=|->|[-+*/%<>=]"
 		},
 		"punctuation": {
 			"name": "punctuation.separator.nadata",

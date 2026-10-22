@@ -299,3 +299,18 @@ class TestGrammarSync:
         assert re.search(method_pattern, "q.push(x)") is not None
         assert re.search(method_pattern, "tensor.size()") is not None
         assert re.search(method_pattern, "s.length()") is not None
+
+    def test_statement_separator_scoped(self) -> None:
+        """
+        Tests that the C-style for header separator :: has its own scope
+        (so themes can color it distinctly from other operators).
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        rule: Any = grammar["repository"]["statement-separator"]
+        operators: str = grammar["repository"]["operators"]["match"]
+
+        assert rule["name"] == "punctuation.separator.statement.nadata"
+        assert rule["match"] == "::"
+        assert "::" not in operators
