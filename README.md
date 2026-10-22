@@ -119,6 +119,19 @@ edge cases:
 | `ex8_grids_tensors` | Sparse spatial grids (square/hex/cube), shape-checked tensors |
 | `ex9_constants` | `const` bind-once attributes, symbolic tensor dims |
 
+## Editor support
+
+Syntax highlighting for `.nastruct` and `.nadata` files ships as a
+VS Code / VSCodium extension in
+[`editors/vscode-nadata`](editors/vscode-nadata):
+
+```bash
+code --install-extension editors/vscode-nadata
+```
+
+A sync test (`tests/test_grammar.py`) keeps the grammar aligned with the
+language: it fails whenever a builtin type, keyword, or scope is missing.
+
 ## Development
 
 ```bash

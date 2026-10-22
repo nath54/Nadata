@@ -1,0 +1,98 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Nadata",
+	"scopeName": "source.nadata",
+	"patterns": [
+		{ "include": "#block-comment" },
+		{ "include": "#line-comment" },
+		{ "include": "#string" },
+		{ "include": "#boolean" },
+		{ "include": "#self" },
+		{ "include": "#class-declaration" },
+		{ "include": "#function-declaration" },
+		{ "include": "#method-declaration" },
+		{ "include": "#declaration-keywords" },
+		{ "include": "#control-keywords" },
+		{ "include": "#types" },
+		{ "include": "#numeric" },
+		{ "include": "#operators" },
+		{ "include": "#punctuation" }
+	],
+	"repository": {
+		"block-comment": {
+			"name": "comment.block.nadata",
+			"begin": "\"\"\"",
+			"end": "\"\"\"",
+			"patterns": []
+		},
+		"line-comment": {
+			"name": "comment.line.number-sign.nadata",
+			"match": "#.*$"
+		},
+		"string": {
+			"name": "string.quoted.double.nadata",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.nadata",
+					"match": "\\\\(u[0-9a-fA-F]{4}|.)"
+				}
+			]
+		},
+		"boolean": {
+			"name": "constant.language.boolean.nadata",
+			"match": "\\b(true|false)\\b"
+		},
+		"self": {
+			"name": "variable.language.self.nadata",
+			"match": "\\bself\\b"
+		},
+		"class-declaration": {
+			"match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)?\\s*\\)?",
+			"captures": {
+				"1": { "name": "keyword.declaration.class.nadata" },
+				"2": { "name": "entity.name.class.nadata" },
+				"3": { "name": "entity.name.class.inherited.nadata" }
+			}
+		},
+		"function-declaration": {
+			"match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+			"captures": {
+				"1": { "name": "keyword.declaration.function.nadata" },
+				"2": { "name": "entity.name.function.nadata" }
+			}
+		},
+		"method-declaration": {
+			"match": "(@)\\s*([A-Za-z_][A-Za-z0-9_]*)",
+			"captures": {
+				"1": { "name": "punctuation.definition.method.nadata" },
+				"2": { "name": "entity.name.function.nadata" }
+			}
+		},
+		"declaration-keywords": {
+			"name": "keyword.declaration.nadata",
+			"match": "\\b(const)\\b"
+		},
+		"control-keywords": {
+			"name": "keyword.control.nadata",
+			"match": "\\b(if|elif|else|for|in|not\\s+in|while|return|break|continue|pass|and|or|not)\\b"
+		},
+		"types": {
+			"name": "support.type.nadata",
+			"match": "\\b(Array|Dict|Set|Queue|PriorityQueue|Tensor|GridSquare2D|GridHex2D|GridCube3D|DateTime|Color|Str|Bool|BFloat16|UBFloat16|U?Float(?:8_E4M3|8_E5M2|16|32|64)|U?Int[0-9]+)\\b"
+		},
+		"numeric": {
+			"name": "constant.numeric.nadata",
+			"match": "\\b[0-9][0-9_]*(?:\\.[0-9_]+)?(?:[eE][+-]?[0-9]+)?\\b"
+		},
+		"operators": {
+			"name": "keyword.operator.nadata",
+			"match": "\\+\\+|--|\\+=|-=|\\*=|/=|%=|==|!=|<=|>=|->|::|[-+*/%<>=]"
+		},
+		"punctuation": {
+			"name": "punctuation.separator.nadata",
+			"match": "[{}()\\[\\];,.:@]"
+		}
+	}
+}
