@@ -172,9 +172,19 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "dark image is a: dark field",
         "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
     ],
+    "ex11_transformer": [
+        "embedded cells: 16",
+        "embedded row 0: [1.1246747333852276, 0.9689124217106447, 0.36627252908604757, 0.8775825618903728]",
+        "attention row 0: [0.6201386229689123, 0.23128964354678472, 0.002226562923520644, 0.14634517056078236]",
+        "attention argmax per row: [0, 0, 0, 0]",
+        "sentence a logits: [2.6964333720563824, -0.3071405147025364, 3.771121032518069, 0.46301367359919854, -1.6513375062071531, -1.095253790194904]",
+        "sentence a top 2 ids: [2, 0]",
+        "sentence a predicts: sat",
+        "sentence b predicts: sat",
+        "sentence c predicts: sat",
+        "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
+    ],
 }
-
-# Every bundled example must be covered here
 ALL_EXAMPLES: list[str] = [
     "ex0_simple",
     "ex1_primitives",
@@ -187,6 +197,7 @@ ALL_EXAMPLES: list[str] = [
     "ex8_grids_tensors",
     "ex9_constants",
     "ex10_cnn",
+    "ex11_transformer",
 ]
 
 

@@ -1,0 +1,32 @@
+# ==============================================================================
+# Example 11: A Minimal Transformer Block - data and script
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+net = MiniTransformer();
+
+# --- Three four-token sentences over the six-word vocabulary ---
+# 0 the, 1 cat, 2 sat, 3 on, 4 mat, 5 rug
+tokens_a: Tensor[Int64, 4] = [0, 1, 2, 4];
+tokens_b: Tensor[Int64, 4] = [1, 5, 0, 3];
+tokens_c: Tensor[Int64, 4] = [5, 4, 3, 2];
+
+# --- Embedding lookup: gather rows, then add positional encodings ---
+embedded: Tensor[Float32, 4, 4] = net.embed(tokens_a);
+print("embedded cells:", embedded.size());
+print("embedded row 0:", embedded[0, :]);
+
+# --- Attention weights: every row is a probability distribution ---
+weights: Tensor[Float32, 4, 4] = net.attention_weights(embedded);
+print("attention row 0:", weights[0, :]);
+print("attention argmax per row:", weights.argmax());
+
+# --- Logits over the vocabulary for the next word after sentence a ---
+logits: Tensor[Float32, 6] = net.forward(tokens_a);
+print("sentence a logits:", logits);
+print("sentence a top 2 ids:", logits.topk(2));
+print("sentence a predicts:", net.predict(tokens_a));
+
+# --- The same block predicts for the other sentences ---
+print("sentence b predicts:", net.predict(tokens_b));
+print("sentence c predicts:", net.predict(tokens_c));

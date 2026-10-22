@@ -1,0 +1,152 @@
+# ==============================================================================
+# Example 11: A Minimal Transformer Block
+# A single-head transformer forward pass built entirely from the tensor
+# toolkit: token embeddings via gather(), sinusoidal positional encodings
+# with sin()/cos(), scaled dot-product attention with a numerically stable
+# softmax, a ReLU feed-forward network, residual connections with LayerNorm,
+# and a argmax/topk prediction head. All weights come from seeded randn(), so
+# every print below is deterministic and asserted by tests/test_examples.py.
+# ==============================================================================
+
+class MiniTransformer {
+    # Embedding table: six vocabulary words ("the", "cat", "sat", "on",
+    # "mat", "rug") in a four-dimensional embedding space, hand-set so the
+    # rows are interpretable
+    vocab: Tensor[Float32, 6, 4] = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.5, 0.5, 0.0, 0.0],
+        [0.0, 0.5, 0.5, 0.0],
+    ];
+
+    # Attention, feed-forward, and head weights: seeded randn() keeps the
+    # whole forward pass deterministic
+    wq: Tensor[Float32, 4, 4] = randn(1);
+    wk: Tensor[Float32, 4, 4] = randn(2);
+    wv: Tensor[Float32, 4, 4] = randn(3);
+    w1: Tensor[Float32, 4, 8] = randn(4);
+    w2: Tensor[Float32, 8, 4] = randn(5);
+    wo: Tensor[Float32, 4, 6] = randn(6);
+
+    # Sinusoidal positional encoding: even channels use sin, odd use cos
+    @positional(p: Int32, k: Int32) -> Float32 {
+        angle: Float32 = (p + 1) * (k + 1) / 8.0;
+        if (k % 2 == 0) { return sin(angle); }
+        return cos(angle);
+    }
+
+    # Token embeddings plus positional information: gather() looks up the
+    # rows, then every cell picks up its position encoding
+    @embed(tokens: Tensor[Int64, 4]) -> Tensor[Float32, 4, 4] {
+        x: Tensor[Float32, 4, 4] = self.vocab.gather(tokens);
+
+        for (p: Int32 = 0 :: p < 4 :: p++) {
+            for (k: Int32 = 0 :: k < 4 :: k++) {
+                x[p, k] = x[p, k] + self.positional(p, k);
+            }
+        }
+
+        return x;
+    }
+
+    # Numerically stable softmax: subtract each row's peak before exp()
+    # so the exponent arguments never overflow
+    @softmax(scores: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
+        probs: Tensor[Float32, 4, 4] = zeros();
+
+        for (i: Int32 = 0 :: i < 4 :: i++) {
+            row: Tensor[Float32, 4] = scores[i, :];
+            peak: Float32 = row.max();
+            row = row.map((w: Float32) -> exp(w - peak));
+            total: Float32 = row.sum();
+
+            for (c: Int32 = 0 :: c < 4 :: c++) {
+                probs[i, c] = row[c] / total;
+            }
+        }
+
+        return probs;
+    }
+
+    # Scaled dot-product attention weights: scores[i, j] is the dot of
+    # query i with key j, scaled by 1/sqrt(4), then softmaxed per row
+    @attention_weights(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
+        q: Tensor[Float32, 4, 4] = x.matmul(self.wq);
+        k: Tensor[Float32, 4, 4] = x.matmul(self.wk);
+
+        scores: Tensor[Float32, 4, 4] = zeros();
+
+        for (i: Int32 = 0 :: i < 4 :: i++) {
+            for (j: Int32 = 0 :: j < 4 :: j++) {
+                scores[i, j] = q[i, :].matmul(k[j, :]) * 0.5;
+            }
+        }
+
+        return self.softmax(scores);
+    }
+
+    # Attention output: the probability distribution mixes the values
+    @attend(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
+        weights: Tensor[Float32, 4, 4] = self.attention_weights(x);
+        v: Tensor[Float32, 4, 4] = x.matmul(self.wv);
+        return weights.matmul(v);
+    }
+
+    # Position-wise feed-forward network with ReLU
+    @feed_forward(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
+        hidden: Tensor[Float32, 4, 8] = x.matmul(self.w1);
+
+        for (i: Int32 = 0 :: i < 4 :: i++) {
+            for (j: Int32 = 0 :: j < 8 :: j++) {
+                if (hidden[i, j] < 0.0) { hidden[i, j] = 0.0; }
+            }
+        }
+
+        return hidden.matmul(self.w2);
+    }
+
+    # LayerNorm per row: center, then divide by the root mean square
+    @layer_norm(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
+        out: Tensor[Float32, 4, 4] = zeros();
+
+        for (i: Int32 = 0 :: i < 4 :: i++) {
+            row: Tensor[Float32, 4] = x[i, :];
+            mu: Float32 = row.mean();
+            centered: Tensor[Float32, 4] = row - mu;
+            variance: Float32 = (centered * centered).mean();
+            scale: Float32 = sqrt(variance + 0.0001);
+
+            for (c: Int32 = 0 :: c < 4 :: c++) {
+                out[i, c] = centered[c] / scale;
+            }
+        }
+
+        return out;
+    }
+
+    # Full block: embed, attention with residual and norm, feed-forward
+    # with residual and norm, then project the last position to logits
+    @forward(tokens: Tensor[Int64, 4]) -> Tensor[Float32, 6] {
+        x: Tensor[Float32, 4, 4] = self.embed(tokens);
+        x = self.layer_norm(x + self.attend(x));
+        x = self.layer_norm(x + self.feed_forward(x));
+
+        last: Tensor[Float32, 4] = x[3, :];
+        return last.matmul(self.wo);
+    }
+
+    # Next-word prediction: argmax over the logits maps back to a word
+    @predict(tokens: Tensor[Int64, 4]) -> Str {
+        logits: Tensor[Float32, 6] = self.forward(tokens);
+        best: Int64 = logits.argmax();
+
+        if (best == 0) { return "the"; }
+        if (best == 1) { return "cat"; }
+        if (best == 2) { return "sat"; }
+        if (best == 3) { return "on"; }
+        if (best == 4) { return "mat"; }
+        return "rug";
+    }
+}
