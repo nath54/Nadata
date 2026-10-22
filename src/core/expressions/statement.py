@@ -11,6 +11,7 @@ from collections import deque
 from typing import Any, Optional
 
 from src.core.types.types import Type, TypeTensor, flatten_nested_lists
+from src.core.expressions.builtins import TensorInit, materialize_tensor_init
 from src.core.values.values import (
     Value,
     ValueArray,
@@ -94,6 +95,11 @@ class VarDeclStmt(Statement):
         """
 
         val: Value = self.init_expr.evaluate(scope=scope)
+
+        # Pending tensor initializers (zeros()/fill()/eye()) materialize
+        # against the declared tensor type
+        if isinstance(self.var_type, TypeTensor) and isinstance(val, TensorInit):
+            val = materialize_tensor_init(init=val, tensor_type=self.var_type)
 
         # Nested array literals flatten into the flat payload of a tensor
         # declaration (the shape is checked by the type)

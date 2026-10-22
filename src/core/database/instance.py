@@ -10,7 +10,11 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
-from src.core.expressions.builtins import build_type_globals
+from src.core.expressions.builtins import (
+    TensorInit,
+    build_type_globals,
+    materialize_tensor_init,
+)
 from src.core.expressions.expression import Expression
 from src.core.expressions.scope import ExecutionScope
 from src.core.types.types import (
@@ -220,6 +224,16 @@ class StructInstance:
                 f"'{self.struct.name}': const attributes bind at construction"
             )
 
+        # Pending tensor initializers (zeros()/fill()/eye()) materialize
+        # against the declared type, resolving symbolic dims from the
+        # instance's bound constants
+        if isinstance(attr_def.attr_type, TypeTensor) and isinstance(value, TensorInit):
+            value = self._materialize_attribute_init(
+                tensor_type=attr_def.attr_type,
+                init=value,
+                attribute_name=name,
+            )
+
         # Flatten nested array literals into the flat row-major payload of
         # a tensor declaration (shape checked by the type below)
         if isinstance(attr_def.attr_type, TypeTensor) and isinstance(value, ValueArray):
@@ -336,6 +350,15 @@ class StructInstance:
 
         value: Value = expression.evaluate(scope=scope)
 
+        # Pending tensor initializers materialize against the declared
+        # type (symbolic dims resolve from the bound constants)
+        if isinstance(attr_def.attr_type, TypeTensor) and isinstance(value, TensorInit):
+            return self._materialize_attribute_init(
+                tensor_type=attr_def.attr_type,
+                init=value,
+                attribute_name=attr_def.name,
+            )
+
         # Python's '/' yields floats; an integral float binding to a basic
         # integer const coerces (2.0 -> 2). Non-integral values still fail
         # the declared type check in set_attribute.
@@ -349,6 +372,62 @@ class StructInstance:
             return make_value(value_type=attr_def.attr_type, raw=int(raw_value))
 
         return value
+
+    def _materialize_attribute_init(
+        self,
+        tensor_type: TypeTensor,
+        init: TensorInit,
+        attribute_name: str,
+    ) -> ValueTensor:
+        """
+        Materializes a pending tensor initializer for an attribute.
+
+        Symbolic dimensions resolve from the instance's bound constants
+        (schema defaults are materialized first).
+
+        Args:
+            tensor_type (TypeTensor): Declared tensor type.
+            init (TensorInit): Pending initialization request.
+            attribute_name (str): Attribute being set (for errors).
+
+        Returns:
+            ValueTensor: The initialized tensor.
+
+        Raises:
+            TypeError: If a symbolic dimension is not bound on this
+                instance.
+        """
+
+        extents: dict[str, int] = {}
+
+        for dim_name in tensor_type.symbolic_dims():
+
+            # Materialize schema defaults of unbound constants
+            self.ensure_attribute(name=dim_name)
+
+            dim_value: Optional[Value] = self.attributes.get(dim_name)
+
+            if dim_value is None:
+                raise TypeError(
+                    f"Cannot initialize '{attribute_name}': tensor dimension "
+                    f"'{dim_name}' is not bound on this instance"
+                )
+
+            raw_dim: Any = dim_value.get()
+
+            if isinstance(raw_dim, bool) or not isinstance(raw_dim, int):
+                raise TypeError(
+                    f"Cannot initialize '{attribute_name}': tensor dimension "
+                    f"'{dim_name}' must be an integer"
+                )
+
+            extents[dim_name] = raw_dim
+
+        return materialize_tensor_init(
+            init=init,
+            tensor_type=tensor_type,
+            extents=extents or None,
+        )
 
     def _validate_symbolic_shape(
         self,

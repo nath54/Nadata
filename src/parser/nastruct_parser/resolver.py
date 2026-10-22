@@ -13,7 +13,12 @@ import re
 from typing import Any, Callable, Optional, cast
 
 from src.core.database.database import NaDataDatabase
-from src.core.expressions.builtins import builtin_type, build_type_globals
+from src.core.expressions.builtins import (
+    TENSOR_INIT_NAMES,
+    TensorInit,
+    builtin_type,
+    build_type_globals,
+)
 from src.core.expressions.expression import (
     ArrayLiteralExpr,
     BinaryOpExpr,
@@ -386,6 +391,24 @@ class TypeResolver:
 # lower_snake_case; upper camel case is reserved for types (structs and
 # builtin type names)
 NAME_PATTERN: re.Pattern[str] = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _is_tensor_init_default(expression: Any) -> bool:
+    """
+    Returns whether an expression is a bare tensor initializer call.
+
+    Args:
+        expression (Any): Candidate default expression.
+
+    Returns:
+        bool: True for 'zeros()', 'fill(...)', and 'eye()' calls.
+    """
+
+    return (
+        isinstance(expression, CallExpr)
+        and isinstance(expression.callee, IdentifierExpr)
+        and expression.callee.name in TENSOR_INIT_NAMES
+    )
 
 
 def _validate_identifier_name(name: str, kind: str, context: str) -> None:
@@ -930,6 +953,18 @@ class SchemaResolver:
             default_expr = tmp_attribute.attribute_default_value
             has_default = True
 
+        # Tensor initializer defaults (zeros()/fill()/eye()) under a
+        # tensor declaration evaluate per instance so symbolic dims
+        # resolve from the bound constants
+        elif (
+            isinstance(attr_type, TypeTensor)
+            and _is_tensor_init_default(
+                expression=tmp_attribute.attribute_default_value
+            )
+        ):
+            default_expr = tmp_attribute.attribute_default_value
+            has_default = True
+
         # Evaluate the default expression under the declared type
         elif tmp_attribute.attribute_default_value is not None:
             default_value = self.evaluate_default(
@@ -1204,6 +1239,14 @@ class SchemaResolver:
         scope: ExecutionScope = ExecutionScope(globals_dict=self.type_globals)
 
         value: Any = expression.evaluate(scope=scope)
+
+        # Pending tensor initializers are only valid under Tensor
+        # declarations (tensor attributes intercept them earlier)
+        if isinstance(value, TensorInit):
+            raise TypeError(
+                f"Tensor initializer must be assigned to a declared tensor, "
+                f"got '{repr(resolved_type)}'"
+            )
 
         raw_value: Any = value.get() if hasattr(value, "get") else value
 

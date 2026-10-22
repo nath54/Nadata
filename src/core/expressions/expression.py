@@ -9,7 +9,7 @@ binary operations, member accesses, and function/method calls operating on Value
 from __future__ import annotations
 from collections import deque
 from itertools import product
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from src.core.types.types import (
     Int64,
@@ -330,6 +330,144 @@ class BinaryOpExpr(Expression):
         self.right: Expression = right
 
     @staticmethod
+    def _eval_tensor_arithmetic(
+        left: Value,
+        op: str,
+        right: Value,
+    ) -> Optional[Value]:
+        """
+        Evaluates elementwise tensor arithmetic.
+
+        Tensor-tensor operands must share the same shape; scalars
+        broadcast across every cell. The result keeps the base tensor's
+        shape and element type.
+
+        Args:
+            left (Value): Left operand Value.
+            op (str): Arithmetic operator ('+', '-', '*', '/').
+            right (Value): Right operand Value.
+
+        Returns:
+            Optional[Value]: Resulting ValueTensor, or None if the
+                operator is unsupported for tensors.
+
+        Raises:
+            ValueError: On a tensor-tensor shape mismatch.
+            TypeError: On a non-numeric scalar operand, integer tensor
+                division, or unbound symbolic dimensions.
+        """
+
+        if op not in ("+", "-", "*", "/"):
+            return None
+
+        base: ValueTensor
+        other: Value
+        scalar_first: bool
+
+        if isinstance(left, ValueTensor):
+            base, other, scalar_first = left, right, False
+
+        elif isinstance(right, ValueTensor):
+            base, other, scalar_first = right, left, True
+
+        else:
+            return None
+
+        extents: list[int] = BinaryOpExpr._tensor_extents(tensor=base)
+        element_type: Type = base.value_type.value_type
+
+        def apply(a: Any, b: Any) -> Any:
+            """Applies the arithmetic operator to one cell pair."""
+
+            if op == "+":
+                return a + b
+
+            if op == "-":
+                return a - b
+
+            if op == "*":
+                return a * b
+
+            return a / b
+
+        if isinstance(other, ValueTensor):
+
+            if BinaryOpExpr._tensor_extents(tensor=other) != extents:
+                raise ValueError(
+                    f"Tensor shape mismatch for '{op}': "
+                    f"{extents} vs "
+                    f"{BinaryOpExpr._tensor_extents(tensor=other)}"
+                )
+
+            if scalar_first:
+                cells: list[Any] = [
+                    apply(other_cell, base_cell)
+                    for base_cell, other_cell in zip(base.cells, other.cells)
+                ]
+
+            else:
+                cells = [
+                    apply(base_cell, other_cell)
+                    for base_cell, other_cell in zip(base.cells, other.cells)
+                ]
+
+        else:
+            raw_scalar: Any = other.get()
+
+            if isinstance(raw_scalar, bool) or not isinstance(
+                raw_scalar, (int, float)
+            ):
+                raise TypeError(
+                    f"Tensor '{op}' requires a numeric scalar, got "
+                    f"'{repr(raw_scalar)}'"
+                )
+
+            if scalar_first:
+                cells = [apply(raw_scalar, cell) for cell in base.cells]
+
+            else:
+                cells = [apply(cell, raw_scalar) for cell in base.cells]
+
+        if op == "/" and isinstance(element_type, TypeInt):
+            raise TypeError(
+                "Tensor division on an integer element type produces "
+                "floats; use a float element type"
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=element_type,
+                dims=cast("list[int | str]", extents),
+            ),
+            cells=cells,
+        )
+
+    @staticmethod
+    def _tensor_extents(tensor: ValueTensor) -> list[int]:
+        """
+        Returns the concrete per-axis extents of a tensor.
+
+        Args:
+            tensor (ValueTensor): Tensor to inspect.
+
+        Returns:
+            list[int]: Extents in axis order.
+
+        Raises:
+            TypeError: If the tensor has unbound symbolic dimensions.
+        """
+
+        if tensor.concrete_dims is not None:
+            return list(tensor.concrete_dims)
+
+        if tensor.value_type.is_symbolic:
+            raise TypeError(
+                "Cannot operate on a tensor with unbound symbolic dimensions"
+            )
+
+        return [dim for dim in tensor.value_type.dims if isinstance(dim, int)]
+
+    @staticmethod
     def _eval_int_arithmetic(left: ValueInt, op: str, right: ValueInt) -> Optional[Value]:
         """
         Evaluates integer arithmetic operations.
@@ -450,6 +588,13 @@ class BinaryOpExpr(Expression):
 
             if isinstance(custom_sum, DateTime):
                 return ValueDateTime(value=custom_sum)
+
+        # Tensor arithmetic: elementwise tensor-tensor (same shape) or
+        # broadcast tensor-scalar
+        if isinstance(left, ValueTensor) or isinstance(right, ValueTensor):
+            return BinaryOpExpr._eval_tensor_arithmetic(
+                left=left, op=op, right=right
+            )
 
         # Integer arithmetic
         if isinstance(left, ValueInt) and isinstance(right, ValueInt):
@@ -796,7 +941,10 @@ class MemberAccessExpr(Expression):
         # Typed tensor members (before the Python attr fallback)
         if (
             isinstance(target_obj, ValueTensor)
-            and self.member in ("at", "set_at", "size", "shape")
+            and self.member in (
+                "at", "set_at", "size", "shape",
+                "sum", "min", "max", "transpose", "fill",
+            )
         ):
             return TensorCallable(target=target_obj, member=self.member)
 

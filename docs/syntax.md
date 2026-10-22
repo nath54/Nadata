@@ -214,9 +214,35 @@ m[0:2, 1] = [0.1, 0.2];                // block write (row-major payload)
 m[:, 0] = 0.0;                         // block write (scalar broadcast)
 s = m.shape();                         // Array[Int32] of dimensions
 n = m.size();                          // total element count
+x = m.sum();                           // elementwise reductions: sum/min/max
+m.fill(0.0);                           // in-place fill of every cell
+t = m.transpose();                     // square 2-D transpose (copy)
 for (x: Float32 in m) { ... }         // row-major iteration
 "x" in m                               // membership probe (flat values)
 ```
+
+**Initializers** — `zeros()`, `fill(v)`, and `eye()` materialize
+against the target's declared tensor type, so they work as schema
+defaults, constructor arguments, and typed locals:
+
+```text
+m: Tensor[Float32, 3, 4] = zeros();    // all 0.0
+w: Tensor[Float32, dim, dim] = eye();  // identity (symbolic dims OK)
+z: Tensor[Float32, 2, 3] = fill(2.5);  // all 2.5
+```
+
+- `zeros()` and `eye()` require numeric element types; `eye()`
+  requires a square 2-D shape. `fill(v)` accepts any element type.
+- Initializers under symbolic dimensions resolve per instance from
+  the bound constants (so they survive persistence round-trips).
+- Using an initializer anywhere other than a declared tensor target
+  is a `TypeError`.
+
+**Elementwise arithmetic** — `+`, `-`, `*`, `/` work between
+tensors of identical shape (elementwise) and between a tensor and a
+numeric scalar (broadcast); results keep the base tensor's shape and
+element type. Division on integer element types is a `TypeError`
+(the result would be fractional).
 
 **Slicing** — each index position may be an integer (drops the
 dimension, returning an element) or a `start:stop` slice (keeps the

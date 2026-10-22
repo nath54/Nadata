@@ -18,7 +18,7 @@ from typing import Any, Optional, cast
 from src.core.expressions.scope import ScopeAwareFunction
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
-from src.core.types.types import TypeArray, TypeBool, TypeDict, TypeInt, TypeStr
+from src.core.types.types import Type, TypeArray, TypeBool, TypeDict, TypeFloat, TypeInt, TypeStr, TypeTensor
 from src.core.values.values import (
     TYPE_EXTERNAL,
     Value,
@@ -653,7 +653,8 @@ def build_type_globals() -> dict[str, Any]:
     Builds the global symbol table used to evaluate expressions at runtime.
 
     Contains the home type constructors callable from defaults, scripts, and
-    queries (e.g. 'DateTime.now()', 'Color(255, 255, 255)').
+    queries (e.g. 'DateTime.now()', 'Color(255, 255, 255)'), and the tensor
+    initializer factories (zeros(), fill(v), eye()).
 
     Returns:
         dict[str, Any]: Global symbols keyed by name.
@@ -663,6 +664,9 @@ def build_type_globals() -> dict[str, Any]:
         "DateTime": DateTime,
         "Color": Color,
         "type": builtin_type,
+        "zeros": TensorInitializer(kind="zeros"),
+        "fill": TensorInitializer(kind="fill"),
+        "eye": TensorInitializer(kind="eye"),
     }
 
 
@@ -1049,7 +1053,305 @@ class TensorCallable:
                 elements=resolved_dims,
             )
 
+        if self.member == "sum":
+            return _wrap_raw(
+                raw=sum(tensor.cells),
+                value_type=tensor.value_type.value_type,
+            )
+
+        if self.member == "min":
+            return _wrap_raw(
+                raw=min(tensor.cells),
+                value_type=tensor.value_type.value_type,
+            )
+
+        if self.member == "max":
+            return _wrap_raw(
+                raw=max(tensor.cells),
+                value_type=tensor.value_type.value_type,
+            )
+
+        if self.member == "fill":
+
+            if len(raw_args) != 1:
+                raise TypeError("Member 'fill' expects exactly one value")
+
+            tensor.value_type.value_type.check_value(value=raw_args[0])
+
+            tensor.cells = [raw_args[0]] * len(tensor.cells)
+
+            return ValueExternal(payload=None)
+
+        if self.member == "transpose":
+
+            extents: list[int] = _tensor_extents(tensor=tensor)
+
+            if len(extents) != 2 or extents[0] != extents[1]:
+                raise TypeError(
+                    "Member 'transpose' requires a square 2-D tensor, got "
+                    f"shape {extents}"
+                )
+
+            rows: int = extents[0]
+            cols: int = extents[1]
+
+            transposed: list[Any] = [
+                tensor.cells[col * rows + row]
+                for row in range(rows)
+                for col in range(cols)
+            ]
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=tensor.value_type.value_type,
+                    dims=[cols, rows],
+                ),
+                cells=transposed,
+            )
+
         raise TypeError(f"Unknown tensor member '{self.member}'")
+
+
+class TensorInit(Value):
+    """
+    Pending tensor initialization request produced by zeros()/fill()/eye().
+
+    The marker carries the requested kind plus the fill value; it is
+    materialized against the target's declared tensor type at the
+    assignment site. Using it anywhere else fails loudly.
+
+    Attributes:
+        kind (str): Initializer kind ('zeros', 'fill', or 'eye').
+        fill_value (Optional[Any]): Value for 'fill' initializers.
+    """
+
+    def __init__(self, kind: str, fill_value: Optional[Any]) -> None:
+        """
+        Initializes the TensorInit instance.
+
+        Args:
+            kind (str): Initializer kind.
+            fill_value (Optional[Any]): Value for 'fill' initializers.
+        """
+
+        # Placeholder type; the marker is never stored or checked as-is
+        super().__init__(value_type=TypeBool())
+
+        self.kind: str = kind
+        self.fill_value: Optional[Any] = fill_value
+
+    def get(self) -> Any:
+        """
+        Raises: pending initializers have no raw value.
+
+        Returns:
+            Any: Never.
+
+        Raises:
+            TypeError: Always; the initializer must be assigned to a
+                declared tensor first.
+        """
+
+        raise TypeError(
+            f"Tensor initializer '{self.kind}()' must be assigned to a "
+            f"declared tensor"
+        )
+
+    def __repr__(self) -> str:
+        """
+        Returns the initializer representation.
+
+        Returns:
+            str: Call-style representation.
+        """
+
+        if self.kind == "fill":
+            return f"fill({repr(self.fill_value)})"
+
+        return f"{self.kind}()"
+
+
+class TensorInitializer:
+    """
+    Callable bound to a tensor initializer name (zeros, fill, eye).
+
+    Evaluates to a pending TensorInit marker; the assignment site
+    materializes it against the target's declared tensor type.
+
+    Attributes:
+        kind (str): Initializer kind.
+    """
+
+    def __init__(self, kind: str) -> None:
+        """
+        Initializes the TensorInitializer instance.
+
+        Args:
+            kind (str): Initializer kind ('zeros', 'fill', or 'eye').
+        """
+
+        self.kind: str = kind
+
+    def __call__(self, *values: Value) -> TensorInit:
+        """
+        Builds the pending initialization request.
+
+        Args:
+            *values (Value): Call arguments (one fill value for 'fill').
+
+        Returns:
+            TensorInit: The pending marker.
+
+        Raises:
+            TypeError: On wrong arity or a non-Value fill argument.
+        """
+
+        if self.kind == "fill":
+
+            if len(values) != 1 or not isinstance(values[0], Value):
+                raise TypeError("fill() expects exactly one value")
+
+            return TensorInit(kind=self.kind, fill_value=values[0].get())
+
+        if values:
+            raise TypeError(f"{self.kind}() takes no arguments")
+
+        return TensorInit(kind=self.kind, fill_value=None)
+
+    def __repr__(self) -> str:
+        """
+        Returns the initializer representation.
+
+        Returns:
+            str: Call-style representation.
+        """
+
+        return f"{self.kind}()"
+
+
+def materialize_tensor_init(
+    init: TensorInit,
+    tensor_type: TypeTensor,
+    extents: Optional[dict[str, int]] = None,
+) -> ValueTensor:
+    """
+    Materializes a pending initializer against a declared tensor type.
+
+    Args:
+        init (TensorInit): Pending initialization request.
+        tensor_type (TypeTensor): Declared tensor type providing shape and
+            element type.
+        extents (Optional[dict[str, int]]): Resolved symbolic extents;
+            required when the type has symbolic dimensions.
+
+    Returns:
+        ValueTensor: The initialized tensor.
+
+    Raises:
+        TypeError: On symbolic dims without extents, non-numeric element
+            types for zeros()/eye(), or a fill value violating the
+            element type.
+    """
+
+    dims: list[int | str] = list(tensor_type.dims)
+
+    for dim in dims:
+
+        if isinstance(dim, str) and (extents is None or dim not in extents):
+            raise TypeError(
+                f"Cannot initialize symbolic tensor with '{init.kind}()': "
+                f"dimension '{dim}' is not bound"
+            )
+
+    resolved: list[int] = [
+        dim if isinstance(dim, int) else extents[dim] for dim in dims  # type: ignore[index]
+    ]
+
+    total: int = 1
+
+    for dim in resolved:
+        total *= dim
+
+    element_type: Type = tensor_type.value_type
+
+    if not isinstance(element_type, (TypeInt, TypeFloat)):
+        raise TypeError(
+            f"'{init.kind}()' requires a numeric element type, got "
+            f"'{repr(element_type)}'"
+        )
+
+    zero_cell: Any = 0.0 if isinstance(element_type, TypeFloat) else 0
+    one_cell: Any = 1.0 if isinstance(element_type, TypeFloat) else 1
+
+    if init.kind == "zeros":
+
+        cells: list[Any] = [zero_cell] * total
+
+    elif init.kind == "eye":
+
+        if len(resolved) != 2 or resolved[0] != resolved[1]:
+            raise TypeError(
+                f"eye() requires a square 2-D tensor, got shape {resolved}"
+            )
+
+        size: int = resolved[0]
+
+        cells = [
+            one_cell if index // size == index % size else zero_cell
+            for index in range(total)
+        ]
+
+    else:  # 'fill'
+        assert init.fill_value is not None
+
+        element_type.check_value(value=init.fill_value)
+
+        cells = [init.fill_value] * total
+
+    result: ValueTensor = ValueTensor(
+        value_type=TypeTensor(
+            value_type=element_type,
+            dims=cast("list[int | str]", resolved),
+        ),
+        cells=cells,
+    )
+
+    # Symbolic shapes stamp their resolved extents for shape()/slicing
+    if tensor_type.is_symbolic:
+        result.value_type = tensor_type
+        result.concrete_dims = resolved
+
+    return result
+
+
+# Names that produce pending tensor initializations (materialized
+# against the target's declared type)
+TENSOR_INIT_NAMES: frozenset[str] = frozenset({"zeros", "fill", "eye"})
+
+
+def _tensor_extents(tensor: ValueTensor) -> list[int]:
+    """
+    Returns the concrete per-axis extents of a tensor.
+
+    Args:
+        tensor (ValueTensor): Tensor to inspect.
+
+    Returns:
+        list[int]: Extents in axis order.
+
+    Raises:
+        TypeError: If the tensor has unbound symbolic dimensions.
+    """
+
+    if tensor.concrete_dims is not None:
+        return list(tensor.concrete_dims)
+
+    if tensor.value_type.is_symbolic:
+        raise TypeError(
+            "Cannot operate on a tensor with unbound symbolic dimensions"
+        )
+
+    return [dim for dim in tensor.value_type.dims if isinstance(dim, int)]
 
 
 def _wrap_raw(raw: Any, value_type: Any) -> Value:

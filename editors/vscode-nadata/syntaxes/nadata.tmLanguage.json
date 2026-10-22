@@ -89,7 +89,7 @@
 		},
 		"builtin-method-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now)(?=\\s*\\()"
+			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill)(?=\\s*\\()"
 		},
 		"member-call": {
 			"name": "entity.name.function.call.nadata",
