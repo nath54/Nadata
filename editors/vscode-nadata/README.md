@@ -30,14 +30,19 @@ Or inside the editor: *Extensions* → *...* menu → *Install from VSIX...*
 
 ### Packaged as a VSIX
 
-With [`vsce`](https://github.com/microsoft/vscode-vsce) installed:
+With Node.js available (no global install needed, `npx` fetches the
+packager):
 
 ```bash
 cd editors/vscode-nadata
-vsce package
+npx -y @vscode/vsce package --allow-missing-repository
 # produces nadata-support-<version>.vsix
+codium --install-extension nadata-support-<version>.vsix
 code --install-extension nadata-support-<version>.vsix
 ```
+
+Generated `.vsix` files are gitignored; rebuild one any time with the
+command above.
 
 ### Manual copy
 
