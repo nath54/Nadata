@@ -1118,6 +1118,15 @@ class TensorCallable:
         if self.member == "map":
             return self._map(args=args)
 
+        if self.member == "matmul":
+            return self._matmul(args=args)
+
+        if self.member in ("argmax", "argmin"):
+            return self._argreduce(member=self.member)
+
+        if self.member == "mean":
+            return self._mean()
+
         if self.member in ("conv1d", "conv2d"):
             return self._conv(args=args)
 
@@ -1191,6 +1200,263 @@ class TensorCallable:
                 dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
             ),
             cells=mapped,
+        )
+
+    def _matmul(self, args: tuple[Value, ...]) -> Value:
+        """
+        Computes a matrix product against another tensor.
+
+        Supports 1-D and 2-D operands: dot product (1-D x 1-D -> scalar),
+        matrix-vector (2-D x 1-D), vector-matrix (1-D x 2-D), and full
+        matrix-matrix (2-D x 2-D). The result keeps the receiver's
+        element type.
+
+        Args:
+            args (tuple[Value, ...]): The other tensor Value.
+
+        Returns:
+            Value: Scalar element for dot products, otherwise a new
+                ValueTensor.
+
+        Raises:
+            TypeError: On a non-tensor argument, unsupported ranks,
+                inner-dimension mismatch, or integer element types
+                receiving float results.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not args or not isinstance(args[0], ValueTensor):
+            raise TypeError("Member 'matmul' expects a tensor argument")
+
+        other: ValueTensor = args[0]
+        a_extents: list[int] = _tensor_extents(tensor=tensor)
+        b_extents: list[int] = _tensor_extents(tensor=other)
+
+        if len(a_extents) not in (1, 2) or len(b_extents) not in (1, 2):
+            raise TypeError(
+                f"Member 'matmul' supports 1-D and 2-D tensors, got "
+                f"shapes {a_extents} and {b_extents}"
+            )
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member 'matmul' requires a numeric element type, got "
+                f"'{repr(tensor.value_type.value_type)}'"
+            )
+
+        if not isinstance(other.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member 'matmul' requires a numeric argument element "
+                f"type, got '{repr(other.value_type.value_type)}'"
+            )
+
+        result_element: Type = tensor.value_type.value_type
+
+        if isinstance(result_element, TypeInt) and isinstance(
+            other.value_type.value_type, TypeFloat
+        ):
+            raise TypeError(
+                "Member 'matmul' with a float argument produces floats; "
+                "use a float element type"
+            )
+
+        inner: int = a_extents[-1]
+
+        if inner != b_extents[0]:
+            raise ValueError(
+                f"Member 'matmul' inner dimension mismatch: {a_extents} "
+                f"vs {b_extents}"
+            )
+
+        dot = lambda a_cell, b_cell: a_cell * b_cell  # noqa: E731
+
+        # 1-D x 1-D: scalar dot product
+        if len(a_extents) == 1 and len(b_extents) == 1:
+
+            total: Any = 0
+
+            for index in range(inner):
+                total = total + tensor.cells[index] * other.cells[index]
+
+            return _wrap_raw(raw=total, value_type=result_element)
+
+        # 2-D x 2-D: full matrix product
+        if len(a_extents) == 2 and len(b_extents) == 2:
+
+            rows: int = a_extents[0]
+            cols: int = b_extents[1]
+            shared: int = a_extents[1]
+
+            cells: list[Any] = []
+
+            for row in range(rows):
+
+                for col in range(cols):
+
+                    total = 0
+
+                    for index in range(shared):
+                        total = total + (
+                            tensor.cells[row * shared + index]
+                            * other.cells[index * cols + col]
+                        )
+
+                    cells.append(total)
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=result_element,
+                    dims=cast("list[int | str]", [rows, cols]),
+                ),
+                cells=cells,
+            )
+
+        # 2-D x 1-D: matrix-vector product
+        if len(a_extents) == 2:
+
+            rows = a_extents[0]
+            cells = []
+
+            for row in range(rows):
+
+                total = 0
+
+                for index in range(inner):
+                    total = total + (
+                        tensor.cells[row * inner + index] * other.cells[index]
+                    )
+
+                cells.append(total)
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=result_element,
+                    dims=cast("list[int | str]", [rows]),
+                ),
+                cells=cells,
+            )
+
+        # 1-D x 2-D: vector-matrix product
+        cols = b_extents[1]
+        cells = []
+
+        for col in range(cols):
+
+            total = 0
+
+            for index in range(inner):
+                total = total + (
+                    tensor.cells[index] * other.cells[index * cols + col]
+                )
+
+            cells.append(total)
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=result_element,
+                dims=cast("list[int | str]", [cols]),
+            ),
+            cells=cells,
+        )
+
+    def _argreduce(self, member: str) -> Value:
+        """
+        Computes the index of the extreme cell.
+
+        On a 1-D tensor this is a single Int64 index; on a 2-D tensor it
+        produces one index per row (Int64 element type).
+
+        Args:
+            member (str): 'argmax' or 'argmin'.
+
+        Returns:
+            Value: Int64 index, or a Tensor[Int64, rows] for 2-D input.
+
+        Raises:
+            TypeError: On unsupported rank or non-numeric elements.
+        """
+
+        tensor: ValueTensor = self.target
+        extents: list[int] = _tensor_extents(tensor=tensor)
+
+        if len(extents) not in (1, 2):
+            raise TypeError(
+                f"Member '{member}' requires a 1-D or 2-D tensor, got "
+                f"shape {extents}"
+            )
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member '{member}' requires a numeric element type"
+            )
+
+        index_type: TypeInt = TypeInt(num_bits=64, signed=True)
+
+        def reduce_row(cells: list[Any]) -> int:
+            """Returns the extreme index of one flat row."""
+
+            best: int = 0
+
+            for position in range(1, len(cells)):
+
+                if member == "argmax":
+                    if cells[position] > cells[best]:
+                        best = position
+
+                elif cells[position] < cells[best]:
+                    best = position
+
+            return best
+
+        if len(extents) == 1:
+            return ValueInt(
+                value_type=index_type,
+                value=reduce_row(cells=tensor.cells),
+            )
+
+        rows: int = extents[0]
+        cols: int = extents[1]
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=index_type,
+                dims=cast("list[int | str]", [rows]),
+            ),
+            cells=[
+                reduce_row(cells=tensor.cells[row * cols:(row + 1) * cols])
+                for row in range(rows)
+            ],
+        )
+
+    def _mean(self) -> Value:
+        """
+        Computes the average of every cell.
+
+        Returns:
+            Value: The mean wrapped in the element type.
+
+        Raises:
+            TypeError: On an integer element type (the average is
+                fractional).
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                "Member 'mean' requires a numeric element type"
+            )
+
+        if isinstance(tensor.value_type.value_type, TypeInt):
+            raise TypeError(
+                "Member 'mean' requires a float element type (the mean "
+                "is fractional)"
+            )
+
+        return _wrap_raw(
+            raw=sum(tensor.cells) / len(tensor.cells),
+            value_type=tensor.value_type.value_type,
         )
 
     def _conv(self, args: tuple[Value, ...]) -> ValueTensor:

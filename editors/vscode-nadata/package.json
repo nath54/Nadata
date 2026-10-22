@@ -2,7 +2,7 @@
   "name": "nadata-support",
   "displayName": "Nadata Language Support",
   "description": "Syntax highlighting for Nadata .nastruct schema files and .nadata data files",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publisher": "nadata",
   "license": "MIT",
   "engines": {

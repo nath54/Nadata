@@ -3,29 +3,75 @@
 	"name": "Nadata",
 	"scopeName": "source.nadata",
 	"patterns": [
-		{ "include": "#block-comment" },
-		{ "include": "#line-comment" },
-		{ "include": "#string" },
-		{ "include": "#boolean" },
-		{ "include": "#self" },
-		{ "include": "#class-declaration" },
-		{ "include": "#function-declaration" },
-		{ "include": "#method-declaration" },
-		{ "include": "#const-keyword" },
-		{ "include": "#builtin-function-call" },
-		{ "include": "#builtin-method-call" },
-		{ "include": "#member-call" },
-		{ "include": "#member-access" },
-		{ "include": "#parameter" },
-		{ "include": "#logical-operators" },
-		{ "include": "#control-keywords" },
-		{ "include": "#builtin-types" },
-		{ "include": "#call" },
-		{ "include": "#user-types" },
-		{ "include": "#numeric" },
-		{ "include": "#statement-separator" },
-		{ "include": "#operators" },
-		{ "include": "#punctuation" }
+		{
+			"include": "#block-comment"
+		},
+		{
+			"include": "#line-comment"
+		},
+		{
+			"include": "#string"
+		},
+		{
+			"include": "#boolean"
+		},
+		{
+			"include": "#self"
+		},
+		{
+			"include": "#class-declaration"
+		},
+		{
+			"include": "#function-declaration"
+		},
+		{
+			"include": "#method-declaration"
+		},
+		{
+			"include": "#const-keyword"
+		},
+		{
+			"include": "#builtin-function-call"
+		},
+		{
+			"include": "#builtin-method-call"
+		},
+		{
+			"include": "#member-call"
+		},
+		{
+			"include": "#member-access"
+		},
+		{
+			"include": "#parameter"
+		},
+		{
+			"include": "#logical-operators"
+		},
+		{
+			"include": "#control-keywords"
+		},
+		{
+			"include": "#builtin-types"
+		},
+		{
+			"include": "#call"
+		},
+		{
+			"include": "#user-types"
+		},
+		{
+			"include": "#numeric"
+		},
+		{
+			"include": "#statement-separator"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#punctuation"
+		}
 	],
 	"repository": {
 		"block-comment": {
@@ -60,23 +106,37 @@
 		"class-declaration": {
 			"match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:\\(\\s*([A-Za-z_][A-Za-z0-9_]*)?\\s*\\)?)?",
 			"captures": {
-				"1": { "name": "keyword.declaration.class.nadata storage.type.class" },
-				"2": { "name": "entity.name.class.nadata" },
-				"3": { "name": "entity.name.class.nadata" }
+				"1": {
+					"name": "keyword.declaration.class.nadata storage.type.class"
+				},
+				"2": {
+					"name": "entity.name.class.nadata"
+				},
+				"3": {
+					"name": "entity.name.class.nadata"
+				}
 			}
 		},
 		"function-declaration": {
 			"match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
 			"captures": {
-				"1": { "name": "keyword.declaration.function.nadata storage.type.function" },
-				"2": { "name": "entity.name.function.nadata" }
+				"1": {
+					"name": "keyword.declaration.function.nadata storage.type.function"
+				},
+				"2": {
+					"name": "entity.name.function.nadata"
+				}
 			}
 		},
 		"method-declaration": {
 			"match": "(@)\\s*([A-Za-z_][A-Za-z0-9_]*)",
 			"captures": {
-				"1": { "name": "punctuation.definition.method.nadata" },
-				"2": { "name": "entity.name.function.nadata" }
+				"1": {
+					"name": "punctuation.definition.method.nadata"
+				},
+				"2": {
+					"name": "entity.name.function.nadata"
+				}
 			}
 		},
 		"const-keyword": {
@@ -89,7 +149,7 @@
 		},
 		"builtin-method-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill|map|conv1d|conv2d|max_pool|min_pool|avg_pool)(?=\\s*\\()"
+			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill|map|mean|argmax|argmin|matmul|conv1d|conv2d|max_pool|min_pool|avg_pool)(?=\\s*\\()"
 		},
 		"member-call": {
 			"name": "entity.name.function.call.nadata",
@@ -103,7 +163,9 @@
 			"name": "variable.parameter.nadata",
 			"match": "(?<=\\(|,)\\s*([a-z_][A-Za-z0-9_]*)\\s*(?=\\s*[:=])",
 			"captures": {
-				"1": { "name": "variable.parameter.nadata" }
+				"1": {
+					"name": "variable.parameter.nadata"
+				}
 			}
 		},
 		"logical-operators": {

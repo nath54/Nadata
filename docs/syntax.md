@@ -259,6 +259,18 @@ soft = soft / soft.sum();             // e.g. a softmax
 `pow(base, exponent)` operate on numeric values (and through `map`
 on every tensor cell).
 
+**Matrix products and statistics** — `matmul` supports all four
+rank combinations (dot, matrix-vector, vector-matrix, matrix-matrix);
+`argmax`/`argmin` return Int64 indices (per-row on 2-D input); `mean`
+returns the average and requires a float element type:
+
+```text
+c = a.matmul(b);                      // (M,K) x (K,N) -> (M,N)
+d = a.matmul(v);                      // (M,K) x (K) -> (M)
+i = scores.argmax();                  // Int64 index (per-row on 2-D)
+m = x.mean();                         // average of all cells
+```
+
 **Convolutions and pooling** — deep-learning style valid
 cross-correlation (no kernel flip, no padding), on 1-D and 2-D
 numeric tensors:

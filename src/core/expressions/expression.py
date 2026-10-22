@@ -950,7 +950,8 @@ class MemberAccessExpr(Expression):
             isinstance(target_obj, ValueTensor)
             and self.member in (
                 "at", "set_at", "size", "shape",
-                "sum", "min", "max", "transpose", "fill", "map",
+                "sum", "min", "max", "transpose", "fill", "map", "mean",
+                "argmax", "argmin", "matmul",
                 "conv1d", "conv2d", "max_pool", "min_pool", "avg_pool",
             )
         ):

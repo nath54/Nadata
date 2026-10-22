@@ -783,3 +783,227 @@ class TestPooling:
 
         with pytest.raises(TypeError, match="larger"):
             app.execute_data(data_text="p = P();\n p.o4 = p.sig.max_pool(9);\n")
+
+
+class TestMatmul:
+    """
+    Tests matrix multiplication across operand ranks.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  v: Float32 = 0.0;\n"
+            "  a: Tensor[Float32, 2, 3] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];\n"
+            "  b: Tensor[Float32, 3, 2] = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0];\n"
+            "  u: Tensor[Float32, 3] = [1.0, 2.0, 3.0];\n"
+            "  d: Float32 = 0.0;\n"
+            "  r2: Tensor[Float32, 2, 2] = [0.0, 0.0, 0.0, 0.0];\n"
+            "  r1: Tensor[Float32, 2] = [0.0, 0.0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_matmul_2d_2d(self) -> None:
+        """
+        Tests full matrix-matrix products.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r2 = p.a.matmul(p.b);\n",
+            attribute="r2",
+        ) == [58.0, 64.0, 139.0, 154.0]
+
+    def test_matmul_2d_1d(self) -> None:
+        """
+        Tests matrix-vector products.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r1 = p.a.matmul(p.u);\n",
+            attribute="r1",
+        ) == [14.0, 32.0]
+
+    def test_matmul_1d_2d(self) -> None:
+        """
+        Tests vector-matrix products.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r1 = p.u.matmul(p.b);\n",
+            attribute="r1",
+        ) == [58.0, 64.0]
+
+    def test_matmul_1d_1d(self) -> None:
+        """
+        Tests dot products returning scalars.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.d = p.u.matmul(p.u);\n",
+            attribute="d",
+        ) == 14.0
+
+    def test_matmul_mismatch_rejected(self) -> None:
+        """
+        Tests that inner dimension mismatches raise ValueError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(ValueError, match="mismatch"):
+            app.execute_data(data_text="p = P();\n p.r2 = p.a.matmul(p.a);\n")
+
+
+class TestArgreduce:
+    """
+    Tests argmax/argmin and mean reductions.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  v: Float32 = 0.0;\n"
+            "  i: Int64 = 0;\n"
+            "  ri: Tensor[Int64, 2] = [0, 0];\n"
+            "  sig: Tensor[Float32, 4] = [3.0, -1.0, 4.0, 1.0];\n"
+            "  img: Tensor[Float32, 2, 3] = [1.0, 9.0, 3.0, 7.0, 2.0, 5.0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_argmax_1d(self) -> None:
+        """
+        Tests the argmax index of a 1-D tensor.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.i = p.sig.argmax();\n",
+            attribute="i",
+        ) == 2
+
+    def test_argmin_1d(self) -> None:
+        """
+        Tests the argmin index of a 1-D tensor.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.i = p.sig.argmin();\n",
+            attribute="i",
+        ) == 1
+
+    def test_argmax_2d_per_row(self) -> None:
+        """
+        Tests per-row argmax on a 2-D tensor.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.ri = p.img.argmax();\n",
+            attribute="ri",
+        ) == [1, 0]
+
+    def test_mean(self) -> None:
+        """
+        Tests the mean reduction.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.v = p.sig.mean();\n",
+            attribute="v",
+        ) == 1.75
+
+    def test_mean_on_int_rejected(self) -> None:
+        """
+        Tests that mean on an integer element type raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="float element"):
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "n: Tensor[Int32, 4] = [1, 2, 3, 4];\n"
+                "p.v = n.mean();\n"
+            ))
