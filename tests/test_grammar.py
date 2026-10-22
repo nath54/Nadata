@@ -224,3 +224,78 @@ class TestGrammarSync:
         assert "entity.name.function" in repository["method-declaration"]["captures"]["2"]["name"]
         assert "variable.other.member" in repository["member-access"]["name"]
         assert "storage.modifier" in repository["const-keyword"]["name"]
+
+    def test_class_keyword_without_parens(self) -> None:
+        """
+        Tests that class declarations without inheritance still color the
+        keyword and the class name.
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        pattern: str = grammar["repository"]["class-declaration"]["match"]
+
+        plain: re.Match[str] | None = re.search(pattern, "class Cat {")
+        inherited: re.Match[str] | None = re.search(pattern, "class Dog(Animal) {")
+
+        assert plain is not None and plain.group(1) == "class"
+        assert plain.group(2) == "Cat"
+        assert inherited is not None and inherited.group(3) == "Animal"
+
+    def test_call_sites_colored(self) -> None:
+        """
+        Tests that callable names get a call scope at call sites, both
+        bare (constructors, functions) and after a dot (methods).
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        repository: dict[str, Any] = grammar["repository"]
+
+        assert "entity.name.function.call" in repository["call"]["name"]
+        assert "entity.name.function.call" in repository["member-call"]["name"]
+
+        call_pattern: str = repository["call"]["match"]
+
+        assert re.search(call_pattern, "Hero(health = 10)") is not None
+        assert re.search(call_pattern, "normalize(values)") is not None
+
+    def test_parameters_and_kwargs_colored(self) -> None:
+        """
+        Tests that parameter names in definitions and keyword arguments in
+        calls get the parameter scope.
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        rule: Any = grammar["repository"]["parameter"]
+        pattern: str = rule["match"]
+
+        assert "variable.parameter" in rule["captures"]["1"]["name"]
+
+        definition: re.Match[str] | None = re.search(pattern, "@attack(target: Entity, amount: Int32 = 5)")
+        call: re.Match[str] | None = re.search(pattern, "M(dim = 4, w = [1.0])")
+
+        assert definition is not None and definition.group(1) == "target"
+        assert call is not None and call.group(1) == "dim"
+
+    def test_builtins_colored(self) -> None:
+        """
+        Tests that builtin callables (print and typed-container methods)
+        get the builtin function scope.
+        """
+
+        grammar: Any = _load_json(relative_path="syntaxes/nadata.tmLanguage.json")
+
+        repository: dict[str, Any] = grammar["repository"]
+
+        assert "support.function.builtin" in repository["builtin-function-call"]["name"]
+        assert "support.function.builtin" in repository["builtin-method-call"]["name"]
+
+        function_pattern: str = repository["builtin-function-call"]["match"]
+        method_pattern: str = repository["builtin-method-call"]["match"]
+
+        assert re.search(function_pattern, "print(values)") is not None
+        assert re.search(method_pattern, "q.push(x)") is not None
+        assert re.search(method_pattern, "tensor.size()") is not None
+        assert re.search(method_pattern, "s.length()") is not None
