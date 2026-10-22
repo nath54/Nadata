@@ -1097,19 +1097,22 @@ class TensorCallable:
 
             extents: list[int] = _tensor_extents(tensor=tensor)
 
-            if len(extents) != 2 or extents[0] != extents[1]:
+            if len(extents) != 2:
                 raise TypeError(
-                    "Member 'transpose' requires a square 2-D tensor, got "
-                    f"shape {extents}"
+                    "Member 'transpose' requires a 2-D tensor, got shape "
+                    f"{extents}"
                 )
 
             rows: int = extents[0]
             cols: int = extents[1]
 
+            # Non-in-place: the result is a fresh tensor; the receiver
+            # keeps its shape and cells untouched. Result cell (i, j)
+            # reads original cell (j, i) from the row-major payload.
             transposed: list[Any] = [
-                tensor.cells[col * rows + row]
-                for row in range(rows)
-                for col in range(cols)
+                tensor.cells[col * cols + row]
+                for row in range(cols)
+                for col in range(rows)
             ]
 
             return ValueTensor(

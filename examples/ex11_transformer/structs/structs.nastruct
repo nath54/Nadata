@@ -70,19 +70,14 @@ class MiniTransformer {
         return probs;
     }
 
-    # Scaled dot-product attention weights: scores[i, j] is the dot of
-    # query i with key j, scaled by 1/sqrt(4), then softmaxed per row
+    # Scaled dot-product attention: scores = Q @ K^T / sqrt(4). The
+    # transpose returns a fresh [D, T] copy, so one matmul replaces the
+    # per-pair dot-product loop
     @attention_weights(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
         q: Tensor[Float32, 4, 4] = x.matmul(self.wq);
         k: Tensor[Float32, 4, 4] = x.matmul(self.wk);
 
-        scores: Tensor[Float32, 4, 4] = zeros();
-
-        for (i: Int32 = 0 :: i < 4 :: i++) {
-            for (j: Int32 = 0 :: j < 4 :: j++) {
-                scores[i, j] = q[i, :].matmul(k[j, :]) * 0.5;
-            }
-        }
+        scores: Tensor[Float32, 4, 4] = q.matmul(k.transpose()) * 0.5;
 
         return self.softmax(scores);
     }

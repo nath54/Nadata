@@ -374,17 +374,68 @@ class TestReductions:
             attribute="r",
         ) == [1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0]
 
-    def test_transpose_requires_square(self) -> None:
+    def test_transpose_non_square(self) -> None:
         """
-        Tests that transpose() on a non-square tensor raises TypeError.
+        Tests transposing a rectangular matrix into a new shape.
         """
 
         app: Nadata = self._app()
 
-        with pytest.raises(TypeError, match="square"):
-            app.execute_data(data_text=(
+        assert self._value(
+            app=app,
+            data_text=(
                 "p = P();\n"
                 "p.z = p.w.transpose();\n"
+            ),
+            attribute="z",
+        ) == [1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
+
+    def test_transpose_is_not_in_place(self) -> None:
+        """
+        Tests that the receiver keeps its shape, cells, and identity.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text=(
+                "p = P();\n"
+                "p.z = p.w.transpose();\n"
+                "p.i = p.w.size();\n"
+            ),
+            attribute="i",
+        ) == 6
+
+    def test_transpose_result_is_independent(self) -> None:
+        """
+        Tests that mutating the copy leaves the original untouched.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text=(
+                "p = P();\n"
+                "p.z = p.w.transpose();\n"
+                "p.z[0, 0] = 99.0;\n"
+                "p.v = p.w[0, 0];\n"
+            ),
+            attribute="v",
+        ) == 1.0
+
+    def test_transpose_rejects_vectors(self) -> None:
+        """
+        Tests that transpose() on a 1-D tensor raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="2-D"):
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "p.i = p.n.transpose().sum();\n"
             ))
 
     def test_fill_member(self) -> None:

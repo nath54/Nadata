@@ -216,7 +216,8 @@ s = m.shape();                         // Array[Int32] of dimensions
 n = m.size();                          // total element count
 x = m.sum();                           // elementwise reductions: sum/min/max
 m.fill(0.0);                           // in-place fill of every cell
-t = m.transpose();                     // square 2-D transpose (copy)
+t = m.transpose();                     // 2-D transpose: new [N, M] copy,
+                                       // original untouched
 for (x: Float32 in m) { ... }         // row-major iteration
 "x" in m                               // membership probe (flat values)
 ```
