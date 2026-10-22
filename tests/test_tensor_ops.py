@@ -9,6 +9,7 @@ tensor members.
 
 # Import Modules
 from __future__ import annotations
+import math
 import pytest
 from typing import Any
 
@@ -1007,3 +1008,603 @@ class TestArgreduce:
                 "n: Tensor[Int32, 4] = [1, 2, 3, 4];\n"
                 "p.v = n.mean();\n"
             ))
+
+
+class TestShapeOps:
+    """
+    Tests concat, reshape, and flatten.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  a: Tensor[Float32, 2, 3] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];\n"
+            "  b: Tensor[Float32, 1, 3] = [10.0, 20.0, 30.0];\n"
+            "  r33: Tensor[Float32, 3, 3] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,"
+            " 0.0, 0.0, 0.0];\n"
+            "  r26: Tensor[Float32, 2, 6] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,"
+            " 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  r6: Tensor[Float32, 6] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  r23: Tensor[Float32, 2, 3] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_concat_axis0(self) -> None:
+        """
+        Tests row stacking for 2-D tensors.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r33 = p.a.concat(p.b);\n",
+            attribute="r33",
+        ) == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10.0, 20.0, 30.0]
+
+    def test_concat_axis1(self) -> None:
+        """
+        Tests column joining for 2-D tensors.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r26 = p.a.concat(p.a, 1);\n",
+            attribute="r26",
+        ) == [
+            1.0, 2.0, 3.0, 1.0, 2.0, 3.0,
+            4.0, 5.0, 6.0, 4.0, 5.0, 6.0,
+        ]
+
+    def test_flatten(self) -> None:
+        """
+        Tests flattening to 1-D.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r6 = p.a.flatten();\n",
+            attribute="r6",
+        ) == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+    def test_reshape(self) -> None:
+        """
+        Tests reshaping a 1-D tensor to 2-D.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r6 = p.a.flatten();\n"
+                      " p.r23 = p.r6.reshape(2, 3);\n",
+            attribute="r23",
+        ) == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+    def test_reshape_infer_minus_one(self) -> None:
+        """
+        Tests the inferred -1 dimension.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.r23 = p.a.reshape(2, -1);\n",
+            attribute="r23",
+        ) == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+    def test_reshape_mismatch_rejected(self) -> None:
+        """
+        Tests that a shape mismatch raises ValueError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(ValueError, match="does not match"):
+            app.execute_data(data_text="p = P();\n p.r23 = p.a.reshape(5, 5);\n")
+
+    def test_concat_row_mismatch_rejected(self) -> None:
+        """
+        Tests that mismatched rows on axis 1 raise ValueError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(ValueError, match="mismatch"):
+            app.execute_data(data_text="p = P();\n p.r26 = p.a.concat(p.b, 1);\n")
+
+
+class TestGather:
+    """
+    Tests embedding-style row gathering.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  emb: Tensor[Float32, 4, 2] = [1.0, 1.0, 2.0, 2.0, 3.0, 3.0,"
+            " 4.0, 4.0];\n"
+            "  gat: Tensor[Float32, 2, 2] = [0.0, 0.0, 0.0, 0.0];\n"
+            "  idx: Tensor[Int64, 2] = [0, 0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_gather_array(self) -> None:
+        """
+        Tests gathering rows via an integer array literal.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.gat = p.emb.gather([1, 3]);\n",
+            attribute="gat",
+        ) == [2.0, 2.0, 4.0, 4.0]
+
+    def test_gather_indices_tensor(self) -> None:
+        """
+        Tests gathering rows via an Int64 indices tensor.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.idx = [3, 0];\n"
+                      " p.gat = p.emb.gather(p.idx);\n",
+            attribute="gat",
+        ) == [4.0, 4.0, 1.0, 1.0]
+
+    def test_gather_out_of_range_rejected(self) -> None:
+        """
+        Tests that out-of-range indices raise IndexError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(IndexError):
+            app.execute_data(data_text="p = P();\n p.gat = p.emb.gather([4]);\n")
+
+
+class TestSampling:
+    """
+    Tests topk index extraction.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  pos: Tensor[Int64, 5] = [0, 0, 0, 0, 0];\n"
+            "  t3: Tensor[Int64, 3] = [0, 0, 0];\n"
+            "  idx1: Tensor[Int64, 1] = [0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_topk_indices(self) -> None:
+        """
+        Tests topk returning descending-order indices.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.pos = arange(1, 11, 2);\n"
+                      " p.t3 = p.pos.topk(3);\n",
+            attribute="t3",
+        ) == [4, 3, 2]
+
+    def test_topk_then_gather(self) -> None:
+        """
+        Tests the topk -> gather sampling composition.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text=(
+                "p = P();\n"
+                "p.pos = arange(1, 11, 2);\n"
+                "p.idx1 = p.pos.gather(p.pos.topk(1));\n"
+            ),
+            attribute="idx1",
+        ) == [9]
+
+    def test_topk_invalid_count_rejected(self) -> None:
+        """
+        Tests that out-of-range counts raise ValueError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(ValueError, match="topk"):
+            app.execute_data(data_text="p = P();\n p.t3 = p.pos.topk(9);\n")
+
+
+class TestArangeAndTrig:
+    """
+    Tests arange and the sin/cos builtins.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  pos: Tensor[Int64, 5] = [0, 0, 0, 0, 0];\n"
+            "  t3: Tensor[Int64, 3] = [0, 0, 0];\n"
+            "  v: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_arange_stop(self) -> None:
+        """
+        Tests the single-argument form.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.pos = arange(5);\n",
+            attribute="pos",
+        ) == [0, 1, 2, 3, 4]
+
+    def test_arange_start_stop_step(self) -> None:
+        """
+        Tests the three-argument form.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.pos = arange(1, 11, 2);\n",
+            attribute="pos",
+        ) == [1, 3, 5, 7, 9]
+
+    def test_arange_slice(self) -> None:
+        """
+        Tests slicing an arange result.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.t3 = arange(5)[2:5];\n",
+            attribute="t3",
+        ) == [2, 3, 4]
+
+    def test_arange_empty_rejected(self) -> None:
+        """
+        Tests that empty ranges raise ValueError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(ValueError, match="empty"):
+            app.execute_data(data_text="p = P();\n p.pos = arange(0);\n")
+
+    def test_sin_cos(self) -> None:
+        """
+        Tests the trigonometric builtins.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.v = sin(0.0) + cos(0.0);\n",
+            attribute="v",
+        ) == 1.0
+
+
+class TestRandn:
+    """
+    Tests the randn tensor initializer.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 2, 2] = randn(42);\n"
+            "  w2: Tensor[Float32, 2, 2] = randn(42);\n"
+            "  z: Tensor[Float32, 2, 2] = zeros();\n"
+            "}"
+        ))
+
+        return app
+
+    def test_randn_seeded_deterministic(self) -> None:
+        """
+        Tests that equal seeds produce equal tensors.
+        """
+
+        app: Nadata = self._app()
+
+        app.execute_data(data_text="p = P();\n")
+
+        probe: Any = app.query(struct_name="P").last()
+
+        assert probe.w.get() == probe.w2.get()
+
+    def test_randn_finite_floats(self) -> None:
+        """
+        Tests that randn produces finite float cells.
+        """
+
+        app: Nadata = self._app()
+
+        app.execute_data(data_text="p = P();\n")
+
+        probe: Any = app.query(struct_name="P").last()
+
+        cells: list[Any] = probe.w.get()
+
+        assert len(cells) == 4
+
+        for cell in cells:
+            assert isinstance(cell, float)
+            assert math.isfinite(cell)
+
+    def test_randn_rejects_int_element(self) -> None:
+        """
+        Tests that randn under an integer element type fails.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        # Materialization is lazy: the schema resolves cleanly, the
+        # error surfaces when the default is first read
+        app.execute_schema(schema_text=(
+            "class Q {\n"
+            "  n: Tensor[Int32, 4] = randn(42);\n"
+            "}"
+        ))
+
+        app.execute_data(data_text="q = Q();\n")
+
+        probe: Any = app.query(struct_name="Q").last()
+
+        with pytest.raises(TypeError, match="float element"):
+            probe.get_attribute(name="n")
+
+    def test_zeros_default_readable(self) -> None:
+        """
+        Tests reading an unset zeros() default through getattr.
+        """
+
+        app: Nadata = self._app()
+
+        app.execute_data(data_text="p = P();\n")
+
+        probe: Any = app.query(struct_name="P").last()
+
+        assert probe.z.get() == [0.0, 0.0, 0.0, 0.0]
+
+
+class TestCasts:
+    """
+    Tests to_float/to_int element conversions.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  pos: Tensor[Float32, 4] = zeros();\n"
+            "  idx: Tensor[Int64, 4] = [0, 0, 0, 0];\n"
+            "  pe: Tensor[Float32, 4] = zeros();\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_to_float(self) -> None:
+        """
+        Tests converting an Int tensor to floats.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.pos = arange(4).to_float();\n",
+            attribute="pos",
+        ) == [0.0, 1.0, 2.0, 3.0]
+
+    def test_to_int(self) -> None:
+        """
+        Tests converting a Float tensor to ints.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.pos = [1.5, 2.5, 3.5, 4.5];\n"
+                      " p.idx = p.pos.to_int();\n",
+            attribute="idx",
+        ) == [1, 2, 3, 4]
+
+    def test_cast_then_map_pipeline(self) -> None:
+        """
+        Tests the arange -> to_float -> map(sin) pipeline.
+        """
+
+        app: Nadata = self._app()
+
+        result: Any = self._value(
+            app=app,
+            data_text=(
+                "p = P();\n"
+                "p.pos = arange(4).to_float();\n"
+                "p.pe = p.pos.map((v: Float32) -> sin(v / 4.0));\n"
+            ),
+            attribute="pe",
+        )
+
+        assert result[0] == 0.0
+        assert round(result[3], 3) == 0.682

@@ -401,7 +401,8 @@ def _is_tensor_init_default(expression: Any) -> bool:
         expression (Any): Candidate default expression.
 
     Returns:
-        bool: True for 'zeros()', 'fill(...)', and 'eye()' calls.
+        bool: True for 'zeros()', 'fill(...)', 'eye()', and 'randn()'
+            calls.
     """
 
     return (

@@ -255,9 +255,45 @@ soft = z.map((v: Float32) -> exp(v)); // compose with the math builtins
 soft = soft / soft.sum();             // e.g. a softmax
 ```
 
-**Math builtins** — `abs(v)`, `exp(v)`, `sqrt(v)`, `log(v)`, and
+**Math builtins** — `abs(v)`, `exp(v)`, `sqrt(v)`, `log(v)`,
+`sin(v)`, `cos(v)`, and
 `pow(base, exponent)` operate on numeric values (and through `map`
 on every tensor cell).
+
+**Shape operations** — `concat` joins tensors (axis 0 by default;
+axis 1 for 2-D via a second argument), `reshape` reinterprets the
+flat row-major payload with integer dimensions (at most one `-1`,
+inferred from the cell count), and `flatten` collapses to 1-D:
+
+```text
+stacked = a.concat(b);          // (M,K) + (N,K) -> (M+N,K)
+wide    = a.concat(b, 1);       // (M,K) + (M,N) -> (M,K+N)
+flat    = img.flatten();        // (M,N) -> (M*N)
+img2    = flat.reshape(4, -1);  // -1 inferred from the cell count
+```
+
+**Indexing helpers** — `gather` collects rows by integer indices
+(embedding lookup; array literals or Int tensors both work), and
+`topk(k)` returns the Int64 indices of the k largest cells sorted
+descending — compose them for sampling:
+
+```text
+looked = table.gather([0, 2, 1]);
+top: Tensor[Int64, 3] = logits.topk(3);
+best  = logits.gather(logits.topk(1));
+```
+
+**Range and randomness** — `arange` builds a 1-D Int64 tensor over
+`arange(stop)`, `arange(start, stop)`, or `arange(start, stop, step)`
+(positive step, non-empty). `randn()` is a tensor initializer like
+`zeros()`: it fills a float tensor with standard-normal samples;
+pass an integer seed (`randn(42)`) for deterministic results:
+
+```text
+pos: Tensor[Float32, 8] = arange(8).to_float();
+w:   Tensor[Float32, 64, 32] = randn(42);
+pe:  Tensor[Float32, 8] = pos.map((v: Float32) -> sin(v / 4.0));
+```
 
 **Matrix products and statistics** — `matmul` supports all four
 rank combinations (dot, matrix-vector, vector-matrix, matrix-matrix);

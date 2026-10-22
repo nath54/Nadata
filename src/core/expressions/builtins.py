@@ -13,6 +13,7 @@ imports the core struct classes (which import expressions).
 # Import Modules
 from __future__ import annotations
 import math
+import random
 from collections import deque
 from typing import Any, Optional, cast
 
@@ -668,10 +669,14 @@ def build_type_globals() -> dict[str, Any]:
         "zeros": TensorInitializer(kind="zeros"),
         "fill": TensorInitializer(kind="fill"),
         "eye": TensorInitializer(kind="eye"),
+        "randn": TensorInitializer(kind="randn"),
+        "arange": ArangeFunction(),
         "abs": _math_unary("abs", math.fabs),
         "exp": _math_unary("exp", math.exp),
         "sqrt": _math_unary("sqrt", math.sqrt),
         "log": _math_unary("log", math.log),
+        "sin": _math_unary("sin", math.sin),
+        "cos": _math_unary("cos", math.cos),
         "pow": _math_binary("pow", lambda a, b: a ** b),
     }
 
@@ -1127,6 +1132,24 @@ class TensorCallable:
         if self.member == "mean":
             return self._mean()
 
+        if self.member == "concat":
+            return self._concat(args=args)
+
+        if self.member == "reshape":
+            return self._reshape(args=args)
+
+        if self.member == "flatten":
+            return self._flatten()
+
+        if self.member == "gather":
+            return self._gather(args=args)
+
+        if self.member == "topk":
+            return self._topk(args=args)
+
+        if self.member in ("to_float", "to_int"):
+            return self._to_numeric(member=self.member)
+
         if self.member in ("conv1d", "conv2d"):
             return self._conv(args=args)
 
@@ -1459,6 +1482,429 @@ class TensorCallable:
             value_type=tensor.value_type.value_type,
         )
 
+    def _concat(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Joins another tensor onto this one.
+
+        1-D tensors join end to end; 2-D tensors join along axis 0
+        (stacking rows) by default, or along axis 1 with an explicit
+        second argument. Element types must be compatible.
+
+        Args:
+            args (tuple[Value, ...]): The other tensor, then an optional
+                axis (2-D only).
+
+        Returns:
+            ValueTensor: The joined tensor.
+
+        Raises:
+            TypeError: On a non-tensor argument, rank mismatch, invalid
+                axis, or incompatible element types.
+            ValueError: If the non-joined axes do not match.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not args or not isinstance(args[0], ValueTensor):
+            raise TypeError("Member 'concat' expects a tensor argument")
+
+        other: ValueTensor = args[0]
+        a_extents: list[int] = _tensor_extents(tensor=tensor)
+        b_extents: list[int] = _tensor_extents(tensor=other)
+
+        if len(a_extents) != len(b_extents) or len(a_extents) not in (1, 2):
+            raise TypeError(
+                f"Member 'concat' requires matching 1-D or 2-D tensors, "
+                f"got shapes {a_extents} and {b_extents}"
+            )
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                "Member 'concat' requires a numeric element type"
+            )
+
+        if isinstance(tensor.value_type.value_type, TypeInt) and isinstance(
+            other.value_type.value_type, TypeFloat
+        ):
+            raise TypeError(
+                "Member 'concat' cannot join integer elements with "
+                "float elements"
+            )
+
+        axis: int = 0
+
+        if len(args) > 1:
+
+            raw_axis: Any = args[1].get()
+
+            if isinstance(raw_axis, bool) or not isinstance(raw_axis, int):
+                raise TypeError("Member 'concat' axis must be an integer")
+
+            axis = raw_axis
+
+        if len(a_extents) == 1:
+
+            if axis != 0:
+                raise TypeError(
+                    "Member 'concat' axis must be 0 for 1-D tensors"
+                )
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=tensor.value_type.value_type,
+                    dims=cast("list[int | str]", [
+                        a_extents[0] + b_extents[0]
+                    ]),
+                ),
+                cells=list(tensor.cells) + list(other.cells),
+            )
+
+        if axis not in (0, 1):
+            raise TypeError("Member 'concat' axis must be 0 or 1")
+
+        if axis == 0:
+
+            if a_extents[1] != b_extents[1]:
+                raise ValueError(
+                    f"Member 'concat' column mismatch: {a_extents} vs "
+                    f"{b_extents}"
+                )
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=tensor.value_type.value_type,
+                    dims=cast("list[int | str]", [
+                        a_extents[0] + b_extents[0], a_extents[1]
+                    ]),
+                ),
+                cells=list(tensor.cells) + list(other.cells),
+            )
+
+        if a_extents[0] != b_extents[0]:
+            raise ValueError(
+                f"Member 'concat' row mismatch: {a_extents} vs {b_extents}"
+            )
+
+        cols: int = a_extents[1]
+        other_cols: int = b_extents[1]
+        joined: list[Any] = []
+
+        for row in range(a_extents[0]):
+
+            joined.extend(
+                tensor.cells[row * cols:(row + 1) * cols]
+            )
+            joined.extend(
+                other.cells[row * other_cols:(row + 1) * other_cols]
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", [a_extents[0], cols + other_cols]),
+            ),
+            cells=joined,
+        )
+
+    def _reshape(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Returns a new tensor with the same cells in a new shape.
+
+        Dimensions come from integer arguments (or a single array of
+        integers); at most one dimension may be -1, inferred from the
+        total cell count.
+
+        Args:
+            args (tuple[Value, ...]): Dimension integers, or one array.
+
+        Returns:
+            ValueTensor: The reshaped tensor.
+
+        Raises:
+            TypeError: On non-integer dimensions.
+            ValueError: If the shape does not match the cell count.
+        """
+
+        tensor: ValueTensor = self.target
+        total: int = len(tensor.cells)
+        dims: list[int] = []
+
+        raw_args: list[Any] = [argument.get() for argument in args]
+
+        if len(raw_args) == 1 and isinstance(raw_args[0], list):
+            raw_args = raw_args[0]
+
+        if not raw_args:
+            raise TypeError("Member 'reshape' expects at least one dimension")
+
+        for raw_dim in raw_args:
+
+            if isinstance(raw_dim, bool) or not isinstance(raw_dim, int):
+                raise TypeError(
+                    f"Member 'reshape' dimensions must be integers, got "
+                    f"'{repr(raw_dim)}'"
+                )
+
+            dims.append(raw_dim)
+
+        if dims.count(-1) > 1:
+            raise ValueError(
+                "Member 'reshape' allows at most one -1 dimension"
+            )
+
+        known: int = 1
+
+        for dim in dims:
+
+            if dim != -1:
+
+                if dim < 1:
+                    raise ValueError(
+                        f"Member 'reshape' dimensions must be positive or "
+                        f"-1, got {dim}"
+                    )
+
+                known *= dim
+
+        if -1 in dims:
+
+            if known == 0 or total % known != 0:
+                raise ValueError(
+                    f"Member 'reshape' cannot infer the -1 dimension for "
+                    f"{total} cells with shape {dims}"
+                )
+
+            dims = [total // known if dim == -1 else dim for dim in dims]
+
+        product: int = 1
+
+        for dim in dims:
+            product *= dim
+
+        if product != total:
+            raise ValueError(
+                f"Member 'reshape' shape {dims} does not match "
+                f"{total} cell(s)"
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", dims),
+            ),
+            cells=list(tensor.cells),
+        )
+
+    def _flatten(self) -> ValueTensor:
+        """
+        Returns a 1-D copy of the tensor's cells.
+
+        Returns:
+            ValueTensor: 1-D tensor of the same elements.
+        """
+
+        tensor: ValueTensor = self.target
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", [len(tensor.cells)]),
+            ),
+            cells=list(tensor.cells),
+        )
+
+    def _gather(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Gathers rows of this tensor by integer indices (embedding lookup).
+
+        The indices tensor may be 1-D or 2-D with an integer element
+        type; the result prepends the indices shape to this tensor's
+        trailing shape.
+
+        Args:
+            args (tuple[Value, ...]): The indices tensor Value.
+
+        Returns:
+            ValueTensor: Gathered rows.
+
+        Raises:
+            TypeError: On a missing or non-integer indices tensor.
+            IndexError: If any index is out of range.
+        """
+
+        tensor: ValueTensor = self.target
+        extents: list[int] = _tensor_extents(tensor=tensor)
+
+        if not args or not isinstance(args[0], Value):
+            raise TypeError(
+                "Member 'gather' expects an integer indices tensor or array"
+            )
+
+        if isinstance(args[0], ValueArray):
+
+            raw_indices: list[Any] = args[0].get()
+
+            if not raw_indices or any(
+                isinstance(cell, bool) or not isinstance(cell, int)
+                for cell in raw_indices
+            ):
+                raise TypeError(
+                    "Member 'gather' expects an integer indices tensor "
+                    "or array"
+                )
+
+            indices = ValueTensor(
+                value_type=TypeTensor(
+                    value_type=TypeInt(num_bits=64, signed=True),
+                    dims=cast("list[int | str]", [len(raw_indices)]),
+                ),
+                cells=list(raw_indices),
+            )
+
+        elif (
+            isinstance(args[0], ValueTensor)
+            and isinstance(args[0].value_type.value_type, TypeInt)
+        ):
+            indices = args[0]
+
+        else:
+            raise TypeError(
+                "Member 'gather' expects an integer indices tensor or array"
+            )
+        index_extents: list[int] = _tensor_extents(tensor=indices)
+
+        if len(index_extents) not in (1, 2):
+            raise TypeError(
+                "Member 'gather' expects 1-D or 2-D indices"
+            )
+
+        rest: int = 1
+
+        for dim in extents[1:]:
+            rest *= dim
+
+        cells: list[Any] = []
+
+        for raw_index in indices.cells:
+
+            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                raise TypeError(
+                    f"Member 'gather' indices must be integers, got "
+                    f"'{repr(raw_index)}'"
+                )
+
+            if not 0 <= raw_index < extents[0]:
+                raise IndexError(
+                    f"Member 'gather' index {raw_index} out of range for "
+                    f"{extents[0]} row(s)"
+                )
+
+            cells.extend(
+                tensor.cells[raw_index * rest:(raw_index + 1) * rest]
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", index_extents + extents[1:]),
+            ),
+            cells=cells,
+        )
+
+    def _topk(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Returns the indices of the k largest cells, sorted descending.
+
+        Ties keep source order. The result is an Int64 tensor usable
+        directly with gather().
+
+        Args:
+            args (tuple[Value, ...]): The count k.
+
+        Returns:
+            ValueTensor: Int64 tensor of the k selected indices.
+
+        Raises:
+            TypeError: On a missing/invalid k.
+            ValueError: If k is not within 1..len(cells).
+        """
+
+        tensor: ValueTensor = self.target
+
+        if len(_tensor_extents(tensor=tensor)) != 1:
+            raise TypeError("Member 'topk' requires a 1-D tensor")
+
+        if (
+            not args
+            or not isinstance(args[0], Value)
+            or isinstance(args[0].get(), bool)
+            or not isinstance(args[0].get(), int)
+        ):
+            raise TypeError("Member 'topk' expects an integer count")
+
+        count: int = args[0].get()
+
+        if count < 1 or count > len(tensor.cells):
+            raise ValueError(
+                f"Member 'topk' count must be within 1.."
+                f"{len(tensor.cells)}, got {count}"
+            )
+
+        order: list[int] = sorted(
+            range(len(tensor.cells)),
+            key=lambda index: tensor.cells[index],
+            reverse=True,
+        )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=TypeInt(num_bits=64, signed=True),
+                dims=cast("list[int | str]", [count]),
+            ),
+            cells=order[:count],
+        )
+
+    def _to_numeric(self, member: str) -> ValueTensor:
+        """
+        Converts every cell to a different numeric element type.
+
+        Args:
+            member (str): 'to_float' or 'to_int'.
+
+        Returns:
+            ValueTensor: Converted copy of the tensor.
+
+        Raises:
+            TypeError: On a non-numeric element type.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member '{member}' requires a numeric element type"
+            )
+
+        if member == "to_float":
+            target: Type = TypeFloat(num_bits=32)
+
+            def convert(cell: Any) -> Any:
+                return float(cell)
+
+        else:
+            target = TypeInt(num_bits=64, signed=True)
+
+            def convert(cell: Any) -> Any:
+                return int(cell)
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=target,
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=[convert(cell=cell) for cell in tensor.cells],
+        )
+
     def _conv(self, args: tuple[Value, ...]) -> ValueTensor:
         """
         Computes a valid cross-correlation of the target tensor.
@@ -1673,24 +2119,32 @@ class TensorCallable:
 
 class TensorInit(Value):
     """
-    Pending tensor initialization request produced by zeros()/fill()/eye().
+    Pending tensor initialization request produced by zeros()/fill()/
+    eye()/randn().
 
-    The marker carries the requested kind plus the fill value; it is
-    materialized against the target's declared tensor type at the
+    The marker carries the requested kind plus the fill value and seed;
+    it is materialized against the target's declared tensor type at the
     assignment site. Using it anywhere else fails loudly.
 
     Attributes:
-        kind (str): Initializer kind ('zeros', 'fill', or 'eye').
+        kind (str): Initializer kind ('zeros', 'fill', 'eye', or 'randn').
         fill_value (Optional[Any]): Value for 'fill' initializers.
+        seed (Optional[int]): Deterministic seed for 'randn'.
     """
 
-    def __init__(self, kind: str, fill_value: Optional[Any]) -> None:
+    def __init__(
+        self,
+        kind: str,
+        fill_value: Optional[Any],
+        seed: Optional[int] = None,
+    ) -> None:
         """
         Initializes the TensorInit instance.
 
         Args:
             kind (str): Initializer kind.
             fill_value (Optional[Any]): Value for 'fill' initializers.
+            seed (Optional[int]): Deterministic seed for 'randn'.
         """
 
         # Placeholder type; the marker is never stored or checked as-is
@@ -1698,6 +2152,7 @@ class TensorInit(Value):
 
         self.kind: str = kind
         self.fill_value: Optional[Any] = fill_value
+        self.seed: Optional[int] = seed
 
     def get(self) -> Any:
         """
@@ -1726,6 +2181,9 @@ class TensorInit(Value):
 
         if self.kind == "fill":
             return f"fill({repr(self.fill_value)})"
+
+        if self.kind == "randn" and self.seed is not None:
+            return f"randn({self.seed})"
 
         return f"{self.kind}()"
 
@@ -1771,6 +2229,24 @@ class TensorInitializer:
                 raise TypeError("fill() expects exactly one value")
 
             return TensorInit(kind=self.kind, fill_value=values[0].get())
+
+        if self.kind == "randn":
+
+            if len(values) > 1:
+                raise TypeError("randn() expects at most one seed argument")
+
+            if values:
+
+                raw_seed: Any = values[0].get()
+
+                if isinstance(raw_seed, bool) or not isinstance(raw_seed, int):
+                    raise TypeError("randn() seed must be an integer")
+
+                return TensorInit(
+                    kind=self.kind, fill_value=None, seed=raw_seed
+                )
+
+            return TensorInit(kind=self.kind, fill_value=None)
 
         if values:
             raise TypeError(f"{self.kind}() takes no arguments")
@@ -1860,6 +2336,30 @@ def materialize_tensor_init(
             for index in range(total)
         ]
 
+    elif init.kind == "randn":
+
+        if not isinstance(element_type, TypeFloat):
+            raise TypeError(
+                "randn() requires a float element type"
+            )
+
+        rng: random.Random = (
+            random.Random(init.seed) if init.seed is not None else random.Random()
+        )
+
+        cells = []
+
+        for _ in range(total):
+
+            # Box-Muller transform, guarded away from log(0)
+            uniform_1: float = rng.random() or 1e-12
+            uniform_2: float = rng.random()
+
+            cells.append(
+                math.sqrt(-2.0 * math.log(uniform_1))
+                * math.cos(2.0 * math.pi * uniform_2)
+            )
+
     else:  # 'fill'
         assert init.fill_value is not None
 
@@ -1885,7 +2385,81 @@ def materialize_tensor_init(
 
 # Names that produce pending tensor initializations (materialized
 # against the target's declared type)
-TENSOR_INIT_NAMES: frozenset[str] = frozenset({"zeros", "fill", "eye"})
+TENSOR_INIT_NAMES: frozenset[str] = frozenset({"zeros", "fill", "eye", "randn"})
+
+
+class ArangeFunction:
+    """
+    Builtin producing a 1-D Int64 tensor over an integer range.
+
+    Called as arange(stop), arange(start, stop), or
+    arange(start, stop, step) with a positive step; the result shape
+    follows the usual half-open range rules.
+    """
+
+    def __call__(self, *args: Value) -> ValueTensor:
+        """
+        Builds the range tensor.
+
+        Args:
+            *args (Value): One to three integer Values.
+
+        Returns:
+            ValueTensor: 1-D Int64 tensor of the range.
+
+        Raises:
+            TypeError: On wrong arity or non-integer arguments.
+            ValueError: On a non-positive step or an empty range.
+        """
+
+        raw: list[Any] = []
+
+        if not 1 <= len(args) <= 3:
+            raise TypeError("arange() expects one to three arguments")
+
+        for argument in args:
+
+            if not isinstance(argument, Value):
+                raise TypeError("arange() expects integer arguments")
+
+            value: Any = argument.get()
+
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(
+                    f"arange() expects integer arguments, got '{repr(value)}'"
+                )
+
+            raw.append(value)
+
+        if len(raw) == 1:
+            start, stop, step = 0, raw[0], 1
+
+        elif len(raw) == 2:
+            start, stop, step = raw[0], raw[1], 1
+
+        else:
+            start, stop, step = raw
+
+        if step < 1:
+            raise ValueError(
+                f"arange() step must be positive, got {step}"
+            )
+
+        count: int = max(0, (stop - start + step - 1) // step)
+
+        if count < 1:
+            raise ValueError(
+                f"arange() produces an empty range for "
+                f"start={start}, stop={stop}, step={step}"
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=TypeInt(num_bits=64, signed=True),
+                dims=cast("list[int | str]", [count]),
+            ),
+            cells=list(range(start, stop, step)),
+        )
 
 
 def _math_unary(name: str, op: Any) -> Any:

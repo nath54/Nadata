@@ -89,6 +89,12 @@ class StructInstance:
         attr_def = self.struct.get_attribute(name=name)
 
         if attr_def is not None and attr_def.has_default:
+
+            # Expression-backed defaults (tensor initializers, derived
+            # consts) materialize through their expression
+            if attr_def.default_expr is not None:
+                return self._evaluate_derived_default(attr_def=attr_def)
+
             return make_value(
                 value_type=attr_def.attr_type,
                 raw=attr_def.default_value
@@ -578,10 +584,7 @@ class StructInstance:
         attr_def = self.struct.get_attribute(name=name)
 
         if attr_def is not None and attr_def.has_default:
-            return make_value(
-                value_type=attr_def.attr_type,
-                raw=attr_def.default_value
-            )
+            return self.get_attribute(name=name)
 
         raise AttributeError(f"'{self.struct.name}' instance has no member '{name}'")
 

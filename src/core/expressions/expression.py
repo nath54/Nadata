@@ -951,7 +951,8 @@ class MemberAccessExpr(Expression):
             and self.member in (
                 "at", "set_at", "size", "shape",
                 "sum", "min", "max", "transpose", "fill", "map", "mean",
-                "argmax", "argmin", "matmul",
+                "argmax", "argmin", "matmul", "concat", "reshape",
+                "flatten", "gather", "topk", "to_float", "to_int",
                 "conv1d", "conv2d", "max_pool", "min_pool", "avg_pool",
             )
         ):
