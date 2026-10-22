@@ -10,7 +10,11 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
+from src.core.expressions.builtins import build_type_globals
+from src.core.expressions.expression import Expression
+from src.core.expressions.scope import ExecutionScope
 from src.core.types.types import (
+    TypeInt,
     TypePriorityQueue,
     TypeQueue,
     TypeTensor,
@@ -104,7 +108,19 @@ class StructInstance:
 
         attr_def: Any = self.struct.get_attribute(name=name)
 
-        if attr_def is None or not attr_def.has_default:
+        if attr_def is None:
+            return None
+
+        # Derived constants evaluate their expression against the bound
+        # constants (used when creation paths were bypassed)
+        if attr_def.default_expr is not None:
+            self.attributes[name] = self._evaluate_derived_default(
+                attr_def=attr_def
+            )
+
+            return None
+
+        if not attr_def.has_default:
             return None
 
         raw_default: Any = attr_def.default_value
@@ -241,7 +257,9 @@ class StructInstance:
 
         Constants are written before everything else so symbolic tensor
         shapes validate against already-bound extents regardless of the
-        order the arguments appear in the constructor call.
+        order the arguments appear in the constructor call. Derived
+        constants (expression defaults referencing `self.<const>`) are
+        evaluated after the plain constants, in declaration order.
 
         Args:
             values (dict[str, Value]): Attribute values by name.
@@ -256,12 +274,81 @@ class StructInstance:
                     name=const_name, value=const_value, allow_const=True
                 )
 
+        # Derived constants next (in declaration order; each may reference
+        # the constants bound above or earlier-derived ones)
+        for attr_def in self.struct.get_all_attributes().values():
+
+            if attr_def.is_const and attr_def.default_expr is not None:
+
+                if attr_def.name in values:
+                    raise TypeError(
+                        f"Cannot set '{attr_def.name}' directly: it is "
+                        f"derived from other constants"
+                    )
+
+                self.set_attribute(
+                    name=attr_def.name,
+                    value=self._evaluate_derived_default(attr_def=attr_def),
+                    allow_const=True,
+                )
+
         # Everything else (unknown names raise in set_attribute)
         for other_name, other_value in values.items():
             attr_def = self.struct.get_attribute(name=other_name)
 
             if attr_def is None or not attr_def.is_const:
                 self.set_attribute(name=other_name, value=other_value)
+
+    def _evaluate_derived_default(self, attr_def: StructAttribute) -> Value:
+        """
+        Evaluates a derived const's expression against the bound constants.
+
+        The expression evaluates in a fresh scope exposing `self` and every
+        currently bound attribute value by name (so both `self.Dim / 2`
+        and bare `Dim / 2` forms work).
+
+        Args:
+            attr_def (StructAttribute): The derived const definition.
+
+        Returns:
+            Value: The evaluated value.
+
+        Raises:
+            TypeError: If a referenced constant is not yet bound.
+        """
+
+        parameters: dict[str, Value] = {}
+
+        for name, bound_value in self.attributes.items():
+            attr: Optional[StructAttribute] = self.struct.get_attribute(name=name)
+
+            if attr is not None and attr.is_const:
+                parameters[name] = bound_value
+
+        scope: ExecutionScope = ExecutionScope(
+            self_instance=self,
+            parameters=parameters,
+            globals_dict=build_type_globals(),
+        )
+
+        expression: Optional[Expression] = attr_def.default_expr
+        assert expression is not None
+
+        value: Value = expression.evaluate(scope=scope)
+
+        # Python's '/' yields floats; an integral float binding to a basic
+        # integer const coerces (2.0 -> 2). Non-integral values still fail
+        # the declared type check in set_attribute.
+        raw_value: Any = value.get()
+
+        if (
+            isinstance(attr_def.attr_type, TypeInt)
+            and isinstance(raw_value, float)
+            and raw_value.is_integer()
+        ):
+            return make_value(value_type=attr_def.attr_type, raw=int(raw_value))
+
+        return value
 
     def _validate_symbolic_shape(
         self,

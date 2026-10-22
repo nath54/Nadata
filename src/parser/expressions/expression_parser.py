@@ -388,13 +388,23 @@ class ExpressionParser:
                     target=expression, member=member_token.value
                 )
 
-            # Indexing '[index]' — arrays and dictionaries, chainable
+            # Indexing '[index]' — arrays, dictionaries, and multi-index
+            # tensors (comma-separated), chainable
             elif self._match_punctuation("["):
                 index_expr: Expression = self._parse_or()
+                extra_indices: list[Expression] = []
+
+                # Comma-separated indices form a multi-index tensor access
+                while self._match_punctuation(","):
+                    extra_indices.append(self._parse_or())
 
                 self._expect_punctuation("]")
 
-                expression = IndexExpr(target=expression, index=index_expr)
+                expression = IndexExpr(
+                    target=expression,
+                    index=index_expr,
+                    extra_indices=extra_indices,
+                )
 
             # Call '(...)' with positional or named arguments
             elif self._match_punctuation("("):

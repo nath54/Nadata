@@ -206,11 +206,24 @@ checked on every write:
 Tensor[Float32, 3, 4] m;              // 3x4 matrix, 12 elements
 t = m.at(0, 2);                       // bounds-checked element read
 m.set_at(1, 3, 0.5);                  // element write (flat index 7)
+x = m[1, 3];                           // multi-index read (per-dim)
+m[0, 1] = 0.5;                         // multi-index write
 s = m.shape();                         // Array[Int32] of dimensions
 n = m.size();                          // total element count
 for (x: Float32 in m) { ... }         // row-major iteration
 "x" in m                               // membership probe (flat values)
 ```
+
+Method parameters may use symbolic dims, validated against the
+receiver's constants at call time:
+
+```text
+@forward(x: Tensor[Float32, Batch, Dim]) -> Float32 { ... }
+```
+
+Symbolic dims are not allowed on standalone function parameters or on
+return types. Arrays and strings expose `.length()`; typed containers
+(`Dict`, `Set`, queues) expose `.size()`.
 
 - Dimensions must be positive integer literals in the type, **or the
   names of `const` integer attributes of the struct** (symbolic dims,
@@ -246,6 +259,19 @@ a = Attention(Batch = 2, q = ...);   // constructor binding only
 - A tensor with symbolic dims cannot be written until all its named
   constants are bound. Single-cell writes (`set_at`) never re-check
   the shape.
+- A const default may **derive from other constants** by referencing
+  them through `self`:
+
+  ```text
+  const Half: Int32 = self.Dim / 2;
+  const FourDim: Int32 = self.Dim * 4;
+  ```
+
+  Derived constants are computed per instance at construction, in
+  declaration order, and cannot be set directly. Referenced attributes
+  must be consts; an integral float result coerces to the declared
+  integer type (a remainder, e.g. `Dim = 5` with `/ 2`, is a type
+  error).
 - Constants persist as ordinary attributes; the binary format is
   unchanged.
 

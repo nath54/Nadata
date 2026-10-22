@@ -83,10 +83,13 @@ def _collect_from(
         _collect_from(node=node.target, dependencies=dependencies)
         return
 
-    # Indexing: recurse into the target and the index expression
+    # Indexing: recurse into the target and every index expression
     if isinstance(node, IndexExpr):
         _collect_from(node=node.target, dependencies=dependencies)
-        _collect_from(node=node.index, dependencies=dependencies)
+
+        for index_expr in node.indices:
+            _collect_from(node=index_expr, dependencies=dependencies)
+
         return
 
     # Calls: the callee and every argument (positional and named)

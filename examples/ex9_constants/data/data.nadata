@@ -25,6 +25,12 @@ print("small dim:", small.Dim);
 print("wide batch:", wide.Batch);
 print("wide dim:", wide.Dim);
 
+# --- Derived constants follow each instance's own Dim ---
+print("small half:", small.Half);
+print("wide half:", wide.Half);
+print("small fourdim:", small.FourDim);
+print("wide fourdim:", wide.FourDim);
+
 # --- Tensor payloads match the bound shapes ---
 print("small q cells:", small.q.size());
 print("wide q cells:", wide.q.size());
@@ -32,6 +38,17 @@ print("wide q cells:", wide.q.size());
 rank: Int32 = 0;
 for (d: Int32 in small.q.shape()) { rank++; }
 print("q rank:", rank);
+
+# --- Arrays and strings know their length ---
+print("label length:", small.label.length());
+
+# --- Multi-index reads and writes address cells directly ---
+print("q at 0 1:", small.q[0, 1]);
+small.q[1, 3] = 100.0;
+print("q at 1 3 after write:", small.q[1, 3]);
+
+# --- Method arguments validate against the receiver's extents ---
+print("match total:", small.match_total([[1.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 2.0]]));
 
 # --- Shape is validated per instance at construction ---
 print("small q sum:", small.q_sum());

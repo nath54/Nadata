@@ -344,12 +344,19 @@ def _decode_struct(
         ):
             default_value = set(default_value)
 
+        default_expr: Any = (
+            codec.decode(data=attribute_doc["default_expr"], context=context)
+            if attribute_doc.get("default_expr") is not None
+            else None
+        )
+
         attribute: StructAttribute = StructAttribute(
             name=attribute_doc["name"],
             attr_type=attribute_type,
             default_value=default_value,
             has_default=attribute_doc["has_default"],
             is_const=attribute_doc.get("is_const", False),
+            default_expr=default_expr,
         )
 
         if merge_mode and attribute.name in struct.attributes:

@@ -7,8 +7,9 @@ type specification, and optional default value.
 
 # Import Modules
 from __future__ import annotations
-from typing import Any
+from typing import Any, Optional
 
+from src.core.expressions.expression import Expression
 from src.core.types.types import Type
 
 
@@ -22,6 +23,9 @@ class StructAttribute:
         default_value (Any): Default value if not specified during instantiation.
         has_default (bool): Whether a default value was explicitly provided.
         is_const (bool): Whether the attribute is immutable after construction.
+        default_expr (Optional[Expression]): Derived-const expression
+            (references `self.<const>`); evaluated per instance at
+            construction instead of statically.
     """
 
     def __init__(
@@ -30,7 +34,8 @@ class StructAttribute:
         attr_type: Type,
         default_value: Any = None,
         has_default: bool = False,
-        is_const: bool = False
+        is_const: bool = False,
+        default_expr: Optional[Expression] = None
     ) -> None:
         """
         Initializes the StructAttribute instance.
@@ -42,6 +47,8 @@ class StructAttribute:
             has_default (bool, optional): Whether a default was provided. Defaults to False.
             is_const (bool, optional): Whether the attribute binds once at
                 construction and is immutable afterwards. Defaults to False.
+            default_expr (Optional[Expression], optional): Derived-const
+                expression for per-instance evaluation. Defaults to None.
         """
 
         self.name: str = name
@@ -49,6 +56,7 @@ class StructAttribute:
         self.default_value: Any = default_value
         self.has_default: bool = has_default
         self.is_const: bool = is_const
+        self.default_expr: Optional[Expression] = default_expr
 
         # Validate default value against attribute type if present
         if has_default and default_value is not None:
@@ -82,6 +90,9 @@ class StructAttribute:
 
         else:
             prefix = ""
+
+        if self.default_expr is not None:
+            return f"{prefix}{self.name}: {repr(self.attr_type)} = {repr(self.default_expr)}"
 
         if self.has_default:
             return f"{prefix}{self.name}: {repr(self.attr_type)} = {repr(self.default_value)}"

@@ -42,7 +42,8 @@ from src.core.expressions.expression import (
 from src.core.types.types import TypePriorityQueue, TypeQueue, TypeSet, TypeSpatialGrid
 from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.utils.comments_remove import CommentsRemover
-from src.parser.nastruct_parser.resolver import TypeResolver, build_type_globals
+from src.core.expressions.builtins import build_type_globals
+from src.parser.nastruct_parser.resolver import TypeResolver
 from src.parser.expressions.statement_parser import StatementParser
 
 

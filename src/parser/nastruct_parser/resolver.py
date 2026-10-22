@@ -12,12 +12,19 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, cast
 
 from src.core.database.database import NaDataDatabase
-from src.core.expressions.builtins import builtin_type
+from src.core.expressions.builtins import builtin_type, build_type_globals
 from src.core.expressions.expression import (
     ArrayLiteralExpr,
+    BinaryOpExpr,
+    CallExpr,
     DictLiteralExpr,
     Expression,
+    IdentifierExpr,
+    IndexExpr,
+    LiteralExpr,
+    MemberAccessExpr,
     SetLiteralExpr,
+    UnaryOpExpr,
 )
 from src.core.expressions.scope import ExecutionScope
 from src.core.expressions.statement import (
@@ -122,22 +129,91 @@ def build_builtin_types() -> dict[str, Type]:
     }
 
 
-def build_type_globals() -> dict[str, Any]:
+def _self_member_names(expression: Expression) -> list[str]:
     """
-    Builds the global symbol table used to evaluate expressions at runtime.
+    Collects the member names accessed through `self` in an expression.
 
-    Contains the home type constructors callable from defaults, scripts, and
-    queries (e.g. 'DateTime.now()', 'Color(255, 255, 255)').
+    Args:
+        expression (Expression): Parsed expression AST to analyze.
 
     Returns:
-        dict[str, Any]: Global symbols keyed by name.
+        list[str]: Member names in encounter order (duplicates kept).
     """
 
-    return {
-        "DateTime": DateTime,
-        "Color": Color,
-        "type": builtin_type,
-    }
+    names: list[str] = []
+
+    _walk_self_members(node=expression, names=names)
+
+    return names
+
+
+def _walk_self_members(node: Expression, names: list[str]) -> None:
+    """
+    Recursively walks an AST collecting `self.<member>` references.
+
+    Args:
+        node (Expression): Current AST node.
+        names (list[str]): Accumulator updated in place.
+    """
+
+    # self.member (possibly chained: only the first hop counts)
+    if isinstance(node, MemberAccessExpr):
+
+        if isinstance(node.target, IdentifierExpr) and node.target.name == "self":
+            names.append(node.member)
+
+            return None
+
+        _walk_self_members(node=node.target, names=names)
+
+        return None
+
+    if isinstance(node, (LiteralExpr, IdentifierExpr)):
+        return None
+
+    if isinstance(node, BinaryOpExpr):
+        _walk_self_members(node=node.left, names=names)
+        _walk_self_members(node=node.right, names=names)
+
+        return None
+
+    if isinstance(node, UnaryOpExpr):
+        _walk_self_members(node=node.operand, names=names)
+
+        return None
+
+    if isinstance(node, IndexExpr):
+        _walk_self_members(node=node.target, names=names)
+
+        for index_expr in node.indices:
+            _walk_self_members(node=index_expr, names=names)
+
+        return None
+
+    if isinstance(node, CallExpr):
+        _walk_self_members(node=node.callee, names=names)
+
+        for argument in node.args:
+            _walk_self_members(node=argument, names=names)
+
+        for argument in node.kwargs.values():
+            _walk_self_members(node=argument, names=names)
+
+        return None
+
+    if isinstance(node, (ArrayLiteralExpr, SetLiteralExpr)):
+        for element in node.elements:
+            _walk_self_members(node=element, names=names)
+
+        return None
+
+    if isinstance(node, DictLiteralExpr):
+        for entry_key, entry_value in node.entries:
+            _walk_self_members(node=entry_value, names=names)
+
+        return None
+
+    return None
 
 
 class TypeResolver:
@@ -401,16 +477,66 @@ class SchemaResolver:
             self.resolve_attribute(struct=struct, tmp_attribute=tmp_attribute)
 
         for tmp_function in tmp_struct.methods.values():
-            struct.add_method(method=self.resolve_callable(tmp_function=tmp_function))
+            struct.add_method(
+                method=self.resolve_callable(
+                    tmp_function=tmp_function,
+                    struct=struct,
+                )
+            )
 
         # Validate symbolic tensor dimensions against the resolved attributes
         self._validate_symbolic_dims(struct=struct)
+
+        # Validate derived const references against the resolved attributes
+        self._validate_derived_consts(struct=struct)
 
         self.check_identifier_shadowing(tmp_struct=tmp_struct, struct=struct)
 
         self.in_progress.discard(name)
 
         return struct
+
+    def _validate_derived_consts(self, struct: Struct) -> None:
+        """
+        Validates derived const expressions against the struct's attributes.
+
+        A derived const's expression may only reference `self.<member>`
+        members that name `const` attributes of the struct (any declared
+        attribute order). The expression is evaluated per instance at
+        construction in declaration order, so referencing a later-declared
+        derived const fails at creation time.
+
+        Args:
+            struct (Struct): The resolved struct.
+
+        Raises:
+            TypeError: If a `self.<member>` reference names a missing or
+                non-const attribute.
+        """
+
+        for attribute in struct.get_all_attributes().values():
+
+            if attribute.default_expr is None:
+                continue
+
+            for member_name in _self_member_names(
+                expression=attribute.default_expr
+            ):
+                referenced: Optional[StructAttribute] = struct.get_attribute(
+                    name=member_name
+                )
+
+                if referenced is None:
+                    raise TypeError(
+                        f"Derived const '{struct.name}.{attribute.name}' "
+                        f"references unknown attribute '{member_name}'"
+                    )
+
+                if not referenced.is_const:
+                    raise TypeError(
+                        f"Derived const '{struct.name}.{attribute.name}' "
+                        f"references non-const attribute '{member_name}'"
+                    )
 
     def check_identifier_shadowing(self, tmp_struct: TmpStruct, struct: Struct) -> None:
         """
@@ -744,9 +870,21 @@ class SchemaResolver:
 
         default_value: Any = None
         has_default: bool = False
+        default_expr: Optional[Expression] = None
+
+        # A const default referencing `self` is a DERIVED constant: its
+        # value is computed per instance from the other bound constants
+        # (validated in the post-pass), not evaluated statically here
+        if (
+            tmp_attribute.attribute_default_value is not None
+            and tmp_attribute.is_const
+            and "self" in tmp_attribute.dependencies
+        ):
+            default_expr = tmp_attribute.attribute_default_value
+            has_default = True
 
         # Evaluate the default expression under the declared type
-        if tmp_attribute.attribute_default_value is not None:
+        elif tmp_attribute.attribute_default_value is not None:
             default_value = self.evaluate_default(
                 expression=tmp_attribute.attribute_default_value,
                 resolved_type=attr_type
@@ -758,7 +896,8 @@ class SchemaResolver:
             attr_type=attr_type,
             default_value=default_value,
             has_default=has_default,
-            is_const=tmp_attribute.is_const
+            is_const=tmp_attribute.is_const,
+            default_expr=default_expr
         ))
 
     def _validate_symbolic_dims(self, struct: Struct) -> None:
@@ -849,15 +988,30 @@ class SchemaResolver:
                         f"requires {expected}"
                     )
 
-    def resolve_callable(self, tmp_function: TmpFunction) -> StructMethod:
+    def resolve_callable(
+        self,
+        tmp_function: TmpFunction,
+        struct: Optional[Struct] = None
+    ) -> StructMethod:
         """
         Resolves a method or standalone function declaration.
 
+        Symbolic tensor parameter dimensions validate against the struct's
+        const attributes when a struct is given (methods); standalone
+        functions and symbolic return types are rejected.
+
         Args:
             tmp_function (TmpFunction): Callable to resolve.
+            struct (Optional[Struct]): Owning struct for methods, None for
+                standalone functions. Defaults to None.
 
         Returns:
             StructMethod: The resolved callable.
+
+        Raises:
+            TypeError: If a symbolic dim name has no matching const
+                integer attribute, a standalone function declares symbolic
+                tensor parameters, or the return type is symbolic.
         """
 
         # Resolve parameter types and keep default expressions lazy
@@ -865,21 +1019,59 @@ class SchemaResolver:
         default_param_exprs: dict[str, Expression] = {}
 
         for parameter in tmp_function.fn_argument.values():
-            params[parameter.attribute_name] = self.type_resolver.resolve(
+            param_type: Type = self.type_resolver.resolve(
                 tmp_type=parameter.attribute_type
             )
+
+            params[parameter.attribute_name] = param_type
+
+            # Symbolic tensor parameters bind against the receiver consts
+            if isinstance(param_type, TypeTensor) and param_type.is_symbolic:
+
+                if struct is None:
+                    raise TypeError(
+                        f"Function '@{tmp_function.fn_name}' parameter "
+                        f"'{parameter.attribute_name}' has symbolic tensor "
+                        f"dimensions; only struct methods have a receiver"
+                    )
+
+                for dim_name in param_type.symbolic_dims():
+                    dim_attr: Optional[StructAttribute] = struct.get_attribute(
+                        name=dim_name
+                    )
+
+                    if (
+                        dim_attr is None
+                        or not dim_attr.is_const
+                        or not isinstance(dim_attr.attr_type, TypeInt)
+                    ):
+                        raise TypeError(
+                            f"Method '@{tmp_function.fn_name}' parameter "
+                            f"'{parameter.attribute_name}' uses tensor "
+                            f"dimension '{dim_name}' which is not a basic "
+                            f"integer const of '{struct.name}'"
+                        )
 
             if parameter.attribute_default_value is not None:
                 default_param_exprs[parameter.attribute_name] = (
                     parameter.attribute_default_value
                 )
 
+        return_type: Type = self.type_resolver.resolve(
+            tmp_type=tmp_function.fn_output_type
+        )
+
+        if isinstance(return_type, TypeTensor) and return_type.is_symbolic:
+            raise TypeError(
+                f"Method '@{tmp_function.fn_name}' has a symbolic tensor "
+                f"return type; symbolic dims are only supported on "
+                f"parameters and attributes"
+            )
+
         return StructMethod(
             name=tmp_function.fn_name,
             params=params,
-            return_type=self.type_resolver.resolve(
-                tmp_type=tmp_function.fn_output_type
-            ),
+            return_type=return_type,
             default_param_exprs=default_param_exprs,
             body_block=BlockStmt(statements=tmp_function.fn_body)
         )
@@ -913,6 +1105,15 @@ class SchemaResolver:
             and isinstance(resolved_type, TypeArray)
         ):
             expression.declared_type = resolved_type
+
+        # An empty array literal under a tensor declaration is the empty
+        # flat payload (symbolic shapes stay unvalidated until binding)
+        if (
+            isinstance(expression, ArrayLiteralExpr)
+            and not expression.elements
+            and isinstance(resolved_type, TypeTensor)
+        ):
+            return []
 
         if (
             isinstance(expression, DictLiteralExpr)

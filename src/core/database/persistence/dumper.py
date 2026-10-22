@@ -259,6 +259,11 @@ def _encode_struct(struct: Struct, codec: ObjectCodec) -> dict[str, Any]:
                 ),
                 "has_default": attribute.has_default,
                 "is_const": attribute.is_const,
+                "default_expr": (
+                    codec.encode(obj=attribute.default_expr)
+                    if attribute.default_expr is not None
+                    else None
+                ),
             }
             for attribute in struct.attributes.values()
         ],
@@ -377,6 +382,11 @@ def append_database_changes(database: NaDataDatabase, storage_path: str) -> int:
                         ),
                         "has_default": attribute.has_default,
                         "is_const": attribute.is_const,
+                        "default_expr": (
+                            codec.encode(obj=attribute.default_expr)
+                            if attribute.default_expr is not None
+                            else None
+                        ),
                     }
                     for attribute in new_attributes
                 ],

@@ -13,11 +13,25 @@ class Attention {
     const Batch: Int32;
     const Dim: Int32 = 4;
 
+    # Derived constants: computed per instance from the bound constants
+    const Half: Int32 = self.Dim / 2;
+    const FourDim: Int32 = self.Dim * 4;
+
     label: Str;
 
     # [Batch, Dim] matrices: the shape is validated at construction
     q: Tensor[Float32, Batch, Dim];
     k: Tensor[Float32, Batch, Dim];
+
+    # A [Half] vector: its length follows the instance's own Dim
+    proj: Tensor[Float32, Half] = [];
+
+    # Total a [Batch, Dim] argument against this instance's extents
+    @match_total(x: Tensor[Float32, Batch, Dim]) -> Float32 {
+        total: Float32 = 0.0;
+        for (v: Float32 in x) { total = total + v; }
+        return total;
+    }
 
     # Total the q matrix by row-major iteration
     @q_sum() -> Float32 {

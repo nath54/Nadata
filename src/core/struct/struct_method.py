@@ -10,8 +10,8 @@ return type, body expression, and parsed AST body block.
 from __future__ import annotations
 from typing import Any, Optional
 
-from src.core.types.types import Type
-from src.core.values.values import Value
+from src.core.types.types import Type, TypeTensor, flatten_nested_lists
+from src.core.values.values import Value, ValueArray, make_value
 from src.core.expressions.scope import ExecutionScope
 from src.core.expressions.statement import BlockStmt
 from src.core.expressions.expression import Expression
@@ -127,10 +127,111 @@ class StructMethod:
         # Validate types
         for param_name, param_val in bound.items():
             expected_type: Type = self.params[param_name]
+
+            # Array literals coerce into the flat payload of symbolic
+            # tensor parameters (shape validated below against self)
+            if (
+                isinstance(expected_type, TypeTensor)
+                and isinstance(param_val, ValueArray)
+            ):
+                param_val = make_value(
+                    value_type=expected_type,
+                    raw=flatten_nested_lists(raw=param_val.get()),
+                )
+
+                bound[param_name] = param_val
+
             raw_val: Any = param_val.get() if hasattr(param_val, "get") else param_val
+
             expected_type.check_value(value=raw_val)
 
+            # Symbolic tensor parameters validate against the receiver's
+            # bound constants (shape = the instance's own extents)
+            if (
+                isinstance(expected_type, TypeTensor)
+                and expected_type.is_symbolic
+            ):
+                self._validate_param_shape(
+                    param_name=param_name,
+                    tensor_type=expected_type,
+                    param_val=param_val,
+                    scope=scope,
+                )
+
         return bound
+
+    def _validate_param_shape(
+        self,
+        param_name: str,
+        tensor_type: TypeTensor,
+        param_val: Value,
+        scope: ExecutionScope,
+    ) -> None:
+        """
+        Validates a symbolic tensor argument against the receiver's consts.
+
+        The required extents come from the receiver instance's bound
+        constants; the payload length must equal their product.
+
+        Args:
+            param_name (str): Parameter name (for error messages).
+            tensor_type (TypeTensor): Declared parameter type.
+            param_val (Value): The (flat) argument value.
+            scope (ExecutionScope): Scope carrying the receiver instance.
+
+        Raises:
+            TypeError: If there is no receiver, a constant is unbound, or
+                the shape mismatches the payload length.
+        """
+
+        receiver: Any = scope.self_instance
+
+        if receiver is None:
+            raise TypeError(
+                f"Cannot validate symbolic tensor parameter '{param_name}' "
+                f"without a receiver instance"
+            )
+
+        expected: int = 1
+
+        for dim in tensor_type.dims:
+
+            if isinstance(dim, int):
+                expected *= dim
+
+                continue
+
+            receiver.ensure_attribute(name=dim)
+
+            bound_value: Any = receiver.attributes.get(dim)
+
+            if bound_value is None:
+                raise TypeError(
+                    f"Cannot validate '{param_name}': tensor dimension "
+                    f"'{dim}' is not bound on the receiver"
+                )
+
+            raw_dim: Any = (
+                bound_value.get() if hasattr(bound_value, "get") else bound_value
+            )
+
+            if isinstance(raw_dim, bool) or not isinstance(raw_dim, int):
+                raise TypeError(
+                    f"Cannot validate '{param_name}': tensor dimension "
+                    f"'{dim}' must be an integer"
+                )
+
+            expected *= raw_dim
+
+        payload: Any = (
+            param_val.get() if hasattr(param_val, "get") else param_val
+        )
+
+        if not isinstance(payload, list) or len(payload) != expected:
+            raise TypeError(
+                f"Argument '{param_name}' must have {expected} elements "
+                f"for shape {tensor_type.dims} on this receiver"
+            )
 
     def execute(
         self,

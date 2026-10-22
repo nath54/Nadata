@@ -16,6 +16,8 @@ from collections import deque
 from typing import Any, Optional, cast
 
 from src.core.expressions.scope import ScopeAwareFunction
+from src.core.types.home_types.color import Color
+from src.core.types.home_types.datetime import DateTime
 from src.core.types.types import TypeArray, TypeBool, TypeDict, TypeInt, TypeStr
 from src.core.values.values import (
     TYPE_EXTERNAL,
@@ -644,6 +646,62 @@ class QueueCallable:
             )
 
         raise TypeError(f"Unknown priority queue member '{self.member}'")
+
+
+def build_type_globals() -> dict[str, Any]:
+    """
+    Builds the global symbol table used to evaluate expressions at runtime.
+
+    Contains the home type constructors callable from defaults, scripts, and
+    queries (e.g. 'DateTime.now()', 'Color(255, 255, 255)').
+
+    Returns:
+        dict[str, Any]: Global symbols keyed by name.
+    """
+
+    return {
+        "DateTime": DateTime,
+        "Color": Color,
+        "type": builtin_type,
+    }
+
+
+class LengthCallable:
+    """
+    Callable bound to the `length()` member of arrays and strings.
+
+    Containers with typed members expose size(); arrays and strings have
+    no typed fallback, so length() is dispatched here before the raw
+    Python attribute lookup (which finds nothing).
+
+    Attributes:
+        target (Any): Receiver value (ValueArray or a string wrapper).
+    """
+
+    def __init__(self, target: Any) -> None:
+        """
+        Initializes the LengthCallable instance.
+
+        Args:
+            target (Any): Receiver value.
+        """
+
+        self.target: Any = target
+
+    def __call__(self) -> ValueInt:
+        """
+        Returns the receiver's element or character count.
+
+        Returns:
+            ValueInt: The Int64 length.
+        """
+
+        raw: Any = self.target.get() if hasattr(self.target, "get") else self.target
+
+        return ValueInt(
+            value_type=TypeInt(num_bits=64, signed=True),
+            value=len(raw),
+        )
 
 
 class SetCallable:

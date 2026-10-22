@@ -51,6 +51,7 @@ from src.core.types.home_types.datetime import DateTime
 from src.core.expressions.builtins import (
     DictCollectionCallable,
     GridCallable,
+    LengthCallable,
     QueueCallable,
     SetCallable,
     TensorCallable,
@@ -796,6 +797,18 @@ class MemberAccessExpr(Expression):
         ):
             return TensorCallable(target=target_obj, member=self.member)
 
+        # length() on arrays and strings (no typed fallback exists)
+        if self.member == "length":
+
+            is_array: bool = isinstance(target_obj, ValueArray)
+            is_string: bool = (
+                isinstance(target_obj, Value)
+                and isinstance(target_obj.get(), str)
+            )
+
+            if is_array or is_string:
+                return LengthCallable(target=target_obj)
+
         # Unwrap Value containers to expose the payload object
         if isinstance(target_obj, Value):
             target_obj = target_obj.get()
@@ -908,27 +921,49 @@ def _wrap_indexed_element(raw: Any, element_type: Type) -> Value:
 
 class IndexExpr(Expression):
     """
-    AST node representing indexing: target[index].
+    AST node representing indexing: target[index] or target[i0, i1, ...].
 
-    Works on arrays (integer index, Python semantics including negatives)
-    and dictionaries (any hashable key).
+    Works on arrays (integer index, Python semantics including negatives),
+    dictionaries (any hashable key), and tensors (multi-index resolved to
+    a flat row-major offset).
 
     Attributes:
         target (Expression): Expression resolving to the indexed container.
         index (Expression): Expression resolving to the index or key.
+        extra_indices (list[Expression]): Additional comma-separated index
+            expressions (multi-index tensors); empty for single indexing.
     """
 
-    def __init__(self, target: Expression, index: Expression) -> None:
+    def __init__(
+        self,
+        target: Expression,
+        index: Expression,
+        extra_indices: Optional[list[Expression]] = None
+    ) -> None:
         """
         Initializes the IndexExpr instance.
 
         Args:
             target (Expression): Expression resolving to the container.
             index (Expression): Expression resolving to the index or key.
+            extra_indices (Optional[list[Expression]], optional): Further
+                index expressions for multi-index tensors. Defaults to None.
         """
 
         self.target: Expression = target
         self.index: Expression = index
+        self.extra_indices: list[Expression] = list(extra_indices or [])
+
+    @property
+    def indices(self) -> list[Expression]:
+        """
+        Returns every index expression in source order.
+
+        Returns:
+            list[Expression]: The index expressions.
+        """
+
+        return [self.index, *self.extra_indices]
 
     def evaluate(self, scope: ExecutionScope) -> Value:
         """
@@ -949,6 +984,10 @@ class IndexExpr(Expression):
 
         target_obj: Any = self.target.evaluate(scope=scope)
         index_val: Value = self.index.evaluate(scope=scope)
+
+        # Multi-index tensors resolve to a flat row-major offset
+        if self.extra_indices:
+            return self._index_tensor(target_obj=target_obj, scope=scope)
 
         if isinstance(target_obj, ValueArray):
             return self._index_array(array=target_obj, index=index_val)
@@ -978,6 +1017,48 @@ class IndexExpr(Expression):
             return ValueExternal(payload=element)
 
         raise TypeError(f"Cannot index into '{repr(target_obj)}'")
+
+    def _index_tensor(self, target_obj: Any, scope: ExecutionScope) -> Value:
+        """
+        Indexes a tensor with one index expression per dimension.
+
+        Args:
+            target_obj (Any): Evaluated target (expected ValueTensor).
+            scope (ExecutionScope): Current execution scope.
+
+        Returns:
+            Value: The element wrapped in its declared type.
+
+        Raises:
+            TypeError: If the target is not a tensor.
+            IndexError: If any index is out of range.
+        """
+
+        if not isinstance(target_obj, ValueTensor):
+            raise TypeError(
+                f"Multi-index is only supported on tensors, got "
+                f"'{repr(target_obj)}'"
+            )
+
+        indices: list[int] = []
+
+        for index_expr in self.indices:
+            index_val: Value = index_expr.evaluate(scope=scope)
+            raw_index: Any = index_val.get()
+
+            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                raise TypeError(
+                    f"Tensor index must be an integer, got '{repr(raw_index)}'"
+                )
+
+            indices.append(raw_index)
+
+        element: Any = target_obj.cells[target_obj.flat_index(indices=tuple(indices))]
+
+        return _wrap_indexed_element(
+            raw=element,
+            element_type=target_obj.value_type.value_type,
+        )
 
     def _index_array(self, array: ValueArray, index: Value) -> Value:
         """
@@ -1119,6 +1200,13 @@ class IndexExpr(Expression):
         self.target.ensure_materialized(scope=scope)
 
         container: Any = self.target.evaluate(scope=scope)
+
+        # Multi-index tensors assign through the flat row-major offset
+        if self.extra_indices:
+            self._assign_tensor(container=container, scope=scope, value=value)
+
+            return None
+
         index_val: Value = self.index.evaluate(scope=scope)
 
         if isinstance(container, ValueArray):
@@ -1152,6 +1240,49 @@ class IndexExpr(Expression):
             return None
 
         raise TypeError(f"Cannot assign into '{repr(container)}'")
+
+    def _assign_tensor(
+        self,
+        container: Any,
+        scope: ExecutionScope,
+        value: Value,
+    ) -> None:
+        """
+        Assigns into a tensor through one index expression per dimension.
+
+        Args:
+            container (Any): Evaluated target (expected ValueTensor).
+            scope (ExecutionScope): Current execution scope.
+            value (Value): The new element Value.
+
+        Raises:
+            TypeError: If the target is not a tensor or the element
+                violates the declared element type.
+            IndexError: If any index is out of range.
+        """
+
+        if not isinstance(container, ValueTensor):
+            raise TypeError(
+                f"Multi-index assignment is only supported on tensors, got "
+                f"'{repr(container)}'"
+            )
+
+        indices: list[int] = []
+
+        for index_expr in self.indices:
+            index_val: Value = index_expr.evaluate(scope=scope)
+            raw_index: Any = index_val.get()
+
+            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                raise TypeError(
+                    f"Tensor index must be an integer, got '{repr(raw_index)}'"
+                )
+
+            indices.append(raw_index)
+
+        container.value_type.value_type.check_value(value=value.get())
+
+        container.cells[container.flat_index(indices=tuple(indices))] = value.get()
 
     def _assign_array(
         self,
