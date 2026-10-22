@@ -1,0 +1,61 @@
+# ==============================================================================
+# Example 10: A Basic Convolutional Neural Network - data and script
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+# --- The model ---
+net = ConvNet();
+
+# --- conv1d: smooth a noisy signal with a binomial kernel ---
+signal: Tensor[Float32, 8] = [4.0, 8.0, 6.0, -1.0, -3.0, -2.0, 5.0, 7.0];
+k1: Tensor[Float32, 3] = [0.25, 0.5, 0.25];
+print("smoothed signal:", signal.conv1d(k1));
+
+# --- the three pooling operators on the same signal ---
+print("max pool:", signal.max_pool(2));
+print("min pool:", signal.min_pool(2, 1));
+print("avg pool:", signal.avg_pool(2));
+
+# --- conv2d: feature maps of a vertical-edge image ---
+vertical: Tensor[Float32, 6, 6] = [
+    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+];
+print("edge conv map:", vertical.conv2d(net.kv));
+print("strided conv map:", vertical.conv2d(net.kv, 2));
+
+# --- classify four 6x6 fields through the network ---
+horizontal: Tensor[Float32, 6, 6] = [
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+];
+bright: Tensor[Float32, 6, 6] = [
+    [0.8, 0.8, 0.8, 0.8, 0.8, 0.8],
+    [0.8, 0.8, 0.8, 0.8, 0.8, 0.8],
+    [0.8, 0.8, 0.8, 0.8, 0.8, 0.8],
+    [0.8, 0.8, 0.8, 0.8, 0.8, 0.8],
+    [0.8, 0.8, 0.8, 0.8, 0.8, 0.8],
+    [0.8, 0.8, 0.8, 0.8, 0.8, 0.8],
+];
+dark: Tensor[Float32, 6, 6] = [
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+];
+
+print("vertical image logits:", net.forward(vertical));
+print("vertical image is a:", net.classify(vertical));
+print("horizontal image is a:", net.classify(horizontal));
+print("bright image is a:", net.classify(bright));
+print("dark image is a:", net.classify(dark));

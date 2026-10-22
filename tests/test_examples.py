@@ -158,6 +158,20 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "small label: renamed",
         "Loaded 1 struct(s), 2 instance(s), 0 function(s).",
     ],
+    "ex10_cnn": [
+        "smoothed signal: [6.5, 4.75, 0.25, -2.25, -0.5, 3.75]",
+        "max pool: [8.0, 6.0, -2.0, 7.0]",
+        "min pool: [4.0, 6.0, -1.0, -3.0, -3.0, -2.0, 5.0]",
+        "avg pool: [6.0, 2.5, -2.5, 6.0]",
+        "edge conv map: [0.0, 3.0, 3.0, 0.0, 0.0, 3.0, 3.0, 0.0, 0.0, 3.0, 3.0, 0.0, 0.0, 3.0, 3.0, 0.0]",
+        "strided conv map: [0.0, 3.0, 0.0, 3.0]",
+        "vertical image logits: [12.0, 0.0, 2.0, 0.0]",
+        "vertical image is a: vertical edge",
+        "horizontal image is a: horizontal edge",
+        "bright image is a: bright field",
+        "dark image is a: dark field",
+        "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
+    ],
 }
 
 # Every bundled example must be covered here
@@ -172,6 +186,7 @@ ALL_EXAMPLES: list[str] = [
     "ex7_queues_sets",
     "ex8_grids_tensors",
     "ex9_constants",
+    "ex10_cnn",
 ]
 
 
@@ -199,13 +214,13 @@ class TestExampleOutputs:
         assert sorted(EXPECTED_OUTPUTS.keys()) == folders
 
     @pytest.mark.parametrize("example", ALL_EXAMPLES)
-    def test_example_output(self, example: str, capsys: pytest.CaptureFixture) -> None:
+    def test_example_output(self, example: str, capsys: pytest.CaptureFixture[str]) -> None:
         """
         Tests one example's printed output against its golden expectations.
 
         Args:
             example (str): Example folder name under examples/.
-            capsys (pytest.CaptureFixture): Output capture fixture.
+            capsys (pytest.CaptureFixture[str]): Output capture fixture.
         """
 
         exit_code: int = main(argv=["run", f"examples/{example}"])
@@ -226,7 +241,7 @@ class TestExampleOutputs:
 
     def test_examples_run_via_console_script(
         self,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """
         Tests that a dump / reload of an example preserves its script output.

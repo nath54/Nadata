@@ -244,6 +244,27 @@ numeric scalar (broadcast); results keep the base tensor's shape and
 element type. Division on integer element types is a `TypeError`
 (the result would be fractional).
 
+**Convolutions and pooling** — deep-learning style valid
+cross-correlation (no kernel flip, no padding), on 1-D and 2-D
+numeric tensors:
+
+```text
+y = x.conv1d(kernel);            // kernel: Tensor[T, K]; out length (L-K)//stride+1
+y = x.conv1d(kernel, 2);         // optional stride (default 1)
+y = img.conv2d(kernel);          // kernel: Tensor[T, kH, kW]; out (OH, OW)
+y = sig.max_pool(2);             // window 2, stride defaults to the window
+y = sig.min_pool(2, 1);          // optional stride
+y = img.avg_pool(2);             // average pooling (float element types only)
+```
+
+- Kernels are passed as tensors; the output shape is
+  `(axis - kernel) // stride + 1` per axis, and a kernel or window
+  larger than the input axis is a `TypeError`.
+- `conv1d` expects a 1-D tensor and 1-D kernel; `conv2d` a 2-D tensor
+  and 2-D kernel; pooling accepts rank 1 or 2.
+- `avg_pool` requires a float element type (the average is
+  fractional); `max_pool`/`min_pool` also accept integers.
+
 **Slicing** — each index position may be an integer (drops the
 dimension, returning an element) or a `start:stop` slice (keeps the
 dimension, returning a new copied tensor):

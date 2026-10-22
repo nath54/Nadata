@@ -118,6 +118,7 @@ edge cases:
 | `ex7_queues_sets` | FIFO / priority queues, typed sets, membership probes |
 | `ex8_grids_tensors` | Sparse spatial grids (square/hex/cube), shape-checked tensors |
 | `ex9_constants` | `const` bind-once attributes, symbolic tensor dims |
+| `ex10_cnn` | Conv1d/conv2d, pooling, and a basic convolutional neural network |
 
 ## Editor support
 

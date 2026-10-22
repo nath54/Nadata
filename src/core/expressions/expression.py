@@ -944,6 +944,7 @@ class MemberAccessExpr(Expression):
             and self.member in (
                 "at", "set_at", "size", "shape",
                 "sum", "min", "max", "transpose", "fill",
+                "conv1d", "conv2d", "max_pool", "min_pool", "avg_pool",
             )
         ):
             return TensorCallable(target=target_obj, member=self.member)
@@ -964,11 +965,9 @@ class MemberAccessExpr(Expression):
         if isinstance(target_obj, Value):
             target_obj = target_obj.get()
 
-        # Check Python attributes / methods / staticmethods (e.g. DateTime.now)
-        if hasattr(target_obj, self.member):
-            return getattr(target_obj, self.member)
-
-        # Check methods on struct definition
+        # Check methods on struct definition first: StructInstance's
+        # __getattr__ binds methods without the caller's globals, which
+        # would break builtin resolution inside method bodies
         if hasattr(target_obj, "struct"):
             struct_def: Any = getattr(target_obj, "struct")
 
@@ -982,6 +981,10 @@ class MemberAccessExpr(Expression):
                         kwargs=kwargs,
                         globals_dict=scope.globals_dict
                     )
+
+        # Check Python attributes / methods / staticmethods (e.g. DateTime.now)
+        if hasattr(target_obj, self.member):
+            return getattr(target_obj, self.member)
 
         # Virtual members: introspection and schema-constrained access
         virtual: Optional[Any] = resolve_virtual_callable(
@@ -1211,6 +1214,11 @@ class IndexExpr(Expression):
         if isinstance(target_obj, ValueDict):
             return self._index_dict(mapping=target_obj, index=index_val)
 
+        # Single flat index on a tensor: row-major payload access with a
+        # typed element result
+        if isinstance(target_obj, ValueTensor):
+            return self._index_tensor_flat(target_obj=target_obj, index=index_val)
+
         # Raw Python containers inside external payloads
         raw_target: Any = (
             target_obj.get() if isinstance(target_obj, Value) else target_obj
@@ -1233,6 +1241,40 @@ class IndexExpr(Expression):
             return ValueExternal(payload=element)
 
         raise TypeError(f"Cannot index into '{repr(target_obj)}'")
+
+    def _index_tensor_flat(self, target_obj: ValueTensor, index: Value) -> Value:
+        """
+        Indexes a tensor with a single flat row-major index.
+
+        Args:
+            target_obj (ValueTensor): Tensor being indexed.
+            index (Value): Integer index Value.
+
+        Returns:
+            Value: The typed element.
+
+        Raises:
+            TypeError: If the index is not an integer.
+            IndexError: If the index is out of range.
+        """
+
+        raw_index: Any = index.get()
+
+        if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+            raise TypeError(
+                f"Tensor index must be an integer, got '{repr(raw_index)}'"
+            )
+
+        if not 0 <= raw_index < len(target_obj.cells):
+            raise IndexError(
+                f"Tensor index {raw_index} out of range for "
+                f"{len(target_obj.cells)} element(s)"
+            )
+
+        return _wrap_indexed_element(
+            raw=target_obj.cells[raw_index],
+            element_type=target_obj.value_type.value_type,
+        )
 
     def _index_tensor(self, target_obj: Any, scope: ExecutionScope) -> Value:
         """
@@ -1602,6 +1644,13 @@ class IndexExpr(Expression):
 
         index_val: Value = self.index.evaluate(scope=scope)
 
+        # Single flat index assignment on a tensor: row-major payload
+        # access with element type validation
+        if isinstance(container, ValueTensor):
+            self._assign_tensor_flat(container=container, index=index_val, value=value)
+
+            return None
+
         if isinstance(container, ValueArray):
             self._assign_array(array=container, index=index_val, value=value)
 
@@ -1633,6 +1682,43 @@ class IndexExpr(Expression):
             return None
 
         raise TypeError(f"Cannot assign into '{repr(container)}'")
+
+    def _assign_tensor_flat(
+        self,
+        container: ValueTensor,
+        index: Value,
+        value: Value,
+    ) -> None:
+        """
+        Assigns into a tensor through a single flat row-major index.
+
+        Args:
+            container (ValueTensor): Tensor being written.
+            index (Value): Integer index Value.
+            value (Value): The new element Value.
+
+        Raises:
+            TypeError: If the index is not an integer or the element
+                violates the declared element type.
+            IndexError: If the index is out of range.
+        """
+
+        raw_index: Any = index.get()
+
+        if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+            raise TypeError(
+                f"Tensor index must be an integer, got '{repr(raw_index)}'"
+            )
+
+        if not 0 <= raw_index < len(container.cells):
+            raise IndexError(
+                f"Tensor index {raw_index} out of range for "
+                f"{len(container.cells)} element(s)"
+            )
+
+        container.value_type.value_type.check_value(value=value.get())
+
+        container.cells[raw_index] = value.get()
 
     def _assign_tensor(
         self,

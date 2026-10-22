@@ -1109,7 +1109,224 @@ class TensorCallable:
                 cells=transposed,
             )
 
+        if self.member in ("conv1d", "conv2d"):
+            return self._conv(args=args)
+
+        if self.member in ("max_pool", "min_pool", "avg_pool"):
+            return self._pool(args=args)
+
         raise TypeError(f"Unknown tensor member '{self.member}'")
+
+    def _conv(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Computes a valid cross-correlation of the target tensor.
+
+        Args:
+            args (list[Value]): Kernel tensor, then an optional stride.
+
+        Returns:
+            ValueTensor: The convolved tensor.
+
+        Raises:
+            TypeError: On wrong rank, kernel, stride, or element type.
+        """
+
+        tensor: ValueTensor = self.target
+        extents: list[int] = _tensor_extents(tensor=tensor)
+        expected_rank: int = 1 if self.member == "conv1d" else 2
+
+        if len(extents) != expected_rank:
+            raise TypeError(
+                f"Member '{self.member}' requires a {expected_rank}-D "
+                f"tensor, got shape {extents}"
+            )
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member '{self.member}' requires a numeric element type"
+            )
+
+        if not args or not isinstance(args[0], ValueTensor):
+            raise TypeError(
+                f"Member '{self.member}' expects a tensor kernel as its "
+                f"first argument"
+            )
+
+        kernel: ValueTensor = args[0]
+        kernel_extents: list[int] = _tensor_extents(tensor=kernel)
+
+        if len(kernel_extents) != expected_rank:
+            raise TypeError(
+                f"Member '{self.member}' expects a {expected_rank}-D "
+                f"kernel, got shape {kernel_extents}"
+            )
+
+        if not isinstance(kernel.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member '{self.member}' requires a numeric kernel"
+            )
+
+        stride: int = args[1].get() if len(args) > 1 else 1
+
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+            raise TypeError(
+                f"Member '{self.member}' stride must be a positive integer"
+            )
+
+        axis: int = 0 if expected_rank == 1 else 1
+
+        for length, kernel_length in zip(extents, kernel_extents):
+
+            if kernel_length > length:
+                raise TypeError(
+                    f"Member '{self.member}': kernel axis {kernel_length} "
+                    f"is larger than input axis {length}"
+                )
+
+        if expected_rank == 1:
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=tensor.value_type.value_type,
+                    dims=[_conv_valid_length(
+                        length=extents[0],
+                        kernel=kernel_extents[0],
+                        stride=stride,
+                    )],
+                ),
+                cells=_conv1d_cells(
+                    signal=tensor.cells,
+                    kernel=kernel.cells,
+                    stride=stride,
+                ),
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=[
+                    _conv_valid_length(
+                        length=extents[0], kernel=kernel_extents[0], stride=stride
+                    ),
+                    _conv_valid_length(
+                        length=extents[1], kernel=kernel_extents[1], stride=stride
+                    ),
+                ],
+            ),
+            cells=_conv2d_cells(
+                cells=tensor.cells,
+                rows=extents[0],
+                cols=extents[1],
+                kernel=kernel.cells,
+                krows=kernel_extents[0],
+                kcols=kernel_extents[1],
+                stride=stride,
+            ),
+        )
+
+    def _pool(self, args: tuple[Value, ...]) -> ValueTensor:
+        """
+        Pools the target tensor with max/min/average windows.
+
+        Args:
+            args (list[Value]): Window size, then an optional stride
+                (defaults to the window size).
+
+        Returns:
+            ValueTensor: The pooled tensor.
+
+        Raises:
+            TypeError: On wrong rank, window, stride, element type, or
+                average pooling on an integer element type.
+        """
+
+        tensor: ValueTensor = self.target
+        extents: list[int] = _tensor_extents(tensor=tensor)
+        reducer: str = self.member.split("_", 1)[0]
+
+        if len(extents) not in (1, 2):
+            raise TypeError(
+                f"Member '{self.member}' requires a 1-D or 2-D tensor, got "
+                f"shape {extents}"
+            )
+
+        if not isinstance(tensor.value_type.value_type, (TypeInt, TypeFloat)):
+            raise TypeError(
+                f"Member '{self.member}' requires a numeric element type"
+            )
+
+        if reducer == "avg" and isinstance(tensor.value_type.value_type, TypeInt):
+            raise TypeError(
+                "Member 'avg_pool' requires a float element type (the "
+                "average is fractional)"
+            )
+
+        if (
+            not args
+            or not isinstance(args[0], Value)
+            or isinstance(args[0].get(), bool)
+            or not isinstance(args[0].get(), int)
+        ):
+            raise TypeError(
+                f"Member '{self.member}' expects an integer window size"
+            )
+
+        kernel: int = args[0].get()
+
+        if kernel < 1:
+            raise TypeError(
+                f"Member '{self.member}' window size must be positive"
+            )
+
+        stride: int = args[1].get() if len(args) > 1 else kernel
+
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+            raise TypeError(
+                f"Member '{self.member}' stride must be a positive integer"
+            )
+
+        for length in extents:
+
+            if kernel > length:
+                raise TypeError(
+                    f"Member '{self.member}': window {kernel} is larger "
+                    f"than input axis {length}"
+                )
+
+        if len(extents) == 1:
+
+            return ValueTensor(
+                value_type=TypeTensor(
+                    value_type=tensor.value_type.value_type,
+                    dims=[_conv_valid_length(
+                        length=extents[0], kernel=kernel, stride=stride
+                    )],
+                ),
+                cells=_pool_cells(
+                    cells=tensor.cells,
+                    extents=extents,
+                    kernel=kernel,
+                    stride=stride,
+                    reducer=reducer,
+                ),
+            )
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=[
+                    _conv_valid_length(length=extents[0], kernel=kernel, stride=stride),
+                    _conv_valid_length(length=extents[1], kernel=kernel, stride=stride),
+                ],
+            ),
+            cells=_pool_cells(
+                cells=tensor.cells,
+                extents=extents,
+                kernel=kernel,
+                stride=stride,
+                reducer=reducer,
+            ),
+        )
 
 
 class TensorInit(Value):
@@ -1327,6 +1544,175 @@ def materialize_tensor_init(
 # Names that produce pending tensor initializations (materialized
 # against the target's declared type)
 TENSOR_INIT_NAMES: frozenset[str] = frozenset({"zeros", "fill", "eye"})
+
+
+def _conv_valid_length(length: int, kernel: int, stride: int) -> int:
+    """
+    Computes the valid-mode output length of a conv/pool axis.
+
+    Args:
+        length (int): Input axis length.
+        kernel (int): Kernel size on that axis.
+        stride (int): Stride along that axis.
+
+    Returns:
+        int: Output length (>= 1).
+    """
+
+    return (length - kernel) // stride + 1
+
+
+def _conv1d_cells(
+    signal: list[Any],
+    kernel: list[Any],
+    stride: int,
+) -> list[Any]:
+    """
+    Computes a valid cross-correlation of a 1-D signal with a kernel.
+
+    Args:
+        signal (list[Any]): Flat input payload.
+        kernel (list[Any]): Flat kernel payload.
+        stride (int): Stride between output positions.
+
+    Returns:
+        list[Any]: Flat output payload.
+    """
+
+    out_len: int = _conv_valid_length(
+        length=len(signal), kernel=len(kernel), stride=stride
+    )
+
+    return [
+        sum(signal[position * stride + offset] * kernel[offset] for offset in range(len(kernel)))
+        for position in range(out_len)
+    ]
+
+
+def _conv2d_cells(
+    cells: list[Any],
+    rows: int,
+    cols: int,
+    kernel: list[Any],
+    krows: int,
+    kcols: int,
+    stride: int,
+) -> list[Any]:
+    """
+    Computes a valid cross-correlation of a 2-D image with a kernel.
+
+    Args:
+        cells (list[Any]): Flat row-major input payload.
+        rows (int): Input row count.
+        cols (int): Input column count.
+        kernel (list[Any]): Flat row-major kernel payload.
+        krows (int): Kernel row count.
+        kcols (int): Kernel column count.
+        stride (int): Stride between output positions.
+
+    Returns:
+        list[Any]: Flat row-major output payload.
+    """
+
+    out_rows: int = _conv_valid_length(length=rows, kernel=krows, stride=stride)
+    out_cols: int = _conv_valid_length(length=cols, kernel=kcols, stride=stride)
+
+    output: list[Any] = []
+
+    for out_row in range(out_rows):
+
+        for out_col in range(out_cols):
+
+            total: Any = 0
+
+            for k_row in range(krows):
+
+                for k_col in range(kcols):
+
+                    total = total + (
+                        cells[(out_row * stride + k_row) * cols + (out_col * stride + k_col)]
+                        * kernel[k_row * kcols + k_col]
+                    )
+
+            output.append(total)
+
+    return output
+
+
+def _pool_cells(
+    cells: list[Any],
+    extents: list[int],
+    kernel: int,
+    stride: int,
+    reducer: str,
+) -> list[Any]:
+    """
+    Pools a 1-D or 2-D tensor with max/min/average windows.
+
+    Args:
+        cells (list[Any]): Flat row-major input payload.
+        extents (list[int]): Input shape (rank 1 or 2).
+        kernel (int): Pooling window size on every axis.
+        stride (int): Stride between windows.
+        reducer (str): 'max', 'min', or 'avg'.
+
+    Returns:
+        list[Any]: Flat row-major output payload.
+    """
+
+    if len(extents) == 1:
+
+        length: int = extents[0]
+        out_len: int = _conv_valid_length(
+            length=length, kernel=kernel, stride=stride
+        )
+
+        output: list[Any] = []
+
+        for position in range(out_len):
+
+            window: list[Any] = cells[
+                position * stride:position * stride + kernel
+            ]
+
+            if reducer == "max":
+                output.append(max(window))
+
+            elif reducer == "min":
+                output.append(min(window))
+
+            else:
+                output.append(sum(window) / kernel)
+
+        return output
+
+    rows: int = extents[0]
+    cols: int = extents[1]
+    out_rows: int = _conv_valid_length(length=rows, kernel=kernel, stride=stride)
+    out_cols: int = _conv_valid_length(length=cols, kernel=kernel, stride=stride)
+
+    pooled: list[Any] = []
+
+    for out_row in range(out_rows):
+
+        for out_col in range(out_cols):
+
+            window = [
+                cells[(out_row * stride + k_row) * cols + (out_col * stride + k_col)]
+                for k_row in range(kernel)
+                for k_col in range(kernel)
+            ]
+
+            if reducer == "max":
+                pooled.append(max(window))
+
+            elif reducer == "min":
+                pooled.append(min(window))
+
+            else:
+                pooled.append(sum(window) / (kernel * kernel))
+
+    return pooled
 
 
 def _tensor_extents(tensor: ValueTensor) -> list[int]:

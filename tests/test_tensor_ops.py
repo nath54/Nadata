@@ -398,3 +398,240 @@ class TestReductions:
             data_text="p = P();\n p.w.fill(9.0);\n",
             attribute="w",
         ) == [9.0, 9.0, 9.0, 9.0, 9.0, 9.0]
+
+
+class TestConvolutions:
+    """
+    Tests conv1d/conv2d valid cross-correlation with strides.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  sig: Tensor[Float32, 8] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];\n"
+            "  img: Tensor[Float32, 4, 4] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, "
+            "9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];\n"
+            "  k1: Tensor[Float32, 3] = [0.25, 0.5, 0.25];\n"
+            "  k2: Tensor[Float32, 2, 2] = [1.0, 0.0, 0.0, 1.0];\n"
+            "  o6: Tensor[Float32, 6] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  o3: Tensor[Float32, 3] = [0.0, 0.0, 0.0];\n"
+            "  m3: Tensor[Float32, 3, 3] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_conv1d(self) -> None:
+        """
+        Tests 1-D convolution output values.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.o6 = p.sig.conv1d(p.k1);\n",
+            attribute="o6",
+        ) == [2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+
+    def test_conv1d_stride(self) -> None:
+        """
+        Tests strided 1-D convolution.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.o3 = p.sig.conv1d(p.k1, 2);\n",
+            attribute="o3",
+        ) == [2.0, 4.0, 6.0]
+
+    def test_conv2d(self) -> None:
+        """
+        Tests 2-D convolution output values.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.m3 = p.img.conv2d(p.k2);\n",
+            attribute="m3",
+        ) == [7.0, 9.0, 11.0, 15.0, 17.0, 19.0, 23.0, 25.0, 27.0]
+
+    def test_conv1d_rank_rejected(self) -> None:
+        """
+        Tests that conv1d on a 2-D tensor raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="1-D"):
+            app.execute_data(data_text="p = P();\n p.o3 = p.img.conv1d(p.k1);\n")
+
+    def test_conv_kernel_too_large_rejected(self) -> None:
+        """
+        Tests that a kernel larger than the input raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="larger"):
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "big: Tensor[Float32, 9] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];\n"
+                "p.o3 = p.sig.conv1d(big);\n"
+            ))
+
+
+class TestPooling:
+    """
+    Tests max/min/avg pooling on 1-D and 2-D tensors.
+    """
+
+    def _app(self) -> Nadata:
+        """
+        Builds an app with a probe schema.
+
+        Returns:
+            Nadata: Configured application.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  sig: Tensor[Float32, 8] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];\n"
+            "  img: Tensor[Float32, 4, 4] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, "
+            "9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];\n"
+            "  o4: Tensor[Float32, 4] = [0.0, 0.0, 0.0, 0.0];\n"
+            "  o7: Tensor[Float32, 7] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  m2: Tensor[Float32, 2, 2] = [0.0, 0.0, 0.0, 0.0];\n"
+            "}"
+        ))
+
+        return app
+
+    def _value(self, app: Nadata, data_text: str, attribute: str) -> Any:
+        """
+        Runs a script and reads one attribute of the newest instance.
+
+        Args:
+            app (Nadata): Configured application.
+            data_text (str): Script touching 'p'.
+            attribute (str): Attribute to read.
+
+        Returns:
+            Any: The raw attribute payload.
+        """
+
+        app.execute_data(data_text=data_text)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes[attribute].get()
+
+    def test_max_pool_1d(self) -> None:
+        """
+        Tests non-overlapping 1-D max pooling.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.o4 = p.sig.max_pool(2);\n",
+            attribute="o4",
+        ) == [2.0, 4.0, 6.0, 8.0]
+
+    def test_min_pool_strided(self) -> None:
+        """
+        Tests strided 1-D min pooling.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.o7 = p.sig.min_pool(2, 1);\n",
+            attribute="o7",
+        ) == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+
+    def test_avg_pool_1d(self) -> None:
+        """
+        Tests 1-D average pooling.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.o4 = p.sig.avg_pool(2);\n",
+            attribute="o4",
+        ) == [1.5, 3.5, 5.5, 7.5]
+
+    def test_max_pool_2d(self) -> None:
+        """
+        Tests 2-D max pooling.
+        """
+
+        app: Nadata = self._app()
+
+        assert self._value(
+            app=app,
+            data_text="p = P();\n p.m2 = p.img.max_pool(2);\n",
+            attribute="m2",
+        ) == [6.0, 8.0, 14.0, 16.0]
+
+    def test_avg_pool_on_int_rejected(self) -> None:
+        """
+        Tests that average pooling an integer tensor raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="float element"):
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "n: Tensor[Int32, 4] = [1, 2, 3, 4];\n"
+                "p.o4 = n.avg_pool(2);\n"
+            ))
+
+    def test_pool_window_too_large_rejected(self) -> None:
+        """
+        Tests that a window larger than the input raises TypeError.
+        """
+
+        app: Nadata = self._app()
+
+        with pytest.raises(TypeError, match="larger"):
+            app.execute_data(data_text="p = P();\n p.o4 = p.sig.max_pool(9);\n")

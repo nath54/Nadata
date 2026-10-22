@@ -1,0 +1,82 @@
+# ==============================================================================
+# Example 10: A Basic Convolutional Neural Network
+# Builds a tiny hand-configured CNN with the tensor toolkit: conv2d feature
+# extraction, max pooling, a dense layer written with elementwise products and
+# sum(), ReLU via a plain `if`, and an argmax loop for classification. Also
+# demonstrates conv1d smoothing and the three pooling operators on a signal.
+# Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+class ConvNet {
+    # Vertical edge detector: responds positively to dark-to-bright
+    # transitions (cross-correlation, no kernel flip)
+    kv: Tensor[Float32, 3, 3] = [
+        [-1.0, 0.0, 1.0],
+        [-1.0, 0.0, 1.0],
+        [-1.0, 0.0, 1.0],
+    ];
+
+    # Horizontal edge detector
+    kh: Tensor[Float32, 3, 3] = [
+        [-1.0, -1.0, -1.0],
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+    ];
+
+    # Dense layer over three pooled 2x2 feature maps (vertical, horizontal,
+    # brightness): neuron j sums w * map plus its bias, then ReLU
+    wv: Tensor[Float32, 4, 2, 2] = [
+        [[1.0, 1.0], [1.0, 1.0]],
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[0.0, 0.0], [0.0, 0.0]],
+    ];
+    wh: Tensor[Float32, 4, 2, 2] = [
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[1.0, 1.0], [1.0, 1.0]],
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[0.0, 0.0], [0.0, 0.0]],
+    ];
+    wb: Tensor[Float32, 4, 2, 2] = [
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[0.0, 0.0], [0.0, 0.0]],
+        [[1.0, 1.0], [1.0, 1.0]],
+        [[-1.0, -1.0], [-1.0, -1.0]],
+    ];
+    bias: Tensor[Float32, 4] = [0.0, 0.0, 0.0, 0.5];
+
+    logits: Tensor[Float32, 4] = [0.0, 0.0, 0.0, 0.0];
+
+    # Forward pass: conv2d -> max pool -> dense -> ReLU
+    @forward(image: Tensor[Float32, 6, 6]) -> Tensor[Float32, 4] {
+        pv: Tensor[Float32, 2, 2] = image.conv2d(self.kv).max_pool(2);
+        ph: Tensor[Float32, 2, 2] = image.conv2d(self.kh).max_pool(2);
+        pb: Tensor[Float32, 2, 2] = image.max_pool(3);
+
+        out: Tensor[Float32, 4] = zeros();
+
+        for (j: Int32 = 0 :: j < 4 :: j++) {
+            acc: Float32 = (self.wv[j, :, :] * pv).sum();
+            acc = acc + (self.wh[j, :, :] * ph).sum();
+            acc = acc + (self.wb[j, :, :] * pb).sum();
+            acc = acc + self.bias[j];
+            if (acc < 0.0) { acc = 0.0; }
+            out[j] = acc;
+        }
+
+        return out;
+    }
+
+    # Argmax over the logits, mapped to a class name
+    @classify(image: Tensor[Float32, 6, 6]) -> Str {
+        scores: Tensor[Float32, 4] = self.forward(image);
+        best: Int32 = 0;
+        for (j: Int32 = 1 :: j < 4 :: j++) {
+            if (scores[j] > scores[best]) { best = j; }
+        }
+        if (best == 0) { return "vertical edge"; }
+        if (best == 1) { return "horizontal edge"; }
+        if (best == 2) { return "bright field"; }
+        return "dark field";
+    }
+}
