@@ -2595,9 +2595,12 @@ class Optimizer:
             )
 
         if payload.get("optimizer") != type(self).__name__:
+
+            held_name: Any = payload.get("optimizer")
+
             raise TypeError(
                 f"Optimizer state file '{path}' holds "
-                f"'{payload.get("optimizer")}' state, cannot load it "
+                f"'{held_name}' state, cannot load it "
                 f"into a '{type(self).__name__}'"
             )
 
