@@ -639,16 +639,47 @@ class BinaryOpExpr(Expression):
         raw_left: Any = left.get()
         raw_right: Any = right.get()
 
-        cmp_table: dict[str, bool] = {
-            "==": bool(raw_left == raw_right),
-            "!=": bool(raw_left != raw_right),
-            "<=": bool(raw_left <= raw_right),
-            "<": bool(raw_left < raw_right),
-            ">=": bool(raw_left >= raw_right),
-            ">": bool(raw_left > raw_right),
-        }
+        # None payloads (missing get_by_nid / get_setting results) only
+        # support equality: None == None is True, None ordered against
+        # anything is False — ordering a missing value is meaningless
+        left_missing: bool = raw_left is None or (
+            isinstance(left, ValueExternal) and left.payload is None
+        )
+        right_missing: bool = raw_right is None or (
+            isinstance(right, ValueExternal) and right.payload is None
+        )
 
-        return ValueBool(value_type=TypeBool(), value=cmp_table[op])
+        if left_missing or right_missing:
+
+            if op == "==":
+                result: bool = left_missing and right_missing
+
+            elif op == "!=":
+                result = not (left_missing and right_missing)
+
+            else:
+                result = False
+
+            return ValueBool(value_type=TypeBool(), value=result)
+
+        # Evaluate only the requested operator (a table of all six would
+        # eagerly compute e.g. '<=' on strings and crash on valid '!=')
+        if op == "==":
+            return ValueBool(value_type=TypeBool(), value=bool(raw_left == raw_right))
+
+        if op == "!=":
+            return ValueBool(value_type=TypeBool(), value=bool(raw_left != raw_right))
+
+        if op == "<=":
+            return ValueBool(value_type=TypeBool(), value=bool(raw_left <= raw_right))
+
+        if op == "<":
+            return ValueBool(value_type=TypeBool(), value=bool(raw_left < raw_right))
+
+        if op == ">=":
+            return ValueBool(value_type=TypeBool(), value=bool(raw_left >= raw_right))
+
+        return ValueBool(value_type=TypeBool(), value=bool(raw_left > raw_right))
 
     @staticmethod
     def _eval_membership(left: Value, op: str, right: Value) -> Optional[ValueBool]:

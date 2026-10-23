@@ -958,6 +958,43 @@ flush();
   statement runs; values are coerced per declared type or error.
 - The directive line doubles as self-documentation — `:files` prints it.
 
+### 7.9 I/O builtins
+
+File and settings access from scripts. Paths resolve against the
+**project root** (absolute paths pass through; no project root → current
+working directory). File effects are **immediate** — unlike database
+writes, they are not gated by `flush()`.
+
+| Call | Shape |
+|---|---|
+| `read_text(path)` / `write_text(path, s)` | whole-file `Str`; writes overwrite, return bytes written |
+| `read_lines(path)` / `append_text(path, line)` | `Array[Str]` (no trailing empty entry) / one appended line (file created) |
+| `read_json(path)` / `write_json(path, v)` | objects of scalars, arrays of scalars, scalars; writes overwrite |
+| `read_csv(path)` / `write_csv(path, rows)` | `Array[dict[Str, Str]]` — stringly-typed by design; first row is the header, all rows must share its keys |
+| `exists(path)` / `file_hash(path)` / `list_dir(path)` | `Bool` / sha256 hex `Str` / sorted `Array[Str]` |
+| `get_setting(name)` / `set_setting(name, v)` | per-world scalar settings; persisted by the next `flush()` |
+
+```c
+cfg = read_json("config.json");          // {"lr": 0.1, "epochs": 3}
+lr = cfg["lr"];                          // 0.1 (Float64)
+epochs = cfg["epochs"];                  // 3 (Int64)
+
+// Opt-in freshness: re-import only when the input changed
+if (get_setting("data_hash") != file_hash("input.csv")) {
+    import_data();
+    set_setting("data_hash", file_hash("input.csv"));
+    flush();
+}
+```
+
+JSON homogeneity: an object or array's values must all be scalars of the
+same family — `int`/`float` mix as the number family (all-int stays
+`Int64`); mixed families or nested structures raise with guidance
+(stringify or split the file instead). `read_csv` never infers types
+(`"007"` stays `"007"`) — convert at the use site with the `int()` /
+`float()` builtins (`value = float(row["value"])`); guard reads of
+missing files with `exists()`.
+
 ---
 
 ## 8. Punctuation summary

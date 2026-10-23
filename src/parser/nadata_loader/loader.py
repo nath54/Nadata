@@ -54,6 +54,7 @@ from src.core.types.types import TypePriorityQueue, TypeQueue, TypeSet, TypeSpat
 from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.utils.comments_remove import CommentsRemover
 from src.core.expressions.builtins import build_type_globals
+from src.core.expressions.io_builtins import register_io_builtins
 from src.parser.nastruct_parser.resolver import TypeResolver
 from src.parser.expressions.statement_parser import StatementParser
 
@@ -861,6 +862,8 @@ class NaDataLoader:
         globals_dict["clear_cache"] = ClearCacheFunction(database=database)
         globals_dict["remove_from_db"] = RemoveFromDbFunction(database=database)
 
+        register_io_builtins(globals_dict=globals_dict, database=database)
+
         # Shared loop fuel, seeded from the persisted settings
         globals_dict[LOOP_FUEL_KEY] = LoopFuel(
             limit=int(
@@ -918,3 +921,10 @@ class NaDataLoader:
 
         # The tape never outlives the pass
         self.scope.globals_dict.pop(TAPE_KEY, None)
+
+        # Consume the batch: each load_file / console request executes
+        # exactly its own statements (variables carry via the scope, not
+        # by re-running old statements, which would duplicate instances
+        # and re-fire file side effects)
+        self.declarations.clear()
+        self.script_statements.clear()

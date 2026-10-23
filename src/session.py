@@ -673,6 +673,10 @@ def load_folder_session(
         else load_database(storage_path=str(world_path))
     )
 
+    # Script paths (read_text, write_json, ...) resolve against the
+    # project root
+    database.io_base = str(folder)
+
     for schema_file in schema_files:
         _execute_schema_into(database=database, path=schema_file)
 
@@ -755,6 +759,10 @@ def load_folder_session(
         world_path.parent.mkdir(parents=True, exist_ok=True)
 
         dump_database(database=database, storage_path=str(world_path))
+
+        # The dump writes the file; the database must know its storage
+        # so later flush() calls (language builtin) target it
+        database.storage_path = str(world_path)
 
     result.instance_count = _instance_count(database=database)
 

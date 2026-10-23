@@ -189,10 +189,30 @@ scripts.
 
 `read_text` / `write_text`, `read_lines` / `append_text`, `read_json` /
 `write_json`, `read_csv` / `write_csv` (array of `dict[Str, Str]`,
-stringly-typed by design), plus `exists`, `file_hash`, `list_dir`. Paths
-resolve against the **project root**; file effects are immediate (unlike
-the database, which is gated by `flush()`). *Planned — see
-session_plan.md §3.5.*
+stringly-typed by design — no inference), plus `exists`, `file_hash`,
+`list_dir`, and `get_setting` / `set_setting`. Paths resolve against the
+**project root** (absolute paths pass through; without a project root the
+current working directory is used); file effects are immediate (unlike
+the database, which is gated by `flush()`).
+
+```c
+// Config-driven scripts
+cfg = read_json("config.json");
+kid.age = cfg["target_age"];
+
+// Opt-in input freshness: re-import only when the input changed
+if (get_setting("data_hash") != file_hash("input.csv")) {
+    import_data();
+    set_setting("data_hash", file_hash("input.csv"));
+    flush();
+}
+```
+
+`read_json` accepts objects of scalars, arrays of scalars, and scalars;
+int/float mix as the number family (all-int stays Int64), and mixed
+families or nesting raise with guidance. `set_setting` records a scalar
+in the world's settings — persisted by the next `flush()`. See
+[syntax.md](syntax.md) §7.9.
 
 ---
 

@@ -129,6 +129,10 @@ class NaDataDatabase:
         )
         self.storage_path: Optional[str] = storage_path
 
+        # Project root for the I/O builtins (the session folder); None
+        # resolves script paths against the current working directory
+        self.io_base: Optional[str] = None
+
         self.tables_by_type_id: dict[int, StructTable] = {}
         self.tables_by_struct_name: dict[str, StructTable] = {}
         self.symbols: dict[str, EntityId] = {}

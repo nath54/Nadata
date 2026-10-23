@@ -5,13 +5,21 @@ parameterized scripts, inspect in the console — without ever duplicating
 data or re-running expensive work. Two phases: **identity** (`nid`) and
 **sessions** (folder loading with `#init` / `#auto` / `#manual`).
 
-> **STATUS: IMPLEMENTED** — Phase 1 (`2ff58a8`): nid identity, upsert,
+> **STATUS: FULLY IMPLEMENTED** — Phase 1 (`2ff58a8`): nid identity, upsert,
 > lookups, persistence, tombstone bookkeeping, `str()` builtin. Phase 2:
 > session pipeline (folder loader, `#init`/`#auto`/`#manual`, markers,
 > failed-init rollback), schema re-merge in the parser, parameter preludes,
 > CLI verbs (`open`/`check`/`run` + `--db`/`--no-auto`/`--force-init`) and
 > console commands (`:run`/`:files`/`:reinit`/`:auto`/`:flush`).
-> **Not implemented:** I/O builtins (§3.5, next arc).
+> §3.5 I/O builtins: implemented (io_base resolution, text/lines/JSON/CSV,
+> freshness via `file_hash` + `get_setting`/`set_setting`, settings persist
+> through `flush()`'s meta doc).
+>
+> Engine fixes surfaced by this arc: `_run_passes` now consumes its
+> statement batch (statements previously accumulated forever and
+> re-executed on every console request — duplicating instances and
+> re-firing side effects), and the fresh-world path sets
+> `database.storage_path` so `flush()` works after `open_folder`.
 >
 > Deviations from the text below: a failed `#init` on an existing world
 > reloads the world from disk and skips `#auto` (stricter than "no flush"

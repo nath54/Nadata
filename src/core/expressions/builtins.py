@@ -33,11 +33,23 @@ from src.core.expressions.autograd import (
 from src.core.expressions.scope import ScopeAwareFunction
 from src.core.types.home_types.color import Color
 from src.core.types.home_types.datetime import DateTime
-from src.core.types.types import Type, TypeArray, TypeBool, TypeDict, TypeFloat, TypeInt, TypeStr, TypeTensor
+from src.core.types.types import (
+    Float64,
+    Int64,
+    Type,
+    TypeArray,
+    TypeBool,
+    TypeDict,
+    TypeFloat,
+    TypeInt,
+    TypeStr,
+    TypeTensor,
+)
 from src.core.values.values import (
     TYPE_EXTERNAL,
     Value,
     ValueArray,
+    ValueFloat,
     ValueBool,
     ValueDict,
     ValueExternal,
@@ -114,6 +126,76 @@ def _string_of(*args: Value) -> ValueStr:
     raw: Any = args[0].get()
 
     return ValueStr(value_type=TypeStr(), value=str(raw))
+
+
+def _int_of(*args: Value) -> ValueInt:
+    """
+    Native int(s): parses a string into an Int64 (or passes an int
+    through). Strict: malformed input raises ValueError.
+
+    Args:
+        *args (Value): Exactly one value.
+
+    Returns:
+        ValueInt: The parsed integer.
+
+    Raises:
+        TypeError: On wrong arity or a non-string/non-int argument.
+        ValueError: On a malformed integer string.
+    """
+
+    if len(args) != 1:
+        raise TypeError("int() takes exactly one argument")
+
+    raw: Any = args[0].get()
+
+    if isinstance(raw, bool):
+        raise TypeError("int() does not accept Bool")
+
+    if isinstance(raw, int):
+        return ValueInt(value_type=Int64, value=raw)
+
+    if not isinstance(raw, str):
+        raise TypeError(
+            f"int() expects a Str or Int, got '{type(raw).__name__}'"
+        )
+
+    return ValueInt(value_type=Int64, value=int(raw.strip()))
+
+
+def _float_of(*args: Value) -> ValueFloat:
+    """
+    Native float(s): parses a string into a Float64 (or passes a
+    number through). Strict: malformed input raises ValueError.
+
+    Args:
+        *args (Value): Exactly one value.
+
+    Returns:
+        ValueFloat: The parsed float.
+
+    Raises:
+        TypeError: On wrong arity or a non-string/non-number argument.
+        ValueError: On a malformed float string.
+    """
+
+    if len(args) != 1:
+        raise TypeError("float() takes exactly one argument")
+
+    raw: Any = args[0].get()
+
+    if isinstance(raw, bool):
+        raise TypeError("float() does not accept Bool")
+
+    if isinstance(raw, (int, float)):
+        return ValueFloat(value_type=Float64, value=float(raw))
+
+    if not isinstance(raw, str):
+        raise TypeError(
+            f"float() expects a Str or number, got '{type(raw).__name__}'"
+        )
+
+    return ValueFloat(value_type=Float64, value=float(raw.strip()))
 
 
 def _names_array(names: list[str]) -> ValueArray:
@@ -1131,6 +1213,8 @@ def build_type_globals() -> dict[str, Any]:
         "last": LastFunction(),
         "nids": NidsFunction(),
         "str": _string_of,
+        "int": _int_of,
+        "float": _float_of,
         "array_to_tensor": array_to_tensor,
         "tensor_to_array": tensor_to_array,
         "get_batch_of_partition": get_batch_of_partition,

@@ -145,7 +145,7 @@
 		},
 		"builtin-function-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "\\b(print|zeros|fill|eye|randn|arange|sin|cos|abs|exp|sqrt|log|pow|backward|set_learnable|set_trackable|detach|array_to_tensor|tensor_to_array|get_batch_of_partition|get_partition_iteration_count|SGD|Adam|pin|unpin|flush|clear_cache|remove_from_db|get_by_nid|nids|first|last|str|read_text|write_text|read_lines|append_text|read_json|write_json|read_csv|write_csv|exists|file_hash|list_dir)(?=\\s*\\()"
+			"match": "\\b(print|zeros|fill|eye|randn|arange|sin|cos|abs|exp|sqrt|log|pow|backward|set_learnable|set_trackable|detach|array_to_tensor|tensor_to_array|get_batch_of_partition|get_partition_iteration_count|SGD|Adam|pin|unpin|flush|clear_cache|remove_from_db|get_by_nid|nids|first|last|str|int|float|read_text|write_text|read_lines|append_text|read_json|write_json|read_csv|write_csv|exists|file_hash|list_dir|get_setting|set_setting)(?=\\s*\\()"
 		},
 		"builtin-method-call": {
 			"name": "support.function.builtin.nadata",

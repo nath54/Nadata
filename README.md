@@ -56,7 +56,9 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   per world, `#auto` syncs every open, `#manual` scripts take parameters
   (`#manual(lr: Float = 0.05)`), and `nid = "name"` gives instances stable,
   updatable identity (`get_by_nid`, `nids`, `first`/`last`) — schema files
-  re-merge on every open
+  re-merge on every open. I/O builtins (`read_json`, `write_csv`,
+  `file_hash`, ...) resolve against the project root, with
+  `get_setting`/`set_setting` freshness markers
 - **Interactive console** — `nadata console <path>` REPL over any loaded
   database, with persistent state and expression echoing
 - **Python API** — load, query, mutate, execute raw source, persist
