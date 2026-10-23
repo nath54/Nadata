@@ -467,6 +467,239 @@ class SetLoopLimitFunction(ScopeAwareFunction):
         self.database.settings["loop_limit"] = limit
 
 
+def _resolve_instance(value: Value) -> Any:
+    """
+    Unwraps a marshaled script value into a StructInstance.
+
+    Args:
+        value (Value): The marshaled argument (usually a ValueExternal).
+
+    Returns:
+        Any: The StructInstance payload.
+
+    Raises:
+        TypeError: If the value does not wrap a struct instance.
+    """
+
+    from src.core.database.instance import StructInstance
+
+    payload: Any = value.get()
+
+    if isinstance(payload, Value):
+        payload = payload.get()
+
+    if not isinstance(payload, StructInstance):
+        raise TypeError(
+            "Expected a struct instance, got "
+            f"'{type(payload).__name__}'"
+        )
+
+    return payload
+
+
+class PinFunction(ScopeAwareFunction):
+    """
+    Native pin(elt): keeps a struct instance resident in the decode
+    cache. Pinned instances are never evicted by clear_cache() or the
+    buffer pool bound (the model stays hot for free).
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> None:
+        """
+        Pins the instance.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The instance to pin.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("pin takes exactly one argument")
+
+        _resolve_instance(value=args[0]).pinned = True
+
+        return None
+
+
+class UnpinFunction(ScopeAwareFunction):
+    """
+    Native unpin(elt): releases a pin, making the instance evictable
+    again once it is clean.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> None:
+        """
+        Unpins the instance.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The instance to unpin.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("unpin takes exactly one argument")
+
+        _resolve_instance(value=args[0]).pinned = False
+
+        return None
+
+
+class FlushFunction(ScopeAwareFunction):
+    """
+    Native flush(): writes all dirty instances to the database file as
+    delta rows. Requires the database to be file-backed; returns the
+    number of instances written.
+    """
+
+    def __init__(self, database: Any) -> None:
+        """
+        Initializes the FlushFunction instance.
+
+        Args:
+            database (Any): Database to write back to.
+        """
+
+        self.database: Any = database
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Flushes dirty instances.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): Arguments (rejected; flush takes none).
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Raises:
+            TypeError: On any argument.
+        """
+
+        if args or kwargs:
+            raise TypeError("flush takes no arguments")
+
+        return int(self.database.flush())
+
+
+class ClearCacheFunction(ScopeAwareFunction):
+    """
+    Native clear_cache(): evicts all clean, unpinned instances from the
+    decode caches. Returns the number of evicted instances.
+    """
+
+    def __init__(self, database: Any) -> None:
+        """
+        Initializes the ClearCacheFunction instance.
+
+        Args:
+            database (Any): Database whose caches to clear.
+        """
+
+        self.database: Any = database
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Clears the decode caches.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): Arguments (rejected; takes none).
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Raises:
+            TypeError: On any argument.
+        """
+
+        if args or kwargs:
+            raise TypeError("clear_cache takes no arguments")
+
+        return int(self.database.clear_cache())
+
+
+class RemoveFromDbFunction(ScopeAwareFunction):
+    """
+    Native remove_from_db(elt): removes an instance from the database
+    and appends a tombstone to the file (when file-backed), so the
+    removal survives reloads. The entity id is never reused.
+    """
+
+    def __init__(self, database: Any) -> None:
+        """
+        Initializes the RemoveFromDbFunction instance.
+
+        Args:
+            database (Any): Database to remove from.
+        """
+
+        self.database: Any = database
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> None:
+        """
+        Removes the instance and persists the tombstone.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The instance to remove.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("remove_from_db takes exactly one argument")
+
+        instance: Any = _resolve_instance(value=args[0])
+
+        self.database.remove_instance(instance=instance)
+
+        if self.database.storage_path is not None:
+
+            from src.core.database.persistence.dumper import (
+                append_instance_removal,
+            )
+
+            append_instance_removal(
+                database=self.database,
+                storage_path=self.database.storage_path,
+                entity_id=instance.entity_id.value,
+            )
+
+        return None
+
+
 class DictCollectionCallable:
     """
     Callable bound to the keys() or values() helper of a typed dict value.
@@ -688,6 +921,8 @@ def build_type_globals() -> dict[str, Any]:
         "set_learnable": SetLearnableFunction(),
         "set_trackable": SetTrackableFunction(),
         "detach": DetachFunction(),
+        "pin": PinFunction(),
+        "unpin": UnpinFunction(),
         "array_to_tensor": array_to_tensor,
         "tensor_to_array": tensor_to_array,
         "get_batch_of_partition": get_batch_of_partition,

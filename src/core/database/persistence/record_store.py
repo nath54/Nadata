@@ -8,6 +8,7 @@ framing header, so documents larger than a single page slot are supported.
 
 # Import Modules
 from __future__ import annotations
+from collections import OrderedDict
 from typing import Optional
 
 from src.core.database.page_manager import PageManager
@@ -51,6 +52,7 @@ class RecordStore:
         self.page_manager: PageManager = page_manager
         self.next_document_id: int = next_document_id
         self._current_page: Optional[SlottedPage] = None
+        self._locations_cache: Optional[dict[int, list[tuple[int, int]]]] = None
 
     def put_document(self, payload: bytes) -> int:
         """
@@ -62,6 +64,8 @@ class RecordStore:
         Returns:
             int: The document id assigned to the stored document.
         """
+
+        self._locations_cache = None
 
         doc_id: int = self.next_document_id
         self.next_document_id += 1
@@ -113,6 +117,90 @@ class RecordStore:
             doc_id: b"".join(chunks[doc_id][index] for index in range(chunk_counts[doc_id]))
             for doc_id in sorted(chunks)
         }
+
+    def document_locations(self) -> dict[int, list[tuple[int, int]]]:
+        """
+        Indexes every stored document without reassembling payloads.
+
+        Scans the slot directories of all pages, recording where each
+        document's chunk records live. The result is the O(rows) memory
+        footprint of an open database; payloads are re-read on demand
+        through read_document. The index is cached until the next write.
+
+        Returns:
+            dict[int, list[tuple[int, int]]]: Document id to its chunk
+                locations as (page_id, slot_index) pairs.
+        """
+
+        if self._locations_cache is not None:
+            return self._locations_cache
+
+        locations: dict[int, list[tuple[int, int]]] = {}
+
+        for page_id in range(self.page_manager.next_page_id):
+
+            page: SlottedPage = self.page_manager.get_page(page_id=page_id)
+
+            for slot_index in range(page.slot_count):
+
+                record: bytes = page.read_record(slot_index=slot_index)
+
+                doc_id: int = int.from_bytes(
+                    record[0:4], byteorder="little"
+                )
+
+                locations.setdefault(doc_id, []).append(
+                    (page_id, slot_index)
+                )
+
+        self._locations_cache = locations
+
+        return locations
+
+    def read_document(self, doc_id: int) -> bytes:
+        """
+        Reassembles one stored document from its chunk records.
+
+        Args:
+            doc_id (int): The document id to read.
+
+        Returns:
+            bytes: The reassembled document payload.
+
+        Raises:
+            KeyError: If the document id is unknown.
+        """
+
+        locations: dict[int, list[tuple[int, int]]] = (
+            self.document_locations()
+        )
+
+        chunk_locations: Optional[list[tuple[int, int]]] = locations.get(doc_id)
+
+        if not chunk_locations:
+            raise KeyError(f"Unknown document id {doc_id}")
+
+        chunks: dict[int, bytes] = {}
+        chunk_count: int = 0
+
+        for page_id, slot_index in chunk_locations:
+
+            page: SlottedPage = self.page_manager.get_page(page_id=page_id)
+
+            record: bytes = page.read_record(slot_index=slot_index)
+
+            chunk_index: int = int.from_bytes(
+                record[4:6], byteorder="little"
+            )
+            chunk_count = int.from_bytes(
+                record[6:8], byteorder="little"
+            )
+
+            chunks[chunk_index] = record[self.CHUNK_HEADER_SIZE:]
+
+        return b"".join(
+            chunks[index] for index in range(chunk_count)
+        )
 
     def _insert_record(self, record: bytes) -> None:
         """

@@ -127,6 +127,7 @@ class NaDataDatabase:
             storage_path=storage_path,
             max_cached_pages=max_cached_pages
         )
+        self.storage_path: Optional[str] = storage_path
 
         self.tables_by_type_id: dict[int, StructTable] = {}
         self.tables_by_struct_name: dict[str, StructTable] = {}
@@ -197,6 +198,73 @@ class NaDataDatabase:
             self.symbols[symbol] = instance.entity_id
 
         return instance
+
+    def remove_instance(self, instance: StructInstance) -> None:
+        """
+        Removes an instance from its table and the decoder caches.
+
+        Purely in-memory: persistence of the removal requires a
+        subsequent tombstone append (remove_from_db / flush with
+        tombstone support). The entity id is never reused.
+
+        Args:
+            instance (StructInstance): The instance to remove.
+        """
+
+        table: Optional[StructTable] = self.tables_by_type_id.get(
+            instance.entity_id.type_id
+        )
+
+        if table is None:
+            return
+
+        if (
+            table.instances.__contains__(instance.entity_id.local_id)
+            and table.instances[instance.entity_id.local_id] is instance
+        ):
+            del table.instances[instance.entity_id.local_id]
+
+        decoder: Any = getattr(table.instances, "decoder", None)
+
+        if decoder is not None:
+            decoder.remove_entity(entity_id=instance.entity_id.value)
+
+    def flush(self) -> int:
+        """
+        Writes all dirty instances to the database file as delta rows.
+
+        Returns:
+            int: Number of instances written (0 if there is no file).
+        """
+
+        if self.storage_path is None:
+            return 0
+
+        from src.core.database.persistence.dumper import flush_dirty_instances
+
+        return flush_dirty_instances(database=self, storage_path=self.storage_path)
+
+    def clear_cache(self) -> int:
+        """
+        Evicts all clean, unpinned instances from the decode caches.
+
+        Returns:
+            int: Number of instances evicted (0 if there is no file).
+        """
+
+        if self.storage_path is None:
+            return 0
+
+        evicted: int = 0
+
+        for table in self.tables_by_type_id.values():
+
+            decoder: Any = getattr(table.instances, "decoder", None)
+
+            if decoder is not None:
+                evicted += decoder.evict_clean()
+
+        return evicted
 
     def get_by_id(self, entity_id: EntityId | int) -> Optional[StructInstance]:
         """

@@ -472,6 +472,213 @@ def append_database_changes(database: NaDataDatabase, storage_path: str) -> int:
     return written
 
 
+def flush_dirty_instances(database: NaDataDatabase, storage_path: str) -> int:
+    """
+    Appends only instances flagged dirty since their last persistence.
+
+    The streaming write-back path: no reference file is loaded and no
+    diff is computed — the dirty flags (and tensor version snapshots)
+    decide what is written. Appended batch rows override earlier rows
+    for the same entity id on the next load. After a successful flush,
+    written instances are marked clean.
+
+    Args:
+        database (NaDataDatabase): Database whose dirty instances to
+            write.
+        storage_path (str): Path to the existing .ndb file to extend.
+
+    Returns:
+        int: Number of instances written.
+
+    Raises:
+        ValueError: If the file does not exist.
+    """
+
+    if not os.path.exists(storage_path):
+        raise ValueError(
+            f"Storage path '{storage_path}' does not exist: "
+            f"use dump_database for an initial full dump"
+        )
+
+    page_manager: PageManager = PageManager(storage_path=storage_path)
+    probe: RecordStore = RecordStore(page_manager=page_manager)
+    document_count: int = len(probe.document_locations())
+
+    record_store: RecordStore = RecordStore(
+        page_manager=page_manager,
+        next_document_id=document_count,
+    )
+
+    meta_doc: dict[str, Any] = {
+        "kind": "meta",
+        "format_version": FORMAT_VERSION,
+        "next_type_id": database.next_type_id,
+        "settings": dict(database.settings),
+    }
+    record_store.put_document(payload=_json_bytes(doc=meta_doc))
+
+    written: int = 0
+
+    for table in database.tables_by_struct_name.values():
+
+        struct: Struct = table.struct
+        columns: list[str] = list(struct.get_all_attributes().keys())
+        types: dict[str, Any] = {
+            name: struct.get_attribute(name=name).attr_type  # type: ignore[union-attr]
+            for name in columns
+        }
+
+        dirty_rows: list[tuple[int, bytes]] = []
+        dirty_instances: list[StructInstance] = []
+        row_payloads: dict[int, bytes] = {}
+        seen: set[int] = set()
+
+        decoder: Any = getattr(table.instances, "decoder", None)
+
+        if decoder is not None:
+            for entity_id in decoder.dirty_decoded_entity_ids():
+
+                instance: Optional[StructInstance] = (
+                    decoder.decoded.get(entity_id)
+                )
+
+                if instance is None or entity_id in seen:
+                    continue
+
+                seen.add(entity_id)
+                dirty_instances.append(instance)
+
+        for instance in dict.values(table.instances):
+
+            if not instance.dirty or instance.entity_id.value in seen:
+                continue
+
+            seen.add(instance.entity_id.value)
+            dirty_instances.append(instance)
+
+        for instance in dirty_instances:
+
+            row_payload: bytes = encode_row(
+                attributes=instance.attributes,
+                columns=columns,
+                types=types,
+            )
+
+            dirty_rows.append((instance.entity_id.value, row_payload))
+            row_payloads[instance.entity_id.value] = row_payload
+
+        for offset in range(0, len(dirty_rows), ROWS_PER_BATCH):
+
+            batch: list[tuple[int, bytes]] = (
+                dirty_rows[offset:offset + ROWS_PER_BATCH]
+            )
+
+            batch_payload: bytes = encode_batch_document(
+                struct_name=struct.name,
+                columns=columns,
+                rows=batch,
+                max_local_id=max(
+                    (
+                        EntityId(value=entity_id).local_id
+                        for entity_id, _ in batch
+                    ),
+                    default=0,
+                ),
+            )
+
+            record_store.put_document(payload=batch_payload)
+            written += len(batch)
+
+        for instance in dirty_instances:
+
+            instance.dirty = False
+
+            if decoder is not None:
+                decoder.mark_clean(instance=instance)
+
+        # Re-point row indexes at the freshly written payloads so a later
+        # eviction re-decodes the new state, not the superseded row
+        if decoder is not None:
+            for instance in dirty_instances:
+
+                decoder.reregister_static_row(
+                    entity_id=instance.entity_id.value,
+                    struct_name=struct.name,
+                    columns=columns,
+                    types=types,
+                    payload=row_payloads[instance.entity_id.value],
+                )
+
+    page_manager.flush()
+
+    return written
+
+
+def append_instance_removal(
+    database: NaDataDatabase,
+    storage_path: str,
+    entity_id: int,
+) -> None:
+    """
+    Appends a tombstone removing one entity from the stored database.
+
+    The tombstone is a replay-log record: the loader drops the entity
+    (and any pending row for it) when it reaches this document.
+
+    Args:
+        database (NaDataDatabase): Database the entity belongs to (its
+            settings ride along in the meta doc).
+        storage_path (str): Path to the existing .ndb file to extend.
+        entity_id (int): Global 64-bit entity handle to remove.
+
+    Raises:
+        ValueError: If the file does not exist.
+    """
+
+    if not os.path.exists(storage_path):
+        raise ValueError(
+            f"Storage path '{storage_path}' does not exist: "
+            f"use dump_database for an initial full dump"
+        )
+
+    page_manager: PageManager = PageManager(storage_path=storage_path)
+    probe: RecordStore = RecordStore(page_manager=page_manager)
+    document_count: int = len(probe.document_locations())
+
+    record_store: RecordStore = RecordStore(
+        page_manager=page_manager,
+        next_document_id=document_count,
+    )
+
+    meta_doc: dict[str, Any] = {
+        "kind": "meta",
+        "format_version": FORMAT_VERSION,
+        "next_type_id": database.next_type_id,
+        "settings": dict(database.settings),
+    }
+    record_store.put_document(payload=_json_bytes(doc=meta_doc))
+
+    tombstone_doc: dict[str, Any] = {
+        "kind": "instance_removal",
+        "entity_id": entity_id,
+    }
+    record_store.put_document(payload=_json_bytes(doc=tombstone_doc))
+
+    # Drop any pending row index entry so the dead row is never decoded
+    type_id: int = EntityId(value=entity_id).type_id
+
+    if type_id in database.tables_by_type_id:
+
+        decoder: Any = getattr(
+            database.tables_by_type_id[type_id].instances, "decoder", None
+        )
+
+        if decoder is not None:
+            decoder.remove_entity(entity_id=entity_id)
+
+    page_manager.flush()
+
+
 def _reference_attributes(
     instances: Any,
     local_id: int,

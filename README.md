@@ -42,8 +42,12 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
 - **Runtime introspection** — `elt.id`, `type(x)`, `elt.list_attr()` /
   `list_methods()`, schema-constrained `getattr`/`setattr`, and database-wide
   `schema_classes()` / `schema_functions()`
-- **Persistence** — whole-database dumps and incremental delta appends to a
-  single `.ndb` file
+- **Persistence** — whole-database dumps, dirty-only delta appends, and
+  removal tombstones to a single `.ndb` file
+- **Bounded memory** — disk-backed lazy rows (~50 bytes/row index), a
+  bounded LRU decode cache with clean-only eviction, `pin`/`unpin`,
+  `flush`/`clear_cache`, and `remove_from_db` from scripts — stream
+  millions of rows while the model stays hot
 - **Autograd and training** — tape-based reverse-mode differentiation on Float
   tensors (arithmetic, `matmul`, reductions, shape ops, `gather`, slices,
   `relu`), seeded data partitioning for train/valid/test splits, and built-in

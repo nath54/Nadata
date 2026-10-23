@@ -15,13 +15,12 @@ from src.core.database.database import NaDataDatabase
 from src.core.database.entity_id import EntityId
 from src.core.database.instance import StructInstance
 from src.core.database.persistence.binary_cells import (
-    decode_batch_document,
+    decode_batch_row_spans,
     decode_row,
     decode_varint,
 )
 from src.core.database.persistence.lazy_instances import (
     LazyInstanceDict,
-    PendingRow,
     RowDecoder,
 )
 from src.core.database.persistence.record_store import RecordStore
@@ -131,11 +130,14 @@ def load_database(storage_path: str) -> NaDataDatabase:
     codec: ObjectCodec = ObjectCodec()
     context: DecodeContext = DecodeContext()
 
-    documents: list[dict[str, Any]] = [
-        json.loads(payload.decode("utf-8"))
-        for payload in record_store.read_all_documents().values()
-        if _is_json_document(payload=payload)
-    ]
+    documents: list[dict[str, Any]] = []
+
+    for doc_id in sorted(record_store.document_locations()):
+
+        payload: bytes = record_store.read_document(doc_id=doc_id)
+
+        if _is_json_document(payload=payload):
+            documents.append(json.loads(payload.decode("utf-8")))
 
     meta_docs: list[dict[str, Any]] = [
         doc for doc in documents if doc.get("kind") == "meta"
@@ -181,31 +183,40 @@ def load_database(storage_path: str) -> NaDataDatabase:
             function: Any = codec.decode(data=doc["method"], context=context)
             database.register_function(function=cast(StructMethod, function))
 
-    # Phase 4: instances. Binary v2 batches register rows lazily; legacy
-    # v1 JSON instance documents decode eagerly with placeholder refs.
+    # Phase 4: instances. Binary v2 batches register rows lazily (as doc
+    # spans — payloads are reassembled one batch at a time and released);
+    # legacy v1 JSON instance documents decode eagerly with placeholder
+    # refs.
     row_decoder: RowDecoder = RowDecoder()
 
     row_decoder.set_struct_lookup(
         lookup=lambda name: context.structs[name],
     )
 
+    row_decoder.set_document_reader(
+        reader=lambda doc_id: record_store.read_document(doc_id=doc_id),
+    )
+
     instance_docs: list[dict[str, Any]] = []
 
-    for payload in record_store.read_all_documents().values():
+    for doc_id in sorted(record_store.document_locations()):
+
+        payload = record_store.read_document(doc_id=doc_id)
+
         if not _is_binary_batch(payload=payload):
             continue
 
         batch_struct_name: str
         columns: list[str]
         max_local_id: int
-        rows: list[tuple[int, bytes]]
+        rows: list[tuple[int, int, int]]
 
         (
             batch_struct_name,
             columns,
             max_local_id,
             rows,
-        ) = decode_batch_document(payload=payload)
+        ) = decode_batch_row_spans(payload=payload)
 
         if batch_struct_name not in context.structs:
             raise KeyError(
@@ -222,17 +233,21 @@ def load_database(storage_path: str) -> NaDataDatabase:
             struct_name=batch_struct_name,
         )
 
-        for entity_id, row_payload in rows:
-            row_decoder.register(
-                row=PendingRow(
-                    entity_id=entity_id,
-                    struct_name=batch_struct_name,
-                    columns=columns,
-                    types=types,
-                    payload=row_payload,
-                )
-            )
+        row_decoder.register_table(
+            struct_name=batch_struct_name,
+            table=table.instances,
+        )
 
+        row_decoder.register_batch(
+            struct_name=batch_struct_name,
+            columns=columns,
+            types=types,
+            doc_id=doc_id,
+            rows=rows,
+            fetch=row_decoder.fetch_document_span,
+        )
+
+        for entity_id, _row_offset, _row_length in rows:
             table.next_local_id = max(
                 table.next_local_id,
                 EntityId(value=entity_id).local_id + 1,
@@ -282,6 +297,25 @@ def load_database(storage_path: str) -> NaDataDatabase:
         local_id: int = loaded_instance.entity_id.local_id
         table.instances[local_id] = loaded_instance
         table.next_local_id = max(table.next_local_id, local_id + 1)
+
+        # Persisted state: legacy rows start clean so flush() skips them
+        loaded_instance.dirty = False
+
+    # Phase 5.5: removal tombstones (replay order — applied after all
+    # instance documents so a removal wins over the row it deletes)
+    for doc in documents:
+        if doc.get("kind") != "instance_removal":
+            continue
+
+        removed_entity_id: int = int(doc["entity_id"])
+
+        row_decoder.remove_entity(entity_id=removed_entity_id)
+
+        type_id: int = EntityId(value=removed_entity_id).type_id
+
+        if type_id in database.tables_by_type_id:
+            removed_table = database.tables_by_type_id[type_id]
+            dict.pop(removed_table.instances, EntityId(value=removed_entity_id).local_id, None)  # noqa: E501
 
     # Phase 6: symbol bindings (merged, so incremental appends can extend)
     for doc in documents:

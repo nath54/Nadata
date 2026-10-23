@@ -691,6 +691,22 @@ The limit is a database setting — change it with the native
 `set_loop_limit(n)` from script code or `app.set_loop_limit(n)` from Python;
 the value persists in the `.ndb` meta document.
 
+### 6.8b Memory control
+
+File-backed scripts can manage the decode cache and persistence
+explicitly (see `docs/persistence.md` for the memory model):
+
+```text
+pin(model);                       // keep an instance resident (never evicted)
+unpin(model);                     // release the pin
+count = flush();                  // write all dirty instances as delta rows
+count = clear_cache();            // evict clean, unpinned instances
+remove_from_db(old_row);          // remove + append a tombstone (ids never reused)
+```
+
+`flush()` and `clear_cache()` return the number of instances written or
+evicted; `remove_from_db` persists the removal immediately.
+
 **For-in** — iterate an array's elements (or a dict's keys / values). The
 loop variable is **always typed** and scoped to the loop body:
 

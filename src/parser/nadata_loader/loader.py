@@ -34,6 +34,9 @@ from src.core.expressions.statement import (
 from src.core.database.database import NaDataDatabase
 from src.core.database.instance import StructInstance
 from src.core.expressions.builtins import (
+    ClearCacheFunction,
+    FlushFunction,
+    RemoveFromDbFunction,
     SchemaClassesFunction,
     SchemaFunctionsFunction,
     SetLoopLimitFunction,
@@ -780,6 +783,9 @@ class NaDataLoader:
         globals_dict["schema_classes"] = SchemaClassesFunction(database=database)
         globals_dict["schema_functions"] = SchemaFunctionsFunction(database=database)
         globals_dict["set_loop_limit"] = SetLoopLimitFunction(database=database)
+        globals_dict["flush"] = FlushFunction(database=database)
+        globals_dict["clear_cache"] = ClearCacheFunction(database=database)
+        globals_dict["remove_from_db"] = RemoveFromDbFunction(database=database)
 
         # Shared loop fuel, seeded from the persisted settings
         globals_dict[LOOP_FUEL_KEY] = LoopFuel(

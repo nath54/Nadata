@@ -47,6 +47,11 @@ class StructInstance:
         struct (Struct): Schema struct definition.
         entity_id (EntityId): Globally unique 64-bit entity handle.
         attributes (dict[str, Value]): Stored attribute Values.
+        dirty (bool): True when the instance differs from its stored
+            (or not-yet-stored) state; set by mutation, cleared by the
+            flush write-back. New instances start dirty.
+        pinned (bool): True when explicitly kept resident; pinned
+            instances are never evicted from the decode cache.
     """
 
     def __init__(
@@ -67,6 +72,8 @@ class StructInstance:
         self.struct: Struct = struct
         self.entity_id: EntityId = entity_id
         self.attributes: dict[str, Value] = attributes if attributes is not None else {}
+        self.dirty: bool = True
+        self.pinned: bool = False
 
     def get_attribute(self, name: str) -> Value:
         """
@@ -290,6 +297,7 @@ class StructInstance:
             value = make_value(value_type=attr_def.attr_type, raw=value.get())
 
         self.attributes[name] = value
+        self.dirty = True
 
     def set_creation_attributes(self, values: dict[str, Value]) -> None:
         """

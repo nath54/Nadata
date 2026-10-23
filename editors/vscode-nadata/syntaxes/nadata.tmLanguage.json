@@ -145,7 +145,7 @@
 		},
 		"builtin-function-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "\\b(print|zeros|fill|eye|randn|arange|sin|cos|abs|exp|sqrt|log|pow|backward|set_learnable|set_trackable|detach|array_to_tensor|tensor_to_array|get_batch_of_partition|get_partition_iteration_count|SGD)(?=\\s*\\()"
+			"match": "\\b(print|zeros|fill|eye|randn|arange|sin|cos|abs|exp|sqrt|log|pow|backward|set_learnable|set_trackable|detach|array_to_tensor|tensor_to_array|get_batch_of_partition|get_partition_iteration_count|SGD|Adam|pin|unpin|flush|clear_cache|remove_from_db)(?=\\s*\\()"
 		},
 		"builtin-method-call": {
 			"name": "support.function.builtin.nadata",

@@ -971,3 +971,48 @@ def decode_batch_document(
         offset += row_len
 
     return header["struct_name"], header["columns"], header["max_local_id"], rows
+
+
+def decode_batch_row_spans(
+    payload: bytes,
+) -> tuple[str, list[str], int, list[tuple[int, int, int]]]:
+    """
+    Parses a binary batch document into its header and row locations.
+
+    Like decode_batch_document, but rows are returned as (entity id,
+    offset, length) spans into the payload instead of copied slices, so
+    callers can hold locations rather than bytes.
+
+    Args:
+        payload (bytes): The batch document payload.
+
+    Returns:
+        tuple[str, list[str], int, list[tuple[int, int, int]]]: Struct
+            name, column names, max local id, and (entity id, offset,
+            length) spans.
+    """
+
+    header_len: int
+    header_len, offset = decode_varint(payload=payload, offset=0)
+
+    header: dict[str, Any] = json.loads(
+        payload[offset:offset + header_len].decode("utf-8")
+    )
+
+    offset += header_len
+
+    spans: list[tuple[int, int, int]] = []
+
+    for _ in range(header["row_count"]):
+
+        entity_id: int
+        entity_id, offset = decode_varint(payload=payload, offset=offset)
+
+        row_len: int
+        row_len, offset = decode_varint(payload=payload, offset=offset)
+
+        spans.append((entity_id, offset, row_len))
+
+        offset += row_len
+
+    return header["struct_name"], header["columns"], header["max_local_id"], spans

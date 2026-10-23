@@ -28,6 +28,7 @@ incremental saves simply append more documents.
 | `struct` | A full struct definition: name, parent name, attributes (type, default), methods (real ASTs) |
 | `function` | A standalone function (body stored as a real AST) |
 | `instances` (binary) | A batch of up to 512 rows of one struct in the compact binary row format |
+| `instance_removal` | Tombstone: `entity_id` — the loader drops the entity (and any pending row for it) when it reaches this document |
 | `instance` (legacy v1) | JSON row: `struct_name`, `entity_id`, attribute map — still loaded for old files |
 | `symbols` | A map of symbol name → entity id |
 
@@ -81,6 +82,23 @@ into `StructInstance` objects on first access and are cached. Consequences:
   exactly the rows along the path (cycles are handled via stable shells).
 - Full scans (`where`, `to_list`, aggregation) still decode every scanned
   row — laziness helps selective access, not full-table work.
+
+### Memory model (buffer pool)
+
+Rows are indexed, not copied: each batch document becomes a columnar
+`BatchIndex` (parallel arrays of entity ids and payload spans, ~50
+bytes per row measured), and payloads are reassembled one document at
+a time through a bounded cache. Decoded instances live in a bounded
+LRU (`RowDecoder.max_decoded`, default 100k):
+
+- **Clean, unpinned instances evict freely** and re-decode from disk;
+- **Dirty instances never evict** — they are the working set. Dirty is
+  set by `set_attribute` and by in-place tensor mutations (caught via
+  version-counter snapshots); cleared by the flush write-back.
+- **`pin(elt)` keeps an instance resident** (e.g. the model during
+  training); `unpin(elt)` releases it.
+- Later appended batches override earlier rows for the same entity
+  (replay-log semantics), so deltas stack safely.
 
 ## Full dump: `dump_database`
 
@@ -179,10 +197,23 @@ from src.core.database.persistence import (
     dump_database,
     load_database,
     append_database_changes,
+    flush_dirty_instances,
+    append_instance_removal,
     compact_database,
     count_documents,
 )
 ```
+
+## Memory API (scripts and Python)
+
+| Call | Effect |
+|---|---|
+| `flush()` | Writes all dirty instances as delta rows; returns the count. Marks them clean. |
+| `clear_cache()` | Evicts clean, unpinned instances from the decode caches; returns the count. |
+| `pin(elt)` / `unpin(elt)` | Keeps / releases an instance in the decode cache. |
+| `remove_from_db(elt)` | Removes the instance in memory and appends a tombstone (ids are never reused). |
+| `db.flush()` / `db.clear_cache()` | Python equivalents on `NaDataDatabase`. |
+| `db.remove_instance(instance)` | In-memory removal only (no tombstone). |
 
 ## CLI surface
 

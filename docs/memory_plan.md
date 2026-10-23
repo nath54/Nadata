@@ -7,6 +7,22 @@ Planning document — no implementation contract beyond the sequencing at
 the end. Companion to the autograd plan; orthogonal to it (tape work
 does not touch the storage layer).
 
+> **STATUS: IMPLEMENTED (all six steps).** Open is now O(index):
+> `RecordStore.document_locations()` / `read_document()` index chunk
+> locations; batch rows load as columnar `BatchIndex` arrays (~50
+> bytes/row measured) instead of payload copies, with range routing
+> plus replay-order override (latest appended batch wins). Every
+> `StructInstance` carries `dirty` (set by `set_attribute`, cleared by
+> the flush write-back) and `pinned`; in-place tensor mutations are
+> caught by version-counter snapshots. The decode cache is a bounded
+> LRU (`RowDecoder.max_decoded`) with clean-only eviction, a bounded
+> doc-span cache, and a windowed eviction scan. Scripts get `pin`,
+> `unpin`, `flush`, `clear_cache`, and `remove_from_db` (tombstone
+> append, ids never reused); `flush_dirty_instances` writes dirty-only
+> delta rows and re-points row indexes at the new payloads. Acceptance
+> (tests/test_memory.py): 300k rows stream under a 50k decode bound at
+> ~15 s; 1M-row index ≈ 55 MB, load < 1 s.
+
 ---
 
 ## 1. Current state (verified against the code)
