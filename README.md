@@ -151,11 +151,16 @@ edge cases:
 
 Syntax highlighting for `.nastruct` and `.nadata` files ships as a
 VS Code / VSCodium extension in
-[`editors/vscode-nadata`](editors/vscode-nadata):
+[`editors/vscode-nadata`](editors/vscode-nadata). `.vsix` packages are
+not stored in git — build one and install it:
 
 ```bash
-code --install-extension editors/vscode-nadata
+cd editors/vscode-nadata
+npx -y @vscode/vsce package --allow-missing-repository   # -> nadata-support-<version>.vsix
+code --install-extension nadata-support-<version>.vsix
 ```
+
+Packaged releases attach the current `.vsix` to the matching git tag.
 
 A sync test (`tests/test_grammar.py`) keeps the grammar aligned with the
 language: it fails whenever a builtin type, keyword, or scope is missing.

@@ -15,20 +15,7 @@ and compound operators, all primitive and generic types (`Int32`,
 
 ## Install
 
-### From the extension folder (recommended during development)
-
-```bash
-# VS Code
-code --install-extension editors/vscode-nadata
-
-# VSCodium
-codium --install-extension editors/vscode-nadata
-```
-
-Or inside the editor: *Extensions* → *...* menu → *Install from VSIX...*
-→ pick the folder (works in recent versions).
-
-### Packaged as a VSIX
+### Packaged as a VSIX (recommended)
 
 With Node.js available (no global install needed, `npx` fetches the
 packager):
@@ -37,12 +24,13 @@ packager):
 cd editors/vscode-nadata
 npx -y @vscode/vsce package --allow-missing-repository
 # produces nadata-support-<version>.vsix
-codium --install-extension nadata-support-<version>.vsix
 code --install-extension nadata-support-<version>.vsix
+codium --install-extension nadata-support-<version>.vsix
 ```
 
 Generated `.vsix` files are gitignored; rebuild one any time with the
-command above.
+command above. Packaged releases attach the current `.vsix` to the
+matching git tag.
 
 ### Manual copy
 
