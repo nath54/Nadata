@@ -743,6 +743,121 @@ class LastFunction(ScopeAwareFunction):
         return None if found is None else ValueExternal(payload=found)
 
 
+class IndexFunction(ScopeAwareFunction):
+    """
+    Native index(Struct, attribute): build a session-scoped hash index
+    over a scalar attribute for O(1) equality lookups via get_by().
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Builds the index.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding and attribute name.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Returns:
+            Any: External wrapping None (statement-style call).
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 2 or kwargs:
+            raise TypeError("index takes exactly two arguments")
+
+        binding: Any = args[0].get()
+        attribute: Any = args[1].get()
+
+        if not isinstance(attribute, str):
+            raise TypeError(
+                f"index attribute must be a string, "
+                f"got '{type(attribute).__name__}'"
+            )
+
+        table: Any = binding.database.tables_by_struct_name[
+            binding.struct.name
+        ]
+
+        table.create_index(attribute=attribute)
+
+        return ValueExternal(payload=None)
+
+
+class GetByFunction(ScopeAwareFunction):
+    """
+    Native get_by(Struct, attribute, value): equality lookup of an
+    instance. Uses the hash index built by index() when present;
+    otherwise falls back to a scan of the struct's own table.
+
+    Returns the first matching instance, or None when nothing matches.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Resolves the match.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding, attribute name, and
+                raw value.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Returns:
+            Any: External wrapping the instance, or None payload.
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 3 or kwargs:
+            raise TypeError("get_by takes exactly three arguments")
+
+        binding: Any = args[0].get()
+        attribute: Any = args[1].get()
+
+        if not isinstance(attribute, str):
+            raise TypeError(
+                f"get_by attribute must be a string, "
+                f"got '{type(attribute).__name__}'"
+            )
+
+        raw: Any = args[2].get()
+
+        table: Any = binding.database.tables_by_struct_name[
+            binding.struct.name
+        ]
+
+        matches: Any = table.lookup_by_index(attribute=attribute, raw=raw)
+
+        if matches is None:
+
+            # No index: fall back to a scan of this table's rows
+            matches = [
+                instance
+                for instance in dict.values(table.instances)
+                if attribute in instance.attributes
+                and instance.attributes[attribute].get() == raw
+            ]
+
+        if not matches:
+            return None
+
+        return ValueExternal(payload=matches[0])
+
+
 class NidsFunction(ScopeAwareFunction):
     """
     Native nids(Struct): the sorted nid strings of a struct's named
@@ -1209,6 +1324,8 @@ def build_type_globals() -> dict[str, Any]:
         "pin": PinFunction(),
         "unpin": UnpinFunction(),
         "get_by_nid": GetByNidFunction(),
+        "index": IndexFunction(),
+        "get_by": GetByFunction(),
         "first": FirstFunction(),
         "last": LastFunction(),
         "nids": NidsFunction(),
@@ -1267,6 +1384,132 @@ class LengthCallable:
             value_type=TypeInt(num_bits=64, signed=True),
             value=len(raw),
         )
+
+
+class StringCallable:
+    """
+    Callable bound to a typed member of a string value.
+
+    Provides the string manipulation library (upper, lower, strip,
+    split, join, replace, contains, starts_with, ends_with) with strict
+    argument validation, since the raw Python attribute fallback would
+    expose untyped str methods.
+
+    Attributes:
+        target (ValueStr): Receiver string value.
+        member (str): Requested member name.
+    """
+
+    # Members taking zero arguments
+    _ZERO_ARG = ("upper", "lower", "strip")
+
+    # Members taking exactly one string argument
+    _ONE_STR_ARG = ("contains", "starts_with", "ends_with")
+
+    def __init__(self, target: ValueStr, member: str) -> None:
+        """
+        Initializes the StringCallable instance.
+
+        Args:
+            target (ValueStr): Receiver string value.
+            member (str): Requested member name.
+        """
+
+        self.target: ValueStr = target
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Executes the requested string member.
+
+        Args:
+            *args (Value): Evaluated call arguments.
+
+        Returns:
+            Value: Typed result (ValueStr, ValueBool, or ValueArray of
+            Str for split).
+
+        Raises:
+            TypeError: On an unknown member, wrong argument count, or a
+                non-Str argument where a Str is required.
+        """
+
+        raw: str = self.target.get()
+        raw_args: list[Any] = [arg.get() for arg in args]
+
+        if self.member in self._ZERO_ARG:
+            _require_arg_count(args=tuple(raw_args), count=0, member=self.member)
+
+            result: str = getattr(raw, self.member)()
+
+            return ValueStr(value_type=TypeStr(), value=result)
+
+        if self.member in self._ONE_STR_ARG:
+            _require_arg_count(args=tuple(raw_args), count=1, member=self.member)
+
+            if not isinstance(raw_args[0], str):
+                raise TypeError(
+                    f"'{self.member}' expects a Str argument, "
+                    f"got '{type(raw_args[0]).__name__}'"
+                )
+
+            if self.member == "contains":
+                return ValueBool(
+                    value_type=TypeBool(),
+                    value=raw_args[0] in raw,
+                )
+
+            if self.member == "starts_with":
+                return ValueBool(
+                    value_type=TypeBool(),
+                    value=raw.startswith(raw_args[0]),
+                )
+
+            return ValueBool(
+                value_type=TypeBool(),
+                value=raw.endswith(raw_args[0]),
+            )
+
+        if self.member == "split":
+            _require_arg_count(args=tuple(raw_args), count=1, member=self.member)
+
+            if not isinstance(raw_args[0], str):
+                raise TypeError(
+                    f"'split' expects a Str separator, "
+                    f"got '{type(raw_args[0]).__name__}'"
+                )
+
+            return ValueArray(
+                value_type=TypeArray(value_type=TypeStr()),
+                elements=raw.split(raw_args[0]),
+            )
+
+        if self.member == "join":
+            _require_arg_count(args=tuple(raw_args), count=1, member=self.member)
+
+            parts: Any = raw_args[0]
+
+            if not isinstance(parts, list) or not all(
+                isinstance(part, str) for part in parts
+            ):
+                raise TypeError("'join' expects an Array[Str] argument")
+
+            return ValueStr(value_type=TypeStr(), value=raw.join(parts))
+
+        if self.member == "replace":
+            _require_arg_count(args=tuple(raw_args), count=2, member=self.member)
+
+            if not all(isinstance(argument, str) for argument in raw_args):
+                raise TypeError(
+                    "'replace' expects two Str arguments (old, new)"
+                )
+
+            return ValueStr(
+                value_type=TypeStr(),
+                value=raw.replace(raw_args[0], raw_args[1]),
+            )
+
+        raise TypeError(f"Unknown string member '{self.member}'")
 
 
 class SetCallable:

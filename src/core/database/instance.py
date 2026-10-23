@@ -76,6 +76,10 @@ class StructInstance:
         self.pinned: bool = False
         self.nid: Optional[str] = None
 
+        # Owning table (set by StructTable.insert); maintained hash
+        # indexes update through it on writes
+        self.table_ref: Optional[Any] = None
+
     def get_attribute(self, name: str) -> Value:
         """
         Retrieves an attribute Value by name.
@@ -297,8 +301,27 @@ class StructInstance:
         ):
             value = make_value(value_type=attr_def.attr_type, raw=value.get())
 
+        # Capture the previously indexed value before overwriting
+        tracks_index: bool = (
+            self.table_ref is not None and name in self.table_ref.indexes
+        )
+
+        old_indexed: Optional[Any] = None
+
+        if tracks_index and name in self.attributes:
+            old_indexed = self.attributes[name].get()
+
         self.attributes[name] = value
         self.dirty = True
+
+        # Keep hash indexes consistent with the write
+        if tracks_index and self.table_ref is not None:
+            self.table_ref.index_update(
+                attribute=name,
+                old_raw=old_indexed,
+                new_raw=value.get(),
+                local_id=self.entity_id.local_id,
+            )
 
     def apply_upsert(self, values: dict[str, Value]) -> None:
         """

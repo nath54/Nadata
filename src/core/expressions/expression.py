@@ -63,6 +63,7 @@ from src.core.expressions.builtins import (
     LengthCallable,
     QueueCallable,
     SetCallable,
+    StringCallable,
     TensorCallable,
     _is_struct_instance,
     _struct_from_object,
@@ -989,6 +990,21 @@ class MemberAccessExpr(Expression):
         # fallback, which would return untyped builtin dict methods)
         if isinstance(target_obj, ValueDict) and self.member in ("keys", "values"):
             return DictCollectionCallable(value_dict=target_obj, member=self.member)
+
+        # Typed string members (before the Python attr fallback, which
+        # would expose untyped str methods)
+        if isinstance(target_obj, ValueStr):
+
+            if self.member in (
+                "upper", "lower", "strip", "contains", "starts_with",
+                "ends_with", "split", "join", "replace",
+            ):
+                return StringCallable(target=target_obj, member=self.member)
+
+            if self.member != "length":
+                raise AttributeError(
+                    f"Str has no member '{self.member}'"
+                )
 
         # Typed queue members (before the Python attr fallback, which would
         # expose untyped deque / list methods)

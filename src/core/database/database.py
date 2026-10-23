@@ -18,10 +18,43 @@ from src.core.database.queryset import QuerySet
 from src.core.struct.struct_method import StructMethod
 from src.core.database.page_manager import PageManager
 from src.core.database.query_engine import QueryExecutor
+from src.core.types.types import TypeBool, TypeFloat, TypeInt, TypeStr
 
 
 
 
+
+
+def _indexed_raw_of(
+    struct: Struct,
+    instance: StructInstance,
+    attribute: str,
+) -> Optional[Any]:
+    """
+    Returns an instance's raw value for an indexed attribute.
+
+    Absent attributes with a schema default materialize through
+    get_attribute; attributes with neither a stored value nor a default
+    yield None (the row is skipped by the index — it can never match).
+
+    Args:
+        struct (Struct): Table schema.
+        instance (StructInstance): Row to read.
+        attribute (str): Indexed attribute name.
+
+    Returns:
+        Optional[Any]: The raw value, or None when absent.
+    """
+
+    if attribute in instance.attributes:
+        return instance.attributes[attribute].get()
+
+    attr_def: Any = struct.get_attribute(name=attribute)
+
+    if attr_def is not None and attr_def.has_default:
+        return instance.get_attribute(name=attribute).get()
+
+    return None
 
 
 class StructTable:
@@ -33,6 +66,8 @@ class StructTable:
         type_id (int): 16-bit type index in the database.
         instances (dict[int, StructInstance]): Local id -> StructInstance mapping.
         next_local_id (int): Next local id index to assign.
+        indexes (dict[str, dict[Any, set[int]]]): Optional per-attribute
+            hash indexes (raw value -> local ids), session scoped.
     """
 
     def __init__(self, struct: Struct, type_id: int) -> None:
@@ -48,6 +83,7 @@ class StructTable:
         self.type_id: int = type_id
         self.instances: dict[int, StructInstance] = {}
         self.next_local_id: int = 0
+        self.indexes: dict[str, dict[Any, set[int]]] = {}
 
     def insert(self, attributes: Optional[dict[str, Value]] = None) -> StructInstance:
         """
@@ -72,6 +108,13 @@ class StructTable:
         )
 
         self.instances[local_id] = instance
+
+        # Write-back hook for hash index maintenance
+        instance.table_ref = self
+
+        # New rows join any existing hash indexes (defaults included)
+        self.index_instance(instance=instance)
+
         return instance
 
     def get(self, local_id: int) -> Optional[StructInstance]:
@@ -96,6 +139,201 @@ class StructTable:
         """
 
         return list(self.instances.values())
+
+    # --- Hash indexes (session scoped) ---
+
+    def create_index(self, attribute: str) -> None:
+        """
+        Builds a hash index over a scalar attribute of this table.
+
+        Materializes every row once (lazy rows decode), then indexes
+        each instance's value for the attribute — schema defaults
+        included. Incremental maintenance happens through insert,
+        set_attribute, and removal.
+
+        Args:
+            attribute (str): Declared scalar attribute name.
+
+        Raises:
+            AttributeError: If the attribute is not declared.
+            TypeError: If the attribute is not a scalar
+                (Int / Float / Str / Bool).
+        """
+
+        attr_def: Any = self.struct.get_attribute(name=attribute)
+
+        if attr_def is None:
+            raise AttributeError(
+                f"Cannot index undeclared attribute '{attribute}' "
+                f"on Struct '{self.struct.name}'"
+            )
+
+        if not isinstance(
+            attr_def.attr_type, (TypeInt, TypeFloat, TypeStr, TypeBool)
+        ):
+            raise TypeError(
+                f"Only scalar attributes (Int / Float / Str / Bool) are "
+                f"indexable, but '{self.struct.name}.{attribute}' is "
+                f"'{repr(attr_def.attr_type)}'"
+            )
+
+        # Build from scratch: materialize lazy rows once
+        if hasattr(self.instances, "materialize_all"):
+            self.instances.materialize_all()
+
+        index: dict[Any, set[int]] = {}
+
+        for local_id, instance in dict.items(self.instances):
+
+            raw: Optional[Any] = _indexed_raw_of(
+                struct=self.struct, instance=instance, attribute=attribute
+            )
+
+            if raw is None:
+                continue
+
+            index.setdefault(raw, set()).add(local_id)
+
+        self.indexes[attribute] = index
+
+    def _index_add(self, attribute: str, raw: Any, local_id: int) -> None:
+        """
+        Adds one local id under an indexed attribute value.
+
+        Args:
+            attribute (str): Indexed attribute name.
+            raw (Any): Raw scalar value.
+            local_id (int): Local instance id.
+        """
+
+        self.indexes[attribute].setdefault(raw, set()).add(local_id)
+
+    def _index_remove(self, attribute: str, raw: Any, local_id: int) -> None:
+        """
+        Removes one local id from an indexed attribute value.
+
+        Args:
+            attribute (str): Indexed attribute name.
+            raw (Any): Previously indexed raw value.
+            local_id (int): Local instance id.
+        """
+
+        entries: Optional[set[int]] = self.indexes[attribute].get(raw)
+
+        if entries is not None:
+            entries.discard(local_id)
+
+            if not entries:
+                self.indexes[attribute].pop(raw, None)
+
+    def index_instance(self, instance: StructInstance) -> None:
+        """
+        Indexes one instance under every existing index of this table.
+
+        Schema defaults materialize through get_attribute, so rows
+        created without explicit values are indexed too.
+
+        Args:
+            instance (StructInstance): The instance to index.
+        """
+
+        if not self.indexes:
+            return
+
+        for attribute in self.indexes:
+
+            raw: Optional[Any] = _indexed_raw_of(
+                struct=self.struct, instance=instance, attribute=attribute
+            )
+
+            if raw is None:
+                continue
+
+            self._index_add(
+                attribute=attribute,
+                raw=raw,
+                local_id=instance.entity_id.local_id,
+            )
+
+    def index_update(
+        self,
+        attribute: str,
+        old_raw: Optional[Any],
+        new_raw: Any,
+        local_id: int,
+    ) -> None:
+        """
+        Re-indexes one instance after an attribute write.
+
+        Args:
+            attribute (str): The written attribute (must be indexed).
+            old_raw (Optional[Any]): Previously indexed raw value, or
+                None when the attribute had no indexed value.
+            new_raw (Any): The new raw value.
+            local_id (int): Local instance id.
+        """
+
+        if old_raw is not None:
+            self._index_remove(
+                attribute=attribute, raw=old_raw, local_id=local_id
+            )
+
+        self._index_add(
+            attribute=attribute, raw=new_raw, local_id=local_id
+        )
+
+    def index_remove_entity(self, local_id: int) -> None:
+        """
+        Drops one local id from every index of this table.
+
+        Args:
+            local_id (int): Local instance id of the removed entity.
+        """
+
+        for index in self.indexes.values():
+
+            for raw in list(index.keys()):
+                index[raw].discard(local_id)
+
+            empty: list[Any] = [
+                raw for raw, entries in index.items() if not entries
+            ]
+
+            for raw in empty:
+                index.pop(raw, None)
+
+    def lookup_by_index(
+        self,
+        attribute: str,
+        raw: Any,
+    ) -> Optional[list[StructInstance]]:
+        """
+        Resolves instances by indexed attribute equality in O(1).
+
+        Args:
+            attribute (str): Indexed attribute name.
+            raw (Any): Raw scalar value to match.
+
+        Returns:
+            Optional[list[StructInstance]]: Matching instances, or None
+            when the attribute has no index (caller falls back).
+        """
+
+        index: Optional[dict[Any, set[int]]] = self.indexes.get(attribute)
+
+        if index is None:
+            return None
+
+        local_ids: Optional[set[int]] = index.get(raw)
+
+        if not local_ids:
+            return []
+
+        return [
+            self.instances[local_id]
+            for local_id in local_ids
+            if local_id in self.instances
+        ]
 
 
 class NaDataDatabase:
@@ -327,6 +565,8 @@ class NaDataDatabase:
             return
 
         self.drop_nids_of_entity(entity_id=instance.entity_id.value)
+
+        table.index_remove_entity(local_id=instance.entity_id.local_id)
 
         if (
             table.instances.__contains__(instance.entity_id.local_id)

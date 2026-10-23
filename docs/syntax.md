@@ -949,6 +949,47 @@ Lookup builtins (O(1) unless noted):
 
 `str(x)` converts a scalar to its string form (useful for building nids).
 
+### 7.7b String members
+
+String values expose a typed manipulation library (results are `Str`,
+`Bool`, or `Array[Str]`; arguments are strictly checked):
+
+| Member | Result |
+|---|---|
+| `s.upper()` / `s.lower()` / `s.strip()` | `Str` |
+| `s.split(sep)` | `Array[Str]` |
+| `sep.join(array)` | `Str` (array must be `Array[Str]`) |
+| `s.replace(old, new)` | `Str`, all occurrences |
+| `s.contains(sub)` / `s.starts_with(p)` / `s.ends_with(sfx)` | `Bool` |
+| `s.length()` | `Int64` character count |
+
+Untyped Python `str` methods are not exposed: unknown members raise.
+
+### 7.7c Hash indexes — `index` / `get_by`
+
+`Struct.where(...)` evaluates a predicate per row (parallel chunked
+scan). When a scalar attribute is queried by **equality** over and
+over, build a session-scoped hash index instead:
+
+```c
+index(User, "email");                    // one-time build (materializes rows)
+u = get_by(User, "email", "bob@x.io");  // O(1) bucket lookup
+```
+
+- Only scalar attributes (`Int` / `Float` / `Str` / `Bool`) are
+  indexable; building materializes lazy rows once (a ~30 ms scan for
+  50k rows) and every later lookup is O(1) versus a full scan.
+- Maintenance is automatic: rows created afterwards join the index
+  (schema defaults included), writes re-index, and removals drop out.
+- Indexes are **session scoped** — they live in memory and are rebuilt
+  by the next `index(...)` call after a reload. Schema evolution drops
+  stale columns before indexing, so removed attributes cannot be
+  indexed.
+- `get_by(Struct, attribute, value)` falls back to a scan of the
+  struct's own table when the attribute is not indexed, so scripts
+  stay correct either way. It consults the struct's own table only —
+  use `Struct.where(...)` for polymorphic scans over subclasses.
+
 Removal: `remove_from_db(elt)` (or `db.remove_instance`) drops the
 instance **and** its nid entries. Re-declaring the nid afterwards creates
 a **new** entity id — ids are never reused.

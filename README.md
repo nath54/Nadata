@@ -30,6 +30,11 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
 - **Typed schema language** — structs, inheritance, attributes with defaults,
   `const` bind-once attributes, methods and computed properties, standalone
   functions
+- **String library and hash indexes** — typed string members (`split`,
+  `join`, `replace`, `contains`, ...), and opt-in per-attribute hash
+  indexes (`index(Human, "email")` + `get_by(Human, "email", x)`) with
+  automatic insert / update / removal maintenance — O(1) equality
+  lookups instead of full scans
 - **Rich type system** — sized integers/floats (`Int32`, `UFloat16`, ...),
   `Str`, `Bool`, `DateTime`, `Color`, `Array[T]`, `Dict[K, V]`, `Set[T]`,
   `Queue[T]` / `PriorityQueue[T, P]`, sparse spatial grids
