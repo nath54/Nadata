@@ -191,9 +191,11 @@ scripts.
 `write_json`, `read_csv` / `write_csv` (array of `dict[Str, Str]`,
 stringly-typed by design — no inference), plus `exists`, `file_hash`,
 `list_dir`, and `get_setting` / `set_setting`. Paths resolve against the
-**project root** (absolute paths pass through; without a project root the
-current working directory is used); file effects are immediate (unlike
-the database, which is gated by `flush()`).
+**project root** and are sandboxed to it: traversal above the root and
+absolute paths raise `PermissionError` in session projects (without a
+project root, the current working directory is used, unconstrained);
+file effects are immediate (unlike the database, which is gated by
+`flush()`).
 
 ```c
 // Config-driven scripts

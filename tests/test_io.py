@@ -585,12 +585,14 @@ class TestMissingComparisons:
 
 class TestPathResolution:
     """
-    io_base rules: project root, CWD fallback, absolute passthrough.
+    io_base rules: project root (sandboxed), CWD fallback, absolute
+    confinement in sessions.
     """
 
-    def test_absolute_path_passthrough(self) -> None:
+    def test_absolute_path_confined_in_session(self) -> None:
         """
-        Absolute paths bypass the project root.
+        Absolute paths are rejected inside a session: scripts can only
+        touch files within their own project.
         """
 
         tmp: Path = Path(tempfile.mkdtemp())
@@ -600,9 +602,8 @@ class TestPathResolution:
         try:
             target: Path = tmp / "abs.txt"
 
-            project.run(f'write_text("{target.as_posix()}", "abs");')
-
-            assert target.read_text(encoding="utf-8") == "abs"
+            with pytest.raises(PermissionError):
+                project.run(f'write_text("{target.as_posix()}", "abs");')
 
         finally:
             project.cleanup()
@@ -693,3 +694,112 @@ class TestSessionAcceptance:
 
         finally:
             shutil.rmtree(folder, ignore_errors=True)
+
+
+class TestPathSandbox:
+    """
+    Session scripts are confined to their own project root: absolute
+    paths and '..' traversal are rejected for every path builtin.
+    """
+
+    def _project(self) -> Any:
+        """
+        Creates a session project with a seeded world.
+
+        Returns:
+            Any: Tuple of (folder Path, Nadata app).
+        """
+
+        folder: Any = Path(tempfile.mkdtemp())
+        (folder / "schema.nastruct").write_text(SCHEMA, encoding="utf-8")
+        (folder / "seed.nadata").write_text(SEED, encoding="utf-8")
+
+        app: Nadata = Nadata.open_folder(folder_path=str(folder))
+
+        return folder, app
+
+    def test_traversal_rejected(self) -> None:
+        """
+        A path escaping the project root raises PermissionError.
+        """
+
+        folder, app = self._project()
+
+        try:
+            with pytest.raises(PermissionError):
+                app.database.io_scope_eval(
+                    'x = read_text("../outside.txt");'
+                ) if hasattr(app.database, "io_scope_eval") else self._run(
+                    app=app,
+                    source='x = read_text("../outside.txt");',
+                )
+
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_absolute_path_rejected_in_session(self) -> None:
+        """
+        Absolute paths do not bypass the sandbox in a session.
+        """
+
+        folder, app = self._project()
+
+        outside: Any = Path(tempfile.mkdtemp()) / "secret.txt"
+        outside.write_text("sensitive", encoding="utf-8")
+
+        try:
+            with pytest.raises(PermissionError):
+                self._run(
+                    app=app,
+                    source=f'x = read_text("{outside.as_posix()}");',
+                )
+
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_deep_traversal_rejected(self) -> None:
+        """
+        Multi-level traversal cannot escape through nested folders.
+        """
+
+        folder, app = self._project()
+
+        try:
+            with pytest.raises(PermissionError):
+                self._run(
+                    app=app,
+                    source='x = file_hash("a/b/../../../etc/escape");',
+                )
+
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_inside_root_still_allowed(self) -> None:
+        """
+        Normal in-project reads keep working.
+        """
+
+        folder, app = self._project()
+
+        try:
+            (folder / "notes.txt").write_text("hello", encoding="utf-8")
+
+            self._run(
+                app=app,
+                source='x = read_text("notes.txt");',
+            )
+
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    @staticmethod
+    def _run(app: Any, source: str) -> None:
+        """
+        Runs one data script against the session app.
+
+        Args:
+            app (Any): The Nadata facade.
+            source (str): .nadata source.
+        """
+
+        app.execute_data(data_text=source)

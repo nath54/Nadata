@@ -1030,9 +1030,12 @@ flush();
 ### 7.9 I/O builtins
 
 File and settings access from scripts. Paths resolve against the
-**project root** (absolute paths pass through; no project root → current
-working directory). File effects are **immediate** — unlike database
-writes, they are not gated by `flush()`.
+**project root** and are **sandboxed to it**: relative paths may not
+traverse above the root (`../`), and absolute paths are rejected — a
+session script can only touch files inside its own project. Without a
+project root (plain library use), paths resolve against the current
+working directory with no confinement. File effects are **immediate** —
+unlike database writes, they are not gated by `flush()`.
 
 | Call | Shape |
 |---|---|

@@ -52,6 +52,12 @@ def _resolve_path(base: Optional[str], raw: Any) -> Path:
     """
     Resolves a script path against the project root.
 
+    When a project root is set (session folders), paths are confined
+    to it: absolute paths and '..' traversal escaping the root are
+    rejected — scripts can only touch files inside their own project.
+    Without a project root, paths resolve against the current working
+    directory (the operator's own machine, no confinement).
+
     Args:
         base (Optional[str]): Project root (None resolves against the
             current working directory).
@@ -62,6 +68,7 @@ def _resolve_path(base: Optional[str], raw: Any) -> Path:
 
     Raises:
         TypeError: If the path argument is not a string.
+        PermissionError: If the path escapes the project root.
     """
 
     if not isinstance(raw, str):
@@ -71,10 +78,24 @@ def _resolve_path(base: Optional[str], raw: Any) -> Path:
 
     path: Path = Path(raw)
 
-    if path.is_absolute() or base is None:
+    if base is None:
         return path
 
-    return Path(base) / path
+    root: Path = Path(base).resolve()
+
+    # Absolute paths resolve directly; relative ones against the root
+    resolved: Path = path.resolve() if path.is_absolute() else (
+        (root / path).resolve()
+    )
+
+    # Sandbox: the resolved path must stay inside the project root
+    if resolved != root and root not in resolved.parents:
+        raise PermissionError(
+            f"Path '{raw}' escapes the project root '{base}' — scripts "
+            f"may only access files inside their own project"
+        )
+
+    return resolved
 
 
 def _scalar_type_of(raw: Any) -> Any:
