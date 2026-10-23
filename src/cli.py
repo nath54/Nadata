@@ -9,11 +9,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 from src.api import Nadata
 from src.console import NadataConsole
 from src.core.database.persistence import compact_database
+from src.session import load_folder_session
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -42,6 +43,29 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Load a project (schemas and data) and execute its scripts.",
     )
     run_parser.add_argument("path", help="Project folder or .nastruct schema file.")
+    run_parser.add_argument(
+        "script",
+        nargs="?",
+        default=None,
+        help="Optional #manual script to run after the session pipeline.",
+    )
+    run_parser.add_argument(
+        "param",
+        nargs="*",
+        default=[],
+        help="Script parameters as name=value pairs.",
+    )
+    run_parser.add_argument("--db", default=None, help="World database file.")
+    run_parser.add_argument(
+        "--no-auto",
+        action="store_true",
+        help="Skip #auto scripts.",
+    )
+    run_parser.add_argument(
+        "--force-init",
+        action="store_true",
+        help="Re-run #init scripts even if their markers exist.",
+    )
 
     info_parser: argparse.ArgumentParser = sub_parsers.add_parser(
         "info",
@@ -65,6 +89,44 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Project folder, schema file, or .ndb file.",
     )
 
+    open_parser: argparse.ArgumentParser = sub_parsers.add_parser(
+        "open",
+        help="Open a project folder session and drop into the console.",
+    )
+    open_parser.add_argument("folder", help="Project folder.")
+    open_parser.add_argument(
+        "--db",
+        default=None,
+        help="World database file (defaults to <folder>/nadata.ndb).",
+    )
+    open_parser.add_argument(
+        "--no-auto",
+        action="store_true",
+        help="Skip #auto scripts (deterministic opens for tests/CI).",
+    )
+    open_parser.add_argument(
+        "--force-init",
+        action="store_true",
+        help="Re-run #init scripts even if their markers exist.",
+    )
+
+    check_parser: argparse.ArgumentParser = sub_parsers.add_parser(
+        "check",
+        help="Run a folder session pipeline without a console (CI gate).",
+    )
+    check_parser.add_argument("folder", help="Project folder.")
+    check_parser.add_argument("--db", default=None, help="World database file.")
+    check_parser.add_argument(
+        "--no-auto",
+        action="store_true",
+        help="Skip #auto scripts.",
+    )
+    check_parser.add_argument(
+        "--force-init",
+        action="store_true",
+        help="Re-run #init scripts even if their markers exist.",
+    )
+
     compact_parser: argparse.ArgumentParser = sub_parsers.add_parser(
         "compact",
         help="Rewrite a .ndb file into a minimal snapshot of its current state.",
@@ -81,7 +143,30 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     try:
         if args.command == "run":
-            return _run_command(path=args.path)
+            return _run_command(
+                path=args.path,
+                script=args.script,
+                params=_parse_param_pairs(pairs=args.param),
+                db_path=args.db,
+                run_auto=not args.no_auto,
+                force_init=args.force_init,
+            )
+
+        if args.command == "open":
+            return _open_command(
+                folder=args.folder,
+                db_path=args.db,
+                run_auto=not args.no_auto,
+                force_init=args.force_init,
+            )
+
+        if args.command == "check":
+            return _check_command(
+                folder=args.folder,
+                db_path=args.db,
+                run_auto=not args.no_auto,
+                force_init=args.force_init,
+            )
 
         if args.command == "info":
             return _info_command(path=args.path)
@@ -100,18 +185,43 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
 
-def _run_command(path: str) -> int:
+def _parse_param_pairs(pairs: list[str]) -> dict[str, str]:
     """
-    Handles the run command: loads the project, executing its scripts.
+    Parses name=value CLI pairs into a dict.
 
     Args:
-        path (str): Project folder or schema file.
+        pairs (list[str]): Raw 'name=value' strings.
 
     Returns:
-        int: Exit code.
+        dict[str, str]: Parsed parameters.
+
+    Raises:
+        ValueError: On a pair without '='.
     """
 
-    nadata: Nadata = Nadata.load(path=path)
+    params: dict[str, str] = {}
+
+    for pair in pairs:
+
+        name, sep, value = pair.partition("=")
+
+        if not sep:
+            raise ValueError(
+                f"Malformed parameter '{pair}' (expected name=value)"
+            )
+
+        params[name] = value
+
+    return params
+
+
+def _print_session_banner(nadata: Nadata) -> None:
+    """
+    Prints the loaded-session summary line.
+
+    Args:
+        nadata (Nadata): The session facade.
+    """
 
     print(
         f"Loaded {len(nadata.struct_names)} struct(s), "
@@ -119,7 +229,120 @@ def _run_command(path: str) -> int:
         f"{len(nadata.function_names)} function(s)."
     )
 
+
+def _run_command(
+    path: str,
+    script: Optional[str] = None,
+    params: Optional[dict[str, str]] = None,
+    db_path: Optional[str] = None,
+    run_auto: bool = True,
+    force_init: bool = False,
+) -> int:
+    """
+    Handles the run command: loads the project, executing its scripts.
+
+    With a script argument this is a headless session run: pipeline
+    (#init once, #auto) followed by the named #manual script. Without
+    one, the legacy project load applies.
+
+    Args:
+        path (str): Project folder or schema file.
+        script (Optional[str], optional): #manual script to run.
+        params (Optional[dict[str, str]], optional): Script parameters.
+        db_path (Optional[str], optional): World database file.
+        run_auto (bool, optional): Run #auto scripts. Defaults True.
+        force_init (bool, optional): Re-run #init. Defaults False.
+
+    Returns:
+        int: Exit code.
+    """
+
+    if script is None:
+        nadata: Nadata = Nadata.load(path=path)
+
+        _print_session_banner(nadata=nadata)
+
+        return 0
+
+    nadata = Nadata.open_folder(
+        folder_path=path,
+        db_path=db_path,
+        run_auto=run_auto,
+        force_init=force_init,
+    )
+
+    nadata.execute_script_file(file_path=script, params=params or {})
+
+    _print_session_banner(nadata=nadata)
+
     return 0
+
+
+def _open_command(
+    folder: str,
+    db_path: Optional[str],
+    run_auto: bool,
+    force_init: bool,
+) -> int:
+    """
+    Handles the open command: session pipeline, then the console.
+
+    Args:
+        folder (str): Project folder.
+        db_path (Optional[str]): World database file.
+        run_auto (bool): Run #auto scripts.
+        force_init (bool): Re-run #init scripts.
+
+    Returns:
+        int: Exit code.
+    """
+
+    nadata: Nadata = Nadata.open_folder(
+        folder_path=folder,
+        db_path=db_path,
+        run_auto=run_auto,
+        force_init=force_init,
+    )
+
+    _print_session_banner(nadata=nadata)
+
+    console: NadataConsole = NadataConsole(app=nadata)
+
+    return console.run()
+
+
+def _check_command(
+    folder: str,
+    db_path: Optional[str],
+    run_auto: bool,
+    force_init: bool,
+) -> int:
+    """
+    Handles the check command: pipeline without a console (CI gate).
+
+    Args:
+        folder (str): Project folder.
+        db_path (Optional[str]): World database file.
+        run_auto (bool): Run #auto scripts.
+        force_init (bool): Re-run #init scripts.
+
+    Returns:
+        int: 0 when the pipeline is clean, 1 otherwise.
+    """
+
+    database: Any
+    result: Any
+
+    database, result = load_folder_session(
+        folder_path=folder,
+        db_path=db_path,
+        run_auto=run_auto,
+        force_init=force_init,
+    )
+
+    print(result.summary())
+
+    return 0 if result.ok() else 1
 
 
 def _info_command(path: str) -> int:

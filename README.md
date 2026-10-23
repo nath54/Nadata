@@ -52,6 +52,11 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   tensors (arithmetic, `matmul`, reductions, shape ops, `gather`, slices,
   `relu`), seeded data partitioning for train/valid/test splits, and built-in
   `SGD` — train models end-to-end in `.nadata` scripts
+- **Sessions & identity** — a project folder is a session: `#init` seeds once
+  per world, `#auto` syncs every open, `#manual` scripts take parameters
+  (`#manual(lr: Float = 0.05)`), and `nid = "name"` gives instances stable,
+  updatable identity (`get_by_nid`, `nids`, `first`/`last`) — schema files
+  re-merge on every open
 - **Interactive console** — `nadata console <path>` REPL over any loaded
   database, with persistent state and expression echoing
 - **Python API** — load, query, mutate, execute raw source, persist

@@ -72,7 +72,11 @@ def parse_struct_method(
         raise SyntaxError(f"Method '{struct_method_name}' refers to unknown struct '{struct_name}'")
 
     # Check the method is not already declared on the struct
-    if struct_method_name in tmp_struct.methods:
+    # (merge mode allows re-declaration: the resolved body replaces)
+    if (
+        struct_method_name in tmp_struct.methods
+        and not parser_state.merge
+    ):
         raise SyntaxError(
             f"Method '{struct_method_name}' is already defined on struct '{struct_name}'"
         )
@@ -127,7 +131,8 @@ def parse_fn(
     )
 
     # Check the function is not already defined
-    if fn_name in parser_state.tmp_functions:
+    # (merge mode allows re-declaration: the resolved body replaces)
+    if fn_name in parser_state.tmp_functions and not parser_state.merge:
         raise SyntaxError(f"Function '{fn_name}' is already defined")
 
     # Register the function in the parser state

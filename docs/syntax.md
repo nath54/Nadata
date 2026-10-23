@@ -881,6 +881,83 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 - The query engine pre-evaluates loop-invariant sub-expressions once
   (e.g. `now` in `h.age(now)` is computed a single time, not per candidate).
 
+### 7.7 Named identity — `nid=`
+
+Instances may carry an optional **named id** for stable, human-meaningful
+addressing. Identity is opt-in: instances declared without `nid=` are
+anonymous and are addressed by `elt.id` (the universal handle).
+
+```c
+// First run: creates the instance and registers "temp_living"
+s1 = Sensor(nid = "temp_living", label = "Living room");
+
+// Any later run with the same nid: partial update IN PLACE —
+// passed attributes are overwritten, the rest are kept, the
+// entity id stays stable. Anonymous declarations always create.
+Sensor(nid = "temp_living", label = "Living room, west");
+
+// Dynamic nids are expressions, not just literals:
+for (i: Int32 in [1, 2, 3]) {
+    Child(nid = "child_" + str(i), name = "Child " + str(i));
+}
+```
+
+Rules:
+
+- The namespace is **per struct**: `nid = "tom"` on `Child` and on `Dog`
+  are independent. The internal key is `Child/tom`.
+- A nid is **immutable** after creation; re-declaring the same nid always
+  upserts the same instance.
+- `nid=` participates in the two-pass loader like any named argument.
+
+Lookup builtins (O(1) unless noted):
+
+| Call | Result |
+|---|---|
+| `get_by_nid(Sensor, "temp_living")` | The instance, or `none`-like absence checked Python-side (`None`) when missing |
+| `nids(Sensor)` | Sorted `Array[Str]` of every nid in the struct's namespace |
+| `elt.nid` | The instance's nid, or an empty payload when anonymous |
+| `first(Human)` / `last(Human)` | First / last instance by entity id order |
+
+`str(x)` converts a scalar to its string form (useful for building nids).
+
+Removal: `remove_from_db(elt)` (or `db.remove_instance`) drops the
+instance **and** its nid entries. Re-declaring the nid afterwards creates
+a **new** entity id — ids are never reused.
+
+### 7.8 Session directives — `#init`, `#auto`, `#manual`
+
+The **first line** of a `.nadata` file may be a directive that tells the
+session loader when the script runs. Without a directive the file is
+`#manual` (explicit invocation only). Directives are comments to the
+parser, so the files remain ordinary scripts.
+
+| Directive | When it runs | Contract |
+|---|---|---|
+| `#init` | Once per world database | Seeding. A content-hash marker in the world's settings; re-opening skips it. A failed init is a free transaction — the world file is untouched (and a fresh world is not created) |
+| `#auto` | Every open (and `:auto`) | Sync/migration. Nothing persists unless the script calls `flush()` |
+| `#manual` | Explicit only (`:run`, `nadata run`) | One-shot jobs. Optional parameter signature on the directive line |
+
+`.nastruct` schema files have no directive: they are **re-merged on every
+open** — re-declared structs / attributes / methods / functions replace
+their previous definitions in place; new ones are added; existing tables,
+type ids, and rows are untouched. Schema evolution is an edit + reopen.
+
+Parameterized manual scripts:
+
+```c
+#manual(lr: Float = 0.05, tag: Str = "baseline")
+kid = get_by_nid(Child, "tom");
+kid.age = kid.age - lr;
+flush();
+```
+
+- Scalar types only (`Int`/`Int32`/`Int64`, `Float`/`Float32`/`Float64`,
+  `Str`, `Bool`); literal defaults. A parameter without a default is
+  required; missing required or unknown names are hard errors before any
+  statement runs; values are coerced per declared type or error.
+- The directive line doubles as self-documentation — `:files` prints it.
+
 ---
 
 ## 8. Punctuation summary

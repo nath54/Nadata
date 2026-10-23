@@ -399,6 +399,7 @@ class NaDataLoader:
         self.instance_bindings: dict[str, ValueExternal] = {}
         self.globals_dict: dict[str, Any] = {}
         self.scope: ExecutionScope = ExecutionScope(globals_dict={})
+        self.prelude: dict[str, Value] = {}
         self.type_resolver: TypeResolver = TypeResolver()
         self.type_resolver.struct_provider = self._resolve_struct_type
         self._type_cache: dict[str, Any] = {}
@@ -904,6 +905,9 @@ class NaDataLoader:
         self.scope = ExecutionScope(globals_dict=self.globals_dict)
 
         self.scope.variables.update(previous_variables)
+
+        # Pre-bound parameters (#manual signatures) override carried vars
+        self.scope.variables.update(self.prelude)
 
         # One autograd tape per execution pass; gradients deposited on
         # attributes survive, the tape itself is discarded

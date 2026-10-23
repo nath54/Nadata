@@ -54,6 +54,10 @@ class NaStructParserState:
         self.tmp_structs: dict[str, TmpStruct] = {}
         self.tmp_functions: dict[str, TmpFunction] = {}
 
+        # When True (session schema re-merge), re-declared structs /
+        # attributes / methods / functions replace instead of raising
+        self.merge: bool = False
+
     def to_ir_dict(self) -> dict[str, Any]:
         """
         Converts the intermediate representation to a plain JSON serializable dict.

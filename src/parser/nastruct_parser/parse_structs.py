@@ -91,10 +91,15 @@ def parse_struct(
         content (str): Text of the file.
     """
 
-    # Check if struct name already exists (tmp and resolved namespaces)
+    # Check if struct name already exists (tmp and resolved namespaces).
+    # In merge mode (session schema re-merge), re-declaring a struct that
+    # already lives in the database is allowed and replaces its members
     if (
         struct_name in parser_state.tmp_structs
-        or struct_name in parser_state.database.tables_by_struct_name
+        or (
+            not parser_state.merge
+            and struct_name in parser_state.database.tables_by_struct_name
+        )
     ):
         raise SyntaxError(f"Struct '{struct_name}' is already defined")
 

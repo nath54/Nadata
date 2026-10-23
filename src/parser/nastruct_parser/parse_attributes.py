@@ -124,7 +124,11 @@ def parse_struct_attribute(
         )
 
     # Check the attribute is not already declared on the struct
-    if attr_name in tmp_struct.attributes:
+    # (merge mode allows re-declaration: the resolved value replaces)
+    if (
+        attr_name in tmp_struct.attributes
+        and not parser_state.merge
+    ):
         raise SyntaxError(
             f"Attribute '{attr_name}' is already defined on struct '{struct_name}'"
         )

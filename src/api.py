@@ -21,6 +21,15 @@ from src.core.database.persistence import (
     dump_database,
     load_database,
 )
+from src.core.database.persistence.dumper import flush_dirty_instances
+from src.session import (
+    MANUAL,
+    ScriptFile,
+    build_prelude,
+    folder_is_session,
+    load_folder_session,
+    parse_script_file,
+)
 from src.core.database.queryset import QuerySet
 from src.core.expressions.expression import LiteralExpr
 from src.core.expressions.scope import ExecutionScope
@@ -181,6 +190,8 @@ class Nadata:
         self.database: NaDataDatabase = database
         self._globals: Optional[dict[str, Any]] = None
         self._scope: Optional[ExecutionScope] = None
+        self.session_folder: Optional[str] = None
+        self.session_db: Optional[str] = None
 
     # --- Construction ---
 
@@ -241,12 +252,20 @@ class Nadata:
         """
         Parses a project folder: schemas first, then data files.
 
+        Folders with directive-marked scripts (#init/#auto/#manual) or an
+        existing nadata.ndb world use session semantics instead: the
+        world opens incrementally, #init runs once, #auto runs, and
+        #manual scripts are left for explicit invocation.
+
         Args:
             folder_path (str): Folder containing .nastruct and .nadata files.
 
         Returns:
             Nadata: The loaded facade.
         """
+
+        if folder_is_session(folder=Path(folder_path)):
+            return cls.open_folder(folder_path=folder_path)
 
         parser: NaStructParser = NaStructParser()
         database: NaDataDatabase = parser.parse_folder(folder_path=folder_path)
@@ -256,6 +275,48 @@ class Nadata:
             loader.load_folder(folder_path=folder_path)
 
         return cls(database=database)
+
+    @classmethod
+    def open_folder(
+        cls,
+        folder_path: str,
+        db_path: Optional[str] = None,
+        run_auto: bool = True,
+        force_init: bool = False,
+    ) -> "Nadata":
+        """
+        Runs the folder session pipeline and binds the session context.
+
+        Args:
+            folder_path (str): Project folder.
+            db_path (Optional[str], optional): World database file
+                (defaults to '<folder>/nadata.ndb'). Defaults to None.
+            run_auto (bool, optional): Whether to run #auto scripts.
+                Defaults to True.
+            force_init (bool, optional): Re-run #init scripts. Defaults
+                to False.
+
+        Returns:
+            Nadata: The facade over the world database, with the session
+                folder and db recorded for console commands.
+        """
+
+        database: NaDataDatabase
+        result: Any
+
+        database, result = load_folder_session(
+            folder_path=folder_path,
+            db_path=db_path,
+            run_auto=run_auto,
+            force_init=force_init,
+        )
+
+        app: Nadata = cls(database=database)
+
+        app.session_folder = str(Path(folder_path))
+        app.session_db = result.db_path
+
+        return app
 
     @classmethod
     def _load_schema_file(cls, file_path: str) -> "Nadata":
@@ -720,6 +781,63 @@ class Nadata:
         loader: NaDataLoader = NaDataLoader(database=self.database)
 
         loader.load_file(content=data_text)
+
+        # New instances and symbols must appear in the runtime globals
+        self._globals = None
+
+    def execute_script_file(
+        self,
+        file_path: str,
+        params: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        Runs one #manual script file with its parameter prelude.
+
+        Args:
+            file_path (str): Script path (resolved against the session
+                folder when the app was opened as a folder session).
+            params (Optional[dict[str, Any]], optional): Parameter values
+                (strings or natives). Defaults to None.
+
+        Raises:
+            ValueError: If the file is missing, not #manual, or the
+                parameters mismatch the declared signature.
+        """
+
+        resolved: Path = Path(file_path)
+
+        if not resolved.is_file() and self.session_folder is not None:
+            resolved = Path(self.session_folder) / file_path
+
+        if not resolved.is_file():
+            raise ValueError(f"Script file not found: '{file_path}'")
+
+        folder: Path = (
+            Path(self.session_folder)
+            if self.session_folder is not None
+            else resolved.parent
+        )
+
+        script: ScriptFile = parse_script_file(path=resolved, folder=folder)
+
+        if script.kind != MANUAL:
+            raise ValueError(
+                f"'{script.rel_path}' is #{script.kind}, not #manual: "
+                f"only #manual scripts run explicitly"
+            )
+
+        loader: NaDataLoader = NaDataLoader(database=self.database)
+
+        loader.prelude = build_prelude(
+            params=script.params,
+            provided=params or {},
+        )
+
+        try:
+            loader.load_file(content=script.text)
+
+        finally:
+            loader.prelude = {}
 
         # New instances and symbols must appear in the runtime globals
         self._globals = None

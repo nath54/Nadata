@@ -1255,11 +1255,14 @@ class LazyInstanceDict(dict):  # type: ignore[type-arg]
         """
         Returns the total instance count (decoded plus pending).
 
+        Row-backed entities that were already decoded stay listed as
+        pending, so the distinct count is the union of both id sets.
+
         Returns:
             int: Instance count.
         """
 
-        return dict.__len__(self) + len(self._pending_keys())
+        return len(set(dict.keys(self)) | self._pending_keys())
 
     def _pending_keys(self) -> set[int]:
         """

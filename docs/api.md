@@ -126,6 +126,76 @@ value in the database settings. See [persistence.md](persistence.md).
 
 ---
 
+## Sessions — folder projects
+
+A project **folder** is a session: schema files (`.nastruct`, always
+re-merged), plus `.nadata` scripts classified by their first-line directive
+— `#init` (once per world), `#auto` (every open), `#manual` (explicit).
+Opening a folder creates or reuses `<folder>/nadata.ndb` (the *world*) and
+runs the pipeline. See [session_plan.md](session_plan.md) and syntax.md
+§7.7–7.8 for the language rules.
+
+```python
+n = Nadata.open_folder("my_project")            # pipeline + session context
+n = Nadata.open_folder("my_project", db_path="worlds/john.ndb")
+                                                # --db: many worlds, one schema
+n = Nadata.open_folder("my_project", run_auto=False)   # --no-auto (deterministic)
+n = Nadata.open_folder("my_project", force_init=True)  # --force-init
+
+n.execute_script_file("calibrate.nadata", {"target": "temp_living"})
+                                                # run one #manual with params
+```
+
+Key guarantees:
+
+- **init once**: `#init` scripts leave a content-hash marker in the world's
+  settings; a failed init persists nothing (and a fresh world is not
+  created). `force_init=True` re-runs them (nid upserts keep ids stable).
+- **failed init aborts the open**: an existing world is reloaded from disk
+  and `#auto` is skipped, so a broken seed can never reach the file.
+- **stable identity**: `nid = "..."` declarations upsert in place — same
+  entity id, passed attributes updated, the rest kept.
+- **schema re-merge**: editing `.nastruct` files and reopening updates
+  structs in place (new members added, re-declared members replaced).
+- **explicit manual**: `#manual` scripts only run via
+  `execute_script_file` / `:run` / `nadata run <folder> <script>`.
+
+### Session CLI
+
+| Command | Behaviour |
+|---|---|
+| `nadata open <folder>` | Run the pipeline, then drop into the console |
+| `nadata run <folder> <script> [k=v ...]` | Pipeline + one `#manual` script with parameters |
+| `nadata check <folder>` | Pipeline only, report, exit 0/1 (CI gate) |
+| `--db <path>` | World database file (relative to the folder) |
+| `--no-auto` / `--force-init` | Skip `#auto` / re-run `#init` |
+
+### Session console commands
+
+| Command | Behaviour |
+|---|---|
+| `:run file.nadata [k=v ...]` | Run a `#manual` script into the persistent scope |
+| `:files` | List the session's scripts and directive signatures |
+| `:reinit [file]` | Re-run `#init` scripts (optionally one file) |
+| `:auto` | Re-run the `#auto` scripts now |
+| `:flush` | Write all dirty instances to the world file |
+
+Console state is **persistent across requests** (notebook semantics):
+`:run` leaves its variables in the scope. Script **files** are stateless —
+they run in fresh globals; the world database is the only channel between
+scripts.
+
+### I/O builtins
+
+`read_text` / `write_text`, `read_lines` / `append_text`, `read_json` /
+`write_json`, `read_csv` / `write_csv` (array of `dict[Str, Str]`,
+stringly-typed by design), plus `exists`, `file_hash`, `list_dir`. Paths
+resolve against the **project root**; file effects are immediate (unlike
+the database, which is gated by `flush()`). *Planned — see
+session_plan.md §3.5.*
+
+---
+
 ## CLI
 
 ```

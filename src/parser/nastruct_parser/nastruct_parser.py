@@ -32,6 +32,25 @@ class NaStructParser:
             database=database
         )
 
+    @property
+    def merge(self) -> bool:
+        """
+        Whether re-declarations replace existing members (schema re-merge).
+        """
+
+        return self.parser_state.merge
+
+    @merge.setter
+    def merge(self, value: bool) -> None:
+        """
+        Enables or disables merge mode for subsequent parsing.
+
+        Args:
+            value (bool): The new merge flag.
+        """
+
+        self.parser_state.merge = value
+
 
     def resolve(self) -> NaDataDatabase:
         """

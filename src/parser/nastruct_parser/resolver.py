@@ -541,25 +541,48 @@ class SchemaResolver:
             else None
         )
 
-        struct: Struct = Struct(name=name, parent=parent)
+        # Merge mode: re-declaring an existing struct reuses its shell —
+        # the instance table, allocated TypeId, and all existing rows
+        # stay untouched; only the member set is updated
+        merge_existing: bool = (
+            self.parser_state.merge
+            and name in self.database.tables_by_struct_name
+        )
 
-        # Register before attributes so self references (e.g. Array[Entity]
-        # inside Entity) resolve to this very struct object
-        self.resolved_structs[name] = struct
-        self.type_resolver.register_struct_type(struct=struct)
-        self.database.register_struct(struct=struct)
+        struct: Struct = (
+            self.database.tables_by_struct_name[name].struct
+            if merge_existing
+            else Struct(name=name, parent=parent)
+        )
+
+        if not merge_existing:
+
+            # Register before attributes so self references (e.g. Array[Entity]
+            # inside Entity) resolve to this very struct object
+            self.resolved_structs[name] = struct
+            self.type_resolver.register_struct_type(struct=struct)
+            self.database.register_struct(struct=struct)
 
         # Resolve attributes and methods
         for tmp_attribute in tmp_struct.attributes.values():
             self.resolve_attribute(struct=struct, tmp_attribute=tmp_attribute)
 
         for tmp_function in tmp_struct.methods.values():
-            struct.add_method(
-                method=self.resolve_callable(
-                    tmp_function=tmp_function,
-                    struct=struct,
-                )
+
+            resolved_method: StructMethod = self.resolve_callable(
+                tmp_function=tmp_function,
+                struct=struct,
             )
+
+            # Merge mode: a re-declared method replaces its previous body
+            if (
+                self.parser_state.merge
+                and resolved_method.name in struct.methods
+            ):
+                struct.methods[resolved_method.name] = resolved_method
+
+            else:
+                struct.add_method(method=resolved_method)
 
         # Validate symbolic tensor dimensions against the resolved attributes
         self._validate_symbolic_dims(struct=struct)
@@ -1001,14 +1024,25 @@ class SchemaResolver:
             )
             has_default = True
 
-        struct.add_attribute(attribute=StructAttribute(
+        # Merge mode: a re-declared attribute replaces its previous
+        # definition in place (same semantics as persistence merge)
+        resolved_attribute: StructAttribute = StructAttribute(
             name=tmp_attribute.attribute_name,
             attr_type=attr_type,
             default_value=default_value,
             has_default=has_default,
             is_const=tmp_attribute.is_const,
             default_expr=default_expr
-        ))
+        )
+
+        if (
+            self.parser_state.merge
+            and tmp_attribute.attribute_name in struct.attributes
+        ):
+            struct.attributes[tmp_attribute.attribute_name] = resolved_attribute
+
+        else:
+            struct.add_attribute(attribute=resolved_attribute)
 
     def _validate_symbolic_dims(self, struct: Struct) -> None:
         """

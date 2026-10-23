@@ -5,6 +5,20 @@ parameterized scripts, inspect in the console — without ever duplicating
 data or re-running expensive work. Two phases: **identity** (`nid`) and
 **sessions** (folder loading with `#init` / `#auto` / `#manual`).
 
+> **STATUS: IMPLEMENTED** — Phase 1 (`2ff58a8`): nid identity, upsert,
+> lookups, persistence, tombstone bookkeeping, `str()` builtin. Phase 2:
+> session pipeline (folder loader, `#init`/`#auto`/`#manual`, markers,
+> failed-init rollback), schema re-merge in the parser, parameter preludes,
+> CLI verbs (`open`/`check`/`run` + `--db`/`--no-auto`/`--force-init`) and
+> console commands (`:run`/`:files`/`:reinit`/`:auto`/`:flush`).
+> **Not implemented:** I/O builtins (§3.5, next arc).
+>
+> Deviations from the text below: a failed `#init` on an existing world
+> reloads the world from disk and skips `#auto` (stricter than "no flush"
+> — pass-1 shells from the broken script can never reach the file), and
+> `LazyInstanceDict.__len__` counts decoded ∪ pending (row-backed decoded
+> entities stay listed as pending).
+
 ---
 
 ## 1. Verified current state
