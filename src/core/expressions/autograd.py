@@ -1062,6 +1062,339 @@ def _backward_relu(
     ]
 
 
+def _backward_sigmoid(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    sigmoid: the gradient scales by y * (1 - y) at the output.
+    """
+
+    output: list[Any] = saved["out"]
+
+    return [
+        [
+            grad[i] * output[i] * (1.0 - output[i])
+            for i in range(len(grad))
+        ]
+    ]
+
+
+def _backward_exp(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    exp: the gradient scales by the output (e^x is its own derivative).
+    """
+
+    output: list[Any] = saved["out"]
+
+    return [[grad[i] * output[i] for i in range(len(grad))]]
+
+
+def _backward_gelu(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    gelu: analytic derivative of the tanh approximation.
+    """
+
+    input_cells: list[Any] = _raw_cells(inputs[0], saved["shapes"][0])
+
+    derivative: list[float] = []
+
+    for cell in input_cells:
+
+        inner: float = _SQRT_2_OVER_PI * (cell + 0.044715 * cell ** 3)
+        tanh_inner: float = math.tanh(inner)
+        cubic: float = _SQRT_2_OVER_PI * (
+            1.0 + 3.0 * 0.044715 * cell ** 2
+        )
+
+        derivative.append(
+            0.5 * (1.0 + tanh_inner)
+            + 0.5 * cell * (1.0 - tanh_inner ** 2) * cubic
+        )
+
+    return [
+        [grad[i] * derivative[i] for i in range(len(grad))]
+    ]
+
+
+def _backward_softmax(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    softmax: per-row Jacobian-free rule da_i = y_i (g_i - sum_j g_j y_j).
+    """
+
+    output: list[Any] = saved["out"]
+    width: int = saved["out_shape"][-1]
+
+    result: list[float] = []
+
+    for row in range(len(output) // width):
+
+        base: int = row * width
+        dot: float = sum(
+            grad[base + i] * output[base + i] for i in range(width)
+        )
+
+        result.extend(
+            output[base + i] * (grad[base + i] - dot)
+            for i in range(width)
+        )
+
+    return [result]
+
+
+def _pool_winners(
+    input_cells: list[Any],
+    in_shape: list[int],
+    kernel: int,
+    stride: int,
+    reducer: str,
+) -> list[int]:
+    """
+    Returns the flat input index of each pooled output cell's winner.
+
+    Args:
+        input_cells (list[Any]): Flat input payload.
+        in_shape (list[int]): Input shape (rank 1 or 2).
+        kernel (int): Pooling window size.
+        stride (int): Stride between windows.
+        reducer (str): 'max' or 'min'.
+
+    Returns:
+        list[int]: One flat input index per output cell.
+    """
+
+    winners: list[int] = []
+
+    if len(in_shape) == 1:
+
+        out_len: int = _valid_length(
+            length=in_shape[0], kernel=kernel, stride=stride
+        )
+
+        for position in range(out_len):
+
+            base: int = position * stride
+            window = range(base, base + kernel)
+            best_index: int = base
+
+            for index in window:
+
+                if reducer == "max":
+                    if input_cells[index] > input_cells[best_index]:
+                        best_index = index
+
+                elif input_cells[index] < input_cells[best_index]:
+                    best_index = index
+
+            winners.append(best_index)
+
+        return winners
+
+    cols: int = in_shape[1]
+    out_rows: int = _valid_length(
+        length=in_shape[0], kernel=kernel, stride=stride
+    )
+    out_cols: int = _valid_length(
+        length=in_shape[1], kernel=kernel, stride=stride
+    )
+
+    for out_row in range(out_rows):
+
+        for out_col in range(out_cols):
+
+            best_index = (out_row * stride) * cols + (out_col * stride)
+
+            for k_row in range(kernel):
+
+                for k_col in range(kernel):
+
+                    flat_index: int = (
+                        (out_row * stride + k_row) * cols
+                        + (out_col * stride + k_col)
+                    )
+
+                    if reducer == "max":
+                        if input_cells[flat_index] > input_cells[best_index]:
+                            best_index = flat_index
+
+                    elif input_cells[flat_index] < input_cells[best_index]:
+                        best_index = flat_index
+
+            winners.append(best_index)
+
+    return winners
+
+
+def _backward_pool_winners(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    max_pool / min_pool: the gradient routes to each window's winner.
+    """
+
+    result: list[float] = [0.0] * _shape_len(saved["in_shape"])
+
+    for output_index, input_index in enumerate(saved["winners"]):
+        result[input_index] += grad[output_index]
+
+    return [result]
+
+
+def _backward_avg_pool(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    avg_pool: the gradient spreads uniformly over each window.
+    """
+
+    in_shape: list[int] = saved["in_shape"]
+    kernel: int = saved["kernel"]
+    stride: int = saved["stride"]
+
+    result: list[float] = [0.0] * _shape_len(in_shape)
+
+    if len(in_shape) == 1:
+
+        out_len: int = _valid_length(
+            length=in_shape[0], kernel=kernel, stride=stride
+        )
+
+        for position in range(out_len):
+
+            contribution: float = grad[position] / kernel
+
+            for offset in range(kernel):
+                result[position * stride + offset] += contribution
+
+        return [result]
+
+    cols: int = in_shape[1]
+    out_rows: int = _valid_length(
+        length=in_shape[0], kernel=kernel, stride=stride
+    )
+    out_cols: int = _valid_length(
+        length=in_shape[1], kernel=kernel, stride=stride
+    )
+
+    for out_row in range(out_rows):
+
+        for out_col in range(out_cols):
+
+            window_grad: float = (
+                grad[out_row * out_cols + out_col] / (kernel * kernel)
+            )
+
+            for k_row in range(kernel):
+
+                for k_col in range(kernel):
+
+                    result[
+                        (out_row * stride + k_row) * cols
+                        + (out_col * stride + k_col)
+                    ] += window_grad
+
+    return [result]
+
+
+def _backward_conv1d(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    conv1d: dS[i] = sum_o g[o] k[i - o*stride]; dK[j] = sum_o g[o] s[o*stride + j].
+    """
+
+    in_shape: list[int] = saved["in_shape"]
+    kernel_shape: list[int] = saved["kernel_shape"]
+    stride: int = saved["stride"]
+    signal: list[Any] = _raw_cells(inputs[0], in_shape)
+    kernel: list[Any] = _raw_cells(inputs[1], kernel_shape)
+
+    signal_grad: list[float] = [0.0] * in_shape[0]
+    kernel_grad: list[float] = [0.0] * kernel_shape[0]
+
+    for out_pos in range(len(grad)):
+
+        output_grad: float = grad[out_pos]
+
+        for offset in range(kernel_shape[0]):
+
+            signal_grad[out_pos * stride + offset] += (
+                output_grad * kernel[offset]
+            )
+            kernel_grad[offset] += (
+                output_grad * signal[out_pos * stride + offset]
+            )
+
+    return [signal_grad, kernel_grad]
+
+
+def _backward_conv2d(
+    grad: list[float],
+    inputs: list[Value],
+    saved: dict[str, Any],
+) -> list[Optional[list[float]]]:
+    """
+    conv2d: transposed scattering of the output gradient over input and
+    kernel (valid cross-correlation, no kernel flip).
+    """
+
+    in_shape: list[int] = saved["in_shape"]
+    kernel_shape: list[int] = saved["kernel_shape"]
+    stride: int = saved["stride"]
+    signal: list[Any] = _raw_cells(inputs[0], in_shape)
+    kernel: list[Any] = _raw_cells(inputs[1], kernel_shape)
+
+    rows: int = in_shape[0]
+    cols: int = in_shape[1]
+    krows: int = kernel_shape[0]
+    kcols: int = kernel_shape[1]
+    out_cols: int = saved["out_shape"][1]
+
+    signal_grad: list[float] = [0.0] * (rows * cols)
+    kernel_grad: list[float] = [0.0] * (krows * kcols)
+
+    for out_row in range(saved["out_shape"][0]):
+
+        for out_col in range(out_cols):
+
+            output_grad: float = grad[out_row * out_cols + out_col]
+
+            for k_row in range(krows):
+
+                for k_col in range(kcols):
+
+                    input_row: int = out_row * stride + k_row
+                    input_col: int = out_col * stride + k_col
+
+                    signal_grad[input_row * cols + input_col] += (
+                        output_grad * kernel[k_row * kcols + k_col]
+                    )
+                    kernel_grad[k_row * kcols + k_col] += (
+                        output_grad * signal[input_row * cols + input_col]
+                    )
+
+    return [signal_grad, kernel_grad]
+
+
 BACKWARD_RULES: dict[str, BackwardRule] = {
     "add": _backward_add,
     "sub": _backward_sub,
@@ -1080,6 +1413,15 @@ BACKWARD_RULES: dict[str, BackwardRule] = {
     "gather": _backward_gather,
     "slice": _backward_slice,
     "relu": _backward_relu,
+    "sigmoid": _backward_sigmoid,
+    "exp": _backward_exp,
+    "gelu": _backward_gelu,
+    "softmax": _backward_softmax,
+    "max_pool": _backward_pool_winners,
+    "min_pool": _backward_pool_winners,
+    "avg_pool": _backward_avg_pool,
+    "conv1d": _backward_conv1d,
+    "conv2d": _backward_conv2d,
     "s_add": _backward_s_add,
     "s_sub": _backward_s_sub,
     "s_mul": _backward_s_mul,
@@ -1100,6 +1442,15 @@ RECORDABLE_MEMBERS: dict[str, str] = {
     "concat": "concat",
     "gather": "gather",
     "relu": "relu",
+    "sigmoid": "sigmoid",
+    "exp": "exp",
+    "gelu": "gelu",
+    "softmax": "softmax",
+    "max_pool": "max_pool",
+    "min_pool": "min_pool",
+    "avg_pool": "avg_pool",
+    "conv1d": "conv1d",
+    "conv2d": "conv2d",
 }
 
 
@@ -1139,7 +1490,8 @@ def maybe_record_member(
         inputs.append(argument)
 
     _fill_member_saved(
-        member=member, receiver=receiver, args=args, saved=saved
+        member=member, receiver=receiver, args=args, saved=saved,
+        result=result,
     )
 
     tape.maybe_record(
@@ -1152,11 +1504,31 @@ def maybe_record_member(
     return None
 
 
+_SQRT_2_OVER_PI: float = math.sqrt(2.0 / math.pi)
+
+
+def _valid_length(length: int, kernel: int, stride: int) -> int:
+    """
+    Computes the valid-mode output length of a conv/pool axis.
+
+    Args:
+        length (int): Input axis length.
+        kernel (int): Kernel or window size.
+        stride (int): Stride between positions.
+
+    Returns:
+        int: (length - kernel) // stride + 1.
+    """
+
+    return (length - kernel) // stride + 1
+
+
 def _fill_member_saved(
     member: str,
     receiver: Any,
     args: list[Value],
     saved: dict[str, Any],
+    result: Value,
 ) -> None:
     """
     Fills the op-specific plain-data facts a member rule needs.
@@ -1166,6 +1538,7 @@ def _fill_member_saved(
         receiver (Value): Receiver tensor.
         args (list[Value]): Evaluated call arguments.
         saved (dict[str, Any]): Saved-facts dict to extend.
+        result (Value): The produced Value (for output-shaped facts).
     """
 
     if member in ("max", "min"):
@@ -1178,6 +1551,74 @@ def _fill_member_saved(
 
     elif member == "concat":
         saved["axis"] = args[1].get() if len(args) > 1 else 0
+
+    elif member == "sigmoid" or member == "exp":
+        saved["out"] = list(cast("ValueTensor", result).cells)
+
+    elif member == "softmax":
+        saved["out"] = list(cast("ValueTensor", result).cells)
+        saved["out_shape"] = _extents(cast("ValueTensor", result))
+
+    elif member == "gelu":
+        return None
+
+    elif member in ("max_pool", "min_pool"):
+
+        kernel: int = args[0].get()
+        stride: int = args[1].get() if len(args) > 1 else kernel
+
+        saved["in_shape"] = _extents(receiver)
+        saved["kernel"] = kernel
+        saved["stride"] = stride
+        saved["winners"] = _pool_winners(
+            input_cells=receiver.cells,
+            in_shape=saved["in_shape"],
+            kernel=kernel,
+            stride=stride,
+            reducer=member.split("_", 1)[0],
+        )
+
+    elif member == "avg_pool":
+
+        kernel = args[0].get()
+        stride = args[1].get() if len(args) > 1 else kernel
+
+        saved["in_shape"] = _extents(receiver)
+        saved["kernel"] = kernel
+        saved["stride"] = stride
+
+    elif member in ("conv1d", "conv2d"):
+
+        in_shape: list[int] = _extents(receiver)
+        kernel_shape: list[int] = _extents(cast("ValueTensor", args[0]))
+        conv_stride: int = args[1].get() if len(args) > 1 else 1
+
+        saved["in_shape"] = in_shape
+        saved["kernel_shape"] = kernel_shape
+        saved["stride"] = conv_stride
+
+        if member == "conv1d":
+            saved["out_shape"] = [
+                _valid_length(
+                    length=in_shape[0],
+                    kernel=kernel_shape[0],
+                    stride=conv_stride,
+                )
+            ]
+
+        else:
+            saved["out_shape"] = [
+                _valid_length(
+                    length=in_shape[0],
+                    kernel=kernel_shape[0],
+                    stride=conv_stride,
+                ),
+                _valid_length(
+                    length=in_shape[1],
+                    kernel=kernel_shape[1],
+                    stride=conv_stride,
+                ),
+            ]
 
     elif member == "permute":
         saved["perm"] = [
@@ -2201,6 +2642,95 @@ class SGD(Optimizer):
                 cell - self.lr * update
                 for cell, update in zip(tensor.cells, delta)
             ]
+            tensor.grad = None
+
+        return None
+
+
+class Adam(Optimizer):
+    """
+    Adam optimizer with bias-corrected first and second moments.
+
+    Attributes:
+        lr (float): Learning rate.
+        beta1 (float): First-moment decay.
+        beta2 (float): Second-moment decay.
+        eps (float): Denominator stabilizer.
+    """
+
+    def __init__(
+        self,
+        lr: float = 0.001,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        eps: float = 1e-8,
+    ) -> None:
+        """
+        Initializes the Adam instance.
+
+        Args:
+            lr (float, optional): Learning rate. Defaults to 0.001.
+            beta1 (float, optional): First-moment decay. Defaults to 0.9.
+            beta2 (float, optional): Second-moment decay. Defaults to 0.999.
+            eps (float, optional): Stabilizer. Defaults to 1e-8.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        self.lr: float = lr
+        self.beta1: float = beta1
+        self.beta2: float = beta2
+        self.eps: float = eps
+
+    def step(self, model: Any) -> None:
+        """
+        Applies one Adam update and consumes the deposited gradients.
+
+        Args:
+            model (Any): Struct instance to update.
+        """
+
+        for locator, tensor in self._parameters(model=model):
+
+            if tensor.grad is None:
+                continue
+
+            state: dict[str, Any] = self.state.setdefault(
+                locator,
+                {
+                    "m": [0.0] * len(tensor.cells),
+                    "v": [0.0] * len(tensor.cells),
+                    "t": 0,
+                },
+            )
+
+            state["t"] += 1
+            timestep: int = state["t"]
+            bias1: float = 1.0 - self.beta1 ** timestep
+            bias2: float = 1.0 - self.beta2 ** timestep
+
+            moments_m: list[float] = state["m"]
+            moments_v: list[float] = state["v"]
+
+            for index, cell_grad in enumerate(tensor.grad):
+
+                moments_m[index] = (
+                    self.beta1 * moments_m[index]
+                    + (1.0 - self.beta1) * cell_grad
+                )
+                moments_v[index] = (
+                    self.beta2 * moments_v[index]
+                    + (1.0 - self.beta2) * cell_grad * cell_grad
+                )
+
+                m_hat: float = moments_m[index] / bias1
+                v_hat: float = moments_v[index] / bias2
+
+                tensor.cells[index] -= (
+                    self.lr * m_hat / (math.sqrt(v_hat) + self.eps)
+                )
+
             tensor.grad = None
 
         return None

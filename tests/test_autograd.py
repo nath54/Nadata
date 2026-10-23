@@ -549,6 +549,143 @@ class TestGradientRules:
             base_cells=[0.5, 1.5, -1.0],
         )
 
+    def test_conv_rules(self) -> None:
+        """
+        Checks conv1d and conv2d against finite differences.
+        """
+
+        schema_1d: str = (
+            "class P {\n"
+            "  w: Tensor[Float32, 5] = [0.5, 1.5, -1.0, 2.0, 0.5];\n"
+            "  u: Tensor[Float32, 3] = [1.0, -0.5, 2.0];\n"
+            "  g: Tensor[Float32, 5] = [0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        )
+
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.conv1d(p.u).sum()",
+            base_cells=[0.5, 1.5, -1.0, 2.0, 0.5],
+        )
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.conv1d(p.u, 2).sum()",
+            base_cells=[0.5, 1.5, -1.0, 2.0, 0.5],
+        )
+
+        schema_2d: str = (
+            "class P {\n"
+            "  w: Tensor[Float32, 4, 4] ="
+            " [0.5, 1.5, -1.0, 2.0, 0.5, 1.0, -0.5, 1.25,"
+            "  2.5, 0.25, 1.5, -0.75, 1.0, 2.0, 0.5, 1.25];\n"
+            "  u: Tensor[Float32, 2, 2] = [1.0, 0.5, -0.5, 2.0];\n"
+            "  g: Tensor[Float32, 4, 4] ="
+            " [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,"
+            "  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        )
+
+        self.check_case(
+            schema=schema_2d, loss_expr="p.w.conv2d(p.u).sum()",
+            base_cells=[
+                0.5, 1.5, -1.0, 2.0, 0.5, 1.0, -0.5, 1.25,
+                2.5, 0.25, 1.5, -0.75, 1.0, 2.0, 0.5, 1.25,
+            ],
+        )
+
+    def test_pool_rules(self) -> None:
+        """
+        Checks max/min/avg pooling against finite differences.
+        """
+
+        schema_1d: str = (
+            "class P {\n"
+            "  w: Tensor[Float32, 4] = [0.1, 0.9, 0.3, 0.7];\n"
+            "  g: Tensor[Float32, 4] = [0.0, 0.0, 0.0, 0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        )
+
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.max_pool(2).sum()",
+            base_cells=[0.1, 0.9, 0.3, 0.7],
+        )
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.min_pool(2).sum()",
+            base_cells=[0.1, 0.9, 0.3, 0.7],
+        )
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.avg_pool(2).sum()",
+            base_cells=[0.1, 0.9, 0.3, 0.7],
+        )
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.max_pool(2, 1).sum()",
+            base_cells=[0.1, 0.9, 0.3, 0.7],
+        )
+
+        schema_2d: str = (
+            "class P {\n"
+            "  w: Tensor[Float32, 2, 4] ="
+            " [0.1, 0.9, 0.3, 0.7, 1.2, 0.4, 1.8, 0.6];\n"
+            "  g: Tensor[Float32, 2, 4] ="
+            " [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        )
+
+        self.check_case(
+            schema=schema_2d, loss_expr="p.w.max_pool(2, 1).sum()",
+            base_cells=[0.1, 0.9, 0.3, 0.7, 1.2, 0.4, 1.8, 0.6],
+        )
+        self.check_case(
+            schema=schema_2d, loss_expr="p.w.avg_pool(2).sum()",
+            base_cells=[0.1, 0.9, 0.3, 0.7, 1.2, 0.4, 1.8, 0.6],
+        )
+
+    def test_activation_rules(self) -> None:
+        """
+        Checks sigmoid, exp, gelu, and softmax against finite differences.
+        """
+
+        schema_1d: str = (
+            "class P {\n"
+            "  w: Tensor[Float32, 3] = [0.5, 1.5, -1.0];\n"
+            "  g: Tensor[Float32, 3] = [0.0, 0.0, 0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        )
+
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.sigmoid().sum()",
+            base_cells=[0.5, 1.5, -1.0],
+        )
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.exp().sum()",
+            base_cells=[0.5, 1.5, -1.0],
+        )
+        self.check_case(
+            schema=schema_1d, loss_expr="p.w.gelu().sum()",
+            base_cells=[0.5, 1.5, -1.0],
+        )
+
+        schema_2d: str = (
+            "class P {\n"
+            "  w: Tensor[Float32, 2, 3] = [0.5, 1.5, -1.0, 2.0, 0.5, 1.0];\n"
+            "  g: Tensor[Float32, 2, 3] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        )
+
+        self.check_case(
+            schema=schema_2d, loss_expr="p.w.softmax().sum()",
+            base_cells=[0.5, 1.5, -1.0, 2.0, 0.5, 1.0],
+        )
+        self.check_case(
+            schema=schema_2d,
+            loss_expr="(p.w.softmax() * p.w.softmax()).sum()",
+            base_cells=[0.5, 1.5, -1.0, 2.0, 0.5, 1.0],
+        )
+
 
 class TestConversions:
     """
@@ -785,6 +922,228 @@ class TestPartitions:
             ))
 
 
+class TestActivations:
+    """
+    Tests activation member behavior and numerical stability.
+    """
+
+    def _probe_out(self, schema: str, body: str) -> Any:
+        """
+        Runs a script against a fresh schema and returns the probe output.
+
+        Args:
+            schema (str): Probe schema body.
+            body (str): Script statements producing 'out'.
+
+        Returns:
+            Any: The 'out' attribute of the newest probe.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=schema)
+        app.execute_data(data_text=body)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes["out"].get()
+
+    _P3: str = (
+        "class P {\n"
+        "  w: Tensor[Float32, 3] = [0.5, 1.5, -1.0];\n"
+        "  out: Float32 = 0.0;\n"
+        "}"
+    )
+
+    def test_sigmoid_properties(self) -> None:
+        """
+        Tests sigmoid values on known inputs.
+        """
+
+        values: Any = self._probe_out(
+            schema=self._P3,
+            body=(
+                "p = P();\n"
+                "t: Tensor[Float32, 3] = p.w.sigmoid();\n"
+                "p.out = t[0] * 10000.0 + t[1] + t[2];\n"
+            ),
+        )
+
+        # sigmoid(0.5), sigmoid(1.5), sigmoid(-1.0) at full precision
+        assert values == pytest.approx(
+            0.62245933 * 10000.0 + 0.81757448 + 0.26894143, abs=1e-3
+        )
+
+    def test_sigmoid_extreme_stability(self) -> None:
+        """
+        Tests that extreme inputs do not overflow.
+        """
+
+        values: Any = self._probe_out(
+            schema=(
+                "class P {\n"
+                "  w: Tensor[Float32, 3] = [50.0, -50.0, 0.0];\n"
+                "  out: Float32 = 0.0;\n"
+                "}"
+            ),
+            body=(
+                "p = P();\n"
+                "t: Tensor[Float32, 3] = p.w.sigmoid();\n"
+                "p.out = t[0] + t[1] + t[2];\n"
+            ),
+        )
+
+        # ~1 + ~0 + 0.5, no overflow
+        assert values == pytest.approx(1.5, abs=1e-3)
+
+    def test_softmax_rows_and_stability(self) -> None:
+        """
+        Tests softmax row normalization and max-shift stability.
+        """
+
+        values: Any = self._probe_out(
+            schema=(
+                "class P {\n"
+                "  w: Tensor[Float32, 2, 3] ="
+                " [1000.0, 1001.0, 1002.0, 0.0, 0.0, 0.0];\n"
+                "  out: Float32 = 0.0;\n"
+                "}"
+            ),
+            body=(
+                "p = P();\n"
+                "t: Tensor[Float32, 2, 3] = p.w.softmax();\n"
+                "s0: Float32 = t[0, 0] + t[0, 1] + t[0, 2];\n"
+                "s1: Float32 = t[1, 0] + t[1, 1] + t[1, 2];\n"
+                "p.out = s0 + s1;\n"
+            ),
+        )
+
+        # Both rows normalize to 1 even with a 1000-scale row
+        assert values == pytest.approx(2.0, abs=1e-3)
+
+    def test_gelu_zero(self) -> None:
+        """
+        Tests that gelu(0) is 0.
+        """
+
+        values: Any = self._probe_out(
+            schema=(
+                "class P {\n"
+                "  w: Tensor[Float32, 1] = [0.0];\n"
+                "  out: Float32 = 0.0;\n"
+                "}"
+            ),
+            body=(
+                "p = P();\n"
+                "t: Tensor[Float32, 1] = p.w.gelu();\n"
+                "p.out = t[0];\n"
+            ),
+        )
+
+        assert values == 0.0
+
+
+class TestAdam:
+    """
+    Tests the Adam optimizer.
+    """
+
+    def _probe(self, body: str) -> Any:
+        """
+        Runs a training body against a 1-cell probe schema.
+
+        Args:
+            body (str): Script statements.
+
+        Returns:
+            Any: The 'out' attribute of the newest probe.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 1] = [1.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        app.execute_data(data_text=body)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes["out"].get()
+
+    def test_first_step_moves_by_lr(self) -> None:
+        """
+        Tests the bias-corrected first step: w - lr * sign(grad).
+        """
+
+        value: Any = self._probe(body=(
+            "p = P();\n"
+            "opt = Adam(lr = 0.1);\n"
+            "loss = (p.w * p.w).sum();\n"
+            "backward(loss);\n"
+            "opt.step(p);\n"
+            "p.out = p.w[0];\n"
+        ))
+
+        # First step: mhat = grad, vhat = grad^2 -> w - lr * grad/|grad|
+        assert value == pytest.approx(0.9)
+
+    def test_adam_converges(self) -> None:
+        """
+        Tests that Adam drives w to the minimum of (w - 2)^2.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 1] = [0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        app.execute_data(data_text=(
+            "p = P();\n"
+            "opt = Adam(lr = 0.1);\n"
+            "loss: Float32 = 0.0;\n"
+            "for (i: Int64 = 0 :: i < 60 :: i++) {\n"
+            "  loss = ((p.w - 2.0) * (p.w - 2.0)).sum();\n"
+            "  backward(loss);\n"
+            "  opt.step(p);\n"
+            "}\n"
+            "p.out = p.w[0];\n"
+        ))
+
+        probe: Any = app.query(struct_name="P").last()
+
+        # Adam's normalized steps oscillate around the optimum with
+        # amplitude ~lr; it must land within one step of 2.0
+        assert probe.attributes["out"].get() == pytest.approx(2.0, abs=0.11)
+
+    def test_adam_state_persists_across_steps(self) -> None:
+        """
+        Tests that moments accumulate rather than reset every step.
+        """
+
+        value: Any = self._probe(body=(
+            "p = P();\n"
+            "opt = Adam(lr = 0.1);\n"
+            "loss = (p.w * p.w).sum();\n"
+            "backward(loss);\n"
+            "opt.step(p);\n"
+            "loss = (p.w * p.w).sum();\n"
+            "backward(loss);\n"
+            "opt.step(p);\n"
+            "p.out = p.w[0];\n"
+        ))
+
+        # After step 1 w = 0.9; step 2 moves less than a full lr
+        assert 0.75 < value < 0.9
+
+
 class TestTraining:
     """
     Tests end-to-end SGD training through the engine.
@@ -845,6 +1204,67 @@ class TestTraining:
         ))
 
         probe: Any = app.query(struct_name="Model").last()
+
+        assert probe.attributes["out"].get() < 0.01
+
+    def test_mlp_with_gelu_and_adam(self) -> None:
+        """
+        Tests a one-hidden-layer network (gelu activation) trained with
+        Adam through the data pipeline, final loss pinned.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class Net {\n"
+            "  w1: Tensor[Float32, 2, 4] = randn(11);\n"
+            "  b1: Tensor[Float32, 4] = [0.0, 0.0, 0.0, 0.0];\n"
+            "  w2: Tensor[Float32, 4, 1] = randn(12);\n"
+            "  b2: Tensor[Float32, 1] = [0.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "\n"
+            "  @predict(x: Tensor[Float32, 2]) -> Tensor[Float32, 1] {\n"
+            "    h: Tensor[Float32, 4] = (x.matmul(self.w1) + self.b1).gelu();\n"
+            "    return h.matmul(self.w2) + self.b2;\n"
+            "  }\n"
+            "}"
+        ))
+
+        rng: random.Random = random.Random(1)
+        dataset: list[list[float]] = []
+
+        for _ in range(12):
+            x0: float = rng.uniform(-2, 2)
+            x1: float = rng.uniform(-2, 2)
+            dataset.append([x0, x1, 3.0 * x0 - 2.0 * x1])
+
+        app.execute_data(data_text=(
+            "n = Net();\n"
+            "opt = Adam(lr = 0.05);\n"
+            "rows = " + repr(dataset) + ";\n"
+            "total: Int64 = get_partition_iteration_count(rows, 7, [1.0], 4, 0);\n"
+            "loss_acc: Float32 = 0.0;\n"
+            "for (epoch: Int64 = 0 :: epoch < 80 :: epoch++) {\n"
+            "  loss_acc = 0.0;\n"
+            "  for (it: Int64 = 0 :: it < total :: it++) {\n"
+            "    batch: Array[Array[Float32]] ="
+            " get_batch_of_partition(rows, 7, [1.0], 4, 0, it);\n"
+            "    for (r: Array[Float32] in batch) {\n"
+            "      x: Tensor[Float32, 2] = [r[0], r[1]];\n"
+            "      y: Tensor[Float32, 1] = [r[2]];\n"
+            "      pred: Tensor[Float32, 1] = n.predict(x);\n"
+            "      diff: Tensor[Float32, 1] = pred - y;\n"
+            "      loss: Float32 = (diff * diff).mean();\n"
+            "      loss_acc = loss_acc + loss;\n"
+            "      backward(loss);\n"
+            "    }\n"
+            "    opt.step(n);\n"
+            "  }\n"
+            "}\n"
+            "n.out = loss_acc / 80.0;\n"
+        ))
+
+        probe: Any = app.query(struct_name="Net").last()
 
         assert probe.attributes["out"].get() < 0.01
 

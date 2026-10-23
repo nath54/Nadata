@@ -247,13 +247,19 @@ element type. Division on integer element types is a `TypeError`
 
 **Value-wise function application** — `map` applies a function to
 every cell. The function is a lambda or a named standalone function
-passed by identifier; results must satisfy the element type:
+passed by identifier; results must satisfy the element type. Note
+that `map` cannot change the element type and is gradient-free — for
+differentiable whole-op activations use the tensor members `relu`,
+`sigmoid`, `gelu`, `softmax` (per-row, stable), and `exp`:
 
 ```text
 y = x.map((v: Float32) -> v * 2.0);   // lambda
 y = x.map(relu);                      // named function (fn declared in schema)
+a = z.sigmoid();                      // differentiable activations
+p = z.softmax();                      // per-row probabilities (1-D/2-D)
+g = z.gelu();                        // tanh-approximated GELU
 soft = z.map((v: Float32) -> exp(v)); // compose with the math builtins
-soft = soft / soft.sum();             // e.g. a softmax
+soft = soft / soft.sum();             // e.g. a manual softmax
 ```
 
 **Math builtins** — `abs(v)`, `exp(v)`, `sqrt(v)`, `log(v)`,
@@ -376,21 +382,26 @@ Forward operations on tracked tensors record on a per-pass tape;
 **learnable** inputs. `p.w.grad()` returns the accumulated gradient
 (a zero tensor when nothing was computed). Only Float tensors
 participate; `map` is permanently gradient-free — use explicit
-activation members (`relu`; `sigmoid`/`gelu`/`softmax`/`exp` on the
-roadmap) so the tape sees whole ops:
+activation members (`relu`, `sigmoid`, `gelu`, `softmax`, `exp`) so
+the tape sees whole ops:
 
 ```text
 loss = (pred - y).mean();              // differentiable reductions
 backward(loss);                        // deposit gradients
-opt = SGD(lr = 0.05);                  // built-in optimizer
+opt = SGD(lr = 0.05);                  // built-in optimizers
 opt.step(p);                           // apply + clear accumulated grads
 opt.zero_grad(p);                      // clear without stepping
+opt = Adam(lr = 0.001);                // bias-corrected moments
 ```
 
 - Supported ops: arithmetic (`+ - * /`, tensor and scalar chains),
   `matmul` (all four rank cases), `sum`/`mean`/`max`/`min`,
   `transpose`/`permute`/`reshape`/`flatten`, `concat`, `gather`,
-  sliced reads, and `relu`. Conv/pool rules are on the roadmap.
+  sliced reads, `relu`, `sigmoid`, `gelu`, `softmax` (per-row,
+  numerically stable), `exp`, and the pooling/convolution members
+  (`max_pool`/`min_pool` route gradients to window winners;
+  `avg_pool` spreads them uniformly; `conv1d`/`conv2d` scatter
+  transposed products).
 - Mutating a tensor between its use and `backward()` is detected via
   version counters and raises a `RuntimeError` — copy or `detach()`
   first.

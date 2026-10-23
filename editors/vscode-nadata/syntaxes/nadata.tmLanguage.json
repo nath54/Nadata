@@ -149,7 +149,7 @@
 		},
 		"builtin-method-call": {
 			"name": "support.function.builtin.nadata",
-			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill|map|mean|argmax|argmin|matmul|concat|reshape|flatten|gather|topk|to_float|to_int|permute|conv1d|conv2d|max_pool|min_pool|avg_pool|relu|grad)(?=\\s*\\()"
+			"match": "(?<=\\.)\\b(keys|values|push|pop|peek|add|discard|at|set_at|has|remove|size|shape|coords|neighbors|occupied_neighbors|length|now|sum|min|max|transpose|fill|map|mean|argmax|argmin|matmul|concat|reshape|flatten|gather|topk|to_float|to_int|permute|conv1d|conv2d|max_pool|min_pool|avg_pool|relu|grad|sigmoid|gelu|softmax|exp)(?=\\s*\\()"
 		},
 		"member-call": {
 			"name": "entity.name.function.call.nadata",

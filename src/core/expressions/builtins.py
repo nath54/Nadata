@@ -18,6 +18,7 @@ from collections import deque
 from typing import Any, Optional, cast
 
 from src.core.expressions.autograd import (
+    Adam,
     BackwardFunction,
     DetachFunction,
     Optimizer,
@@ -692,6 +693,7 @@ def build_type_globals() -> dict[str, Any]:
         "get_batch_of_partition": get_batch_of_partition,
         "get_partition_iteration_count": get_partition_iteration_count,
         "SGD": SGD,
+        "Adam": Adam,
         "abs": _math_unary("abs", math.fabs),
         "exp": _math_unary("exp", math.exp),
         "sqrt": _math_unary("sqrt", math.sqrt),
@@ -1171,6 +1173,18 @@ class TensorCallable:
 
         if self.member == "relu":
             return self._relu()
+
+        if self.member == "sigmoid":
+            return self._sigmoid()
+
+        if self.member == "gelu":
+            return self._gelu()
+
+        if self.member == "softmax":
+            return self._softmax()
+
+        if self.member == "exp":
+            return self._exp()
 
         if self.member == "grad":
             return self._grad()
@@ -2033,6 +2047,123 @@ class TensorCallable:
             ],
         )
 
+    def _sigmoid(self) -> ValueTensor:
+        """
+        Applies the logistic sigmoid elementwise.
+
+        Returns:
+            ValueTensor: Same-shape tensor of 1 / (1 + e^-x).
+
+        Raises:
+            TypeError: On a non-float element type.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not isinstance(tensor.value_type.value_type, TypeFloat):
+            raise TypeError("Member 'sigmoid' requires a float element type")
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=[_sigmoid_cell(cell) for cell in tensor.cells],
+        )
+
+    def _gelu(self) -> ValueTensor:
+        """
+        Applies the tanh-approximated GELU elementwise.
+
+        Returns:
+            ValueTensor: Same-shape tensor of the GELU activation.
+
+        Raises:
+            TypeError: On a non-float element type.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not isinstance(tensor.value_type.value_type, TypeFloat):
+            raise TypeError("Member 'gelu' requires a float element type")
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=[_gelu_cell(cell) for cell in tensor.cells],
+        )
+
+    def _softmax(self) -> ValueTensor:
+        """
+        Applies a numerically stable softmax over the last axis.
+
+        Returns:
+            ValueTensor: Same-shape tensor of per-row probabilities.
+
+        Raises:
+            TypeError: On a non-float element type or rank above 2.
+        """
+
+        tensor: ValueTensor = self.target
+        extents: list[int] = _tensor_extents(tensor=tensor)
+
+        if not isinstance(tensor.value_type.value_type, TypeFloat):
+            raise TypeError("Member 'softmax' requires a float element type")
+
+        if len(extents) not in (1, 2):
+            raise TypeError(
+                f"Member 'softmax' requires a 1-D or 2-D tensor, got "
+                f"shape {extents}"
+            )
+
+        width: int = extents[-1]
+        cells: list[float] = []
+
+        for row in range(len(tensor.cells) // width):
+
+            window: list[float] = tensor.cells[
+                row * width:(row + 1) * width
+            ]
+            peak: float = max(window)
+            exps: list[float] = [math.exp(cell - peak) for cell in window]
+            denominator: float = sum(exps)
+
+            cells.extend(value / denominator for value in exps)
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", extents),
+            ),
+            cells=cells,
+        )
+
+    def _exp(self) -> ValueTensor:
+        """
+        Raises e to every cell.
+
+        Returns:
+            ValueTensor: Same-shape tensor of exp(cell).
+
+        Raises:
+            TypeError: On a non-float element type.
+        """
+
+        tensor: ValueTensor = self.target
+
+        if not isinstance(tensor.value_type.value_type, TypeFloat):
+            raise TypeError("Member 'exp' requires a float element type")
+
+        return ValueTensor(
+            value_type=TypeTensor(
+                value_type=tensor.value_type.value_type,
+                dims=cast("list[int | str]", _tensor_extents(tensor=tensor)),
+            ),
+            cells=[math.exp(cell) for cell in tensor.cells],
+        )
+
     def _grad(self) -> ValueTensor:
         """
         Returns the accumulated gradient as a same-shape tensor.
@@ -2803,6 +2934,44 @@ def _conv_valid_length(length: int, kernel: int, stride: int) -> int:
     """
 
     return (length - kernel) // stride + 1
+
+
+_SQRT_2_OVER_PI: float = math.sqrt(2.0 / math.pi)
+
+
+def _sigmoid_cell(cell: float) -> float:
+    """
+    Computes the logistic sigmoid of one cell, overflow-safe.
+
+    Args:
+        cell (float): Input value.
+
+    Returns:
+        float: 1 / (1 + e^-cell).
+    """
+
+    if cell >= 0:
+        return 1.0 / (1.0 + math.exp(-cell))
+
+    exponential: float = math.exp(cell)
+
+    return exponential / (1.0 + exponential)
+
+
+def _gelu_cell(cell: float) -> float:
+    """
+    Computes the tanh-approximated GELU of one cell.
+
+    Args:
+        cell (float): Input value.
+
+    Returns:
+        float: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 x^3))).
+    """
+
+    inner: float = _SQRT_2_OVER_PI * (cell + 0.044715 * cell ** 3)
+
+    return 0.5 * cell * (1.0 + math.tanh(inner))
 
 
 def _conv1d_cells(
