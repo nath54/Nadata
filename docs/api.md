@@ -132,8 +132,8 @@ A project **folder** is a session: schema files (`.nastruct`, always
 re-merged), plus `.nadata` scripts classified by their first-line directive
 — `#init` (once per world), `#auto` (every open), `#manual` (explicit).
 Opening a folder creates or reuses `<folder>/nadata.ndb` (the *world*) and
-runs the pipeline. See [session_plan.md](session_plan.md) and syntax.md
-§7.7–7.8 for the language rules.
+runs the pipeline. See syntax.md §7.7–7.8 for the language rules and
+§7.9 for the I/O builtins.
 
 ```python
 n = Nadata.open_folder("my_project")            # pipeline + session context
