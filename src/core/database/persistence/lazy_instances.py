@@ -396,6 +396,9 @@ class RowDecoder:
         self._doc_cache: OrderedDict[int, bytes] = OrderedDict()
         self._doc_cache_limit: int = doc_cache_docs
         self._document_reader: Optional[Callable[[int], bytes]] = None
+        self._nid_provider: Optional[Callable[[str, int], Optional[str]]] = (
+            None
+        )
 
     def set_struct_lookup(self, lookup: Callable[[str], Struct]) -> None:
         """
@@ -432,6 +435,20 @@ class RowDecoder:
 
         self._document_reader = reader
         self._doc_cache.clear()
+
+    def set_nid_provider(
+        self,
+        provider: Optional[Callable[[str, int], Optional[str]]],
+    ) -> None:
+        """
+        Installs the callback restoring an instance's nid at decode.
+
+        Args:
+            provider (Optional[Callable[[str, int], Optional[str]]]):
+                Maps (struct name, entity id) to the nid or None.
+        """
+
+        self._nid_provider = provider
 
     def fetch_document_span(self, doc_span: tuple[int, int, int]) -> bytes:
         """
@@ -954,6 +971,12 @@ class RowDecoder:
             self._in_progress.discard(entity_id)
 
         shell.attributes = attributes
+
+        # Restore the named id (engine metadata, never stored in rows)
+        if self._nid_provider is not None:
+            shell.nid = self._nid_provider(
+                struct.name, entity_id
+            )
 
         # Stamp resolved extents onto symbolic tensor payloads
         self._stamp_symbolic_dims(struct=struct, attributes=attributes)

@@ -40,6 +40,7 @@ from src.core.expressions.builtins import (
     SchemaClassesFunction,
     SchemaFunctionsFunction,
     SetLoopLimitFunction,
+    coerce_nid_value,
 )
 from src.core.database.queryset import QuerySet
 from src.core.expressions.expression import (
@@ -90,16 +91,23 @@ class StructRuntimeBinding:
         Creates a new instance, binding positional args to attributes in
         declaration order and keyword args by name.
 
+        A `nid` keyword argument names the instance instead: an existing
+        instance with that nid is updated in place (partial update,
+        stable entity id); a fresh nid creates and registers.
+
         Args:
             *args (Value): Positional attribute values in declaration order.
-            **kwargs (Value): Named attribute values.
+            **kwargs (Value): Named attribute values ('nid' reserved).
 
         Returns:
-            StructInstance: The created (unregistered) instance.
+            StructInstance: The created or updated instance.
 
         Raises:
-            TypeError: If more positional args are given than declared attributes.
+            TypeError: If more positional args are given than declared
+                attributes, or the nid is not a string.
         """
+
+        nid_value: Optional[Value] = kwargs.pop("nid", None)
 
         attribute_names: list[str] = list(self.struct.get_all_attributes().keys())
 
@@ -109,12 +117,6 @@ class StructRuntimeBinding:
                 f"positional attributes but {len(args)} given"
             )
 
-        instance: StructInstance = self.database.create_instance(
-            struct=self.struct,
-            attributes=None
-        )
-
-        # Bind arguments: constants first (they seed symbolic tensor shapes)
         creation_values: dict[str, Value] = {}
 
         for idx, arg_value in enumerate(args):
@@ -123,9 +125,43 @@ class StructRuntimeBinding:
         for kw_name, kw_value in kwargs.items():
             creation_values[kw_name] = kw_value
 
-        instance.set_creation_attributes(values=creation_values)
+        if nid_value is None:
 
-        return instance
+            instance: StructInstance = self.database.create_instance(
+                struct=self.struct,
+                attributes=None
+            )
+
+            instance.set_creation_attributes(values=creation_values)
+
+            return instance
+
+        nid: str = coerce_nid_value(value=nid_value)
+
+        existing: Optional[StructInstance] = self.database.get_by_nid(
+            struct_name=self.struct.name,
+            nid=nid,
+        )
+
+        if existing is not None:
+            existing.apply_upsert(values=creation_values)
+
+            return existing
+
+        created: StructInstance = self.database.create_instance(
+            struct=self.struct,
+            attributes=None
+        )
+
+        created.set_creation_attributes(values=creation_values)
+        created.nid = nid
+        self.database.register_nid(
+            struct_name=self.struct.name,
+            nid=nid,
+            entity_id=created.entity_id,
+        )
+
+        return created
 
     def order_by(
         self,
@@ -549,6 +585,43 @@ class NaDataLoader:
                 attribute_values[attribute_names[idx]] = arg_expr.evaluate(
                     scope=self.scope
                 )
+
+            # A nid names the instance: an existing one is updated in place
+            # (stable entity id) and the fresh pass-1 shell is discarded
+            nid_expr: Optional[Value] = attribute_values.pop("nid", None)
+
+            if nid_expr is None:
+                instance.set_creation_attributes(values=attribute_values)
+
+                continue
+
+            nid: str = coerce_nid_value(value=nid_expr)
+
+            existing: Optional[StructInstance] = self.database.get_by_nid(
+                struct_name=instance.struct.name,
+                nid=nid,
+            )
+
+            if existing is not None:
+
+                self.database.remove_instance(instance=instance)
+
+                instance = existing
+                self.instance_bindings[symbol] = ValueExternal(
+                    payload=existing
+                )
+                self.database.symbols[symbol] = existing.entity_id
+
+                instance.apply_upsert(values=attribute_values)
+
+                continue
+
+            instance.nid = nid
+            self.database.register_nid(
+                struct_name=instance.struct.name,
+                nid=nid,
+                entity_id=instance.entity_id,
+            )
 
             instance.set_creation_attributes(values=attribute_values)
 

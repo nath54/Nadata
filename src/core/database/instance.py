@@ -74,6 +74,7 @@ class StructInstance:
         self.attributes: dict[str, Value] = attributes if attributes is not None else {}
         self.dirty: bool = True
         self.pinned: bool = False
+        self.nid: Optional[str] = None
 
     def get_attribute(self, name: str) -> Value:
         """
@@ -298,6 +299,43 @@ class StructInstance:
 
         self.attributes[name] = value
         self.dirty = True
+
+    def apply_upsert(self, values: dict[str, Value]) -> None:
+        """
+        Re-binds creation attributes onto an existing (nid'd) instance.
+
+        Partial update semantics: passed attributes are re-written
+        (constants included — upsert is re-construction); attributes
+        not passed keep their current value. Derived constants cannot
+        be set directly, matching creation semantics.
+
+        Args:
+            values (dict[str, Value]): Attribute values by name.
+
+        Raises:
+            AttributeError: If a name is not declared in the schema.
+            TypeError: If a derived constant is passed directly.
+        """
+
+        for name, value in values.items():
+
+            attr_def: Optional[StructAttribute] = self.struct.get_attribute(
+                name=name
+            )
+
+            if attr_def is None:
+                raise AttributeError(
+                    f"Cannot set undeclared attribute '{name}' on Struct "
+                    f"'{self.struct.name}'"
+                )
+
+            if attr_def.is_const and attr_def.default_expr is not None:
+                raise TypeError(
+                    f"Cannot set '{name}' directly: it is "
+                    f"derived from other constants"
+                )
+
+            self.set_attribute(name=name, value=value, allow_const=True)
 
     def set_creation_attributes(self, values: dict[str, Value]) -> None:
         """

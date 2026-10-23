@@ -132,6 +132,8 @@ class NaDataDatabase:
         self.tables_by_type_id: dict[int, StructTable] = {}
         self.tables_by_struct_name: dict[str, StructTable] = {}
         self.symbols: dict[str, EntityId] = {}
+        self.nids: dict[str, EntityId] = {}
+        self._nid_by_entity: dict[int, tuple[str, str]] = {}
         self.functions: dict[str, StructMethod] = {}
         self.query_executor: QueryExecutor = QueryExecutor()
         self.next_type_id: int = 0
@@ -199,6 +201,108 @@ class NaDataDatabase:
 
         return instance
 
+    def get_by_nid(self, struct_name: str, nid: str) -> Optional[StructInstance]:
+        """
+        Retrieves an instance by its named id, or None when unknown.
+
+        Args:
+            struct_name (str): Struct the nid lives in (per-struct
+                namespace).
+            nid (str): The named id.
+
+        Returns:
+            Optional[StructInstance]: The instance, or None.
+        """
+
+        entity_id: Optional[EntityId] = self.nids.get(
+            f"{struct_name}/{nid}"
+        )
+
+        if entity_id is None:
+            return None
+
+        return self.get_by_id(entity_id=entity_id)
+
+    def register_nid(
+        self,
+        struct_name: str,
+        nid: str,
+        entity_id: EntityId,
+    ) -> None:
+        """
+        Binds a named id to an entity in the struct's namespace.
+
+        Args:
+            struct_name (str): Struct the nid lives in.
+            nid (str): The named id.
+            entity_id (EntityId): The bound entity.
+        """
+
+        key: str = f"{struct_name}/{nid}"
+
+        self.nids[key] = entity_id
+        self._nid_by_entity[entity_id.value] = (
+            struct_name,
+            nid,
+        )
+
+    def nid_of_entity(self, struct_name: str, entity_id: int) -> Optional[str]:
+        """
+        Returns the nid of an entity, or None when anonymous.
+
+        Args:
+            struct_name (str): Struct name of the entity.
+            entity_id (int): Global 64-bit entity handle.
+
+        Returns:
+            Optional[str]: The named id, or None.
+        """
+
+        mapped: Optional[tuple[str, str]] = self._nid_by_entity.get(
+            entity_id
+        )
+
+        if mapped is None or mapped[0] != struct_name:
+            return None
+
+        return mapped[1]
+
+    def drop_nids_of_entity(self, entity_id: int) -> None:
+        """
+        Forgets every nid bound to an entity (removal bookkeeping).
+
+        Args:
+            entity_id (int): Global 64-bit entity handle.
+        """
+
+        mapped: Optional[tuple[str, str]] = self._nid_by_entity.pop(
+            entity_id, None
+        )
+
+        if mapped is None:
+            return
+
+        self.nids.pop(f"{mapped[0]}/{mapped[1]}", None)
+
+    def nid_names(self, struct_name: str) -> list[str]:
+        """
+        Returns the sorted nid strings of a struct's named instances.
+
+        Args:
+            struct_name (str): Struct name.
+
+        Returns:
+            list[str]: Sorted nids.
+        """
+
+        prefix: str = f"{struct_name}/"
+
+        return sorted(
+            key[len(prefix):]
+            for key in self.nids
+            if key.startswith(prefix)
+        )
+
     def remove_instance(self, instance: StructInstance) -> None:
         """
         Removes an instance from its table and the decoder caches.
@@ -217,6 +321,8 @@ class NaDataDatabase:
 
         if table is None:
             return
+
+        self.drop_nids_of_entity(entity_id=instance.entity_id.value)
 
         if (
             table.instances.__contains__(instance.entity_id.local_id)

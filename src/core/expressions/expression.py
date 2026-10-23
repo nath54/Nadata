@@ -863,6 +863,16 @@ class MemberAccessExpr(Expression):
         if self.member == "id" and hasattr(raw_target, "entity_id"):
             return LiteralExpr(value=raw_target.entity_id.local_id).evaluate(scope=scope)
 
+        # Virtual member on an instance: the named id (None if anonymous)
+        if self.member == "nid" and hasattr(raw_target, "entity_id"):
+
+            nid_value: Any = getattr(raw_target, "nid", None)
+
+            if nid_value is None:
+                return ValueExternal(payload=None)
+
+            return LiteralExpr(value=nid_value).evaluate(scope=scope)
+
         # Member access on a struct type: the attribute's declared type
         # (instances are excluded: their member access resolves to values)
         struct_from_type: Optional[Any] = (

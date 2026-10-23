@@ -84,11 +84,14 @@ def dump_database(database: NaDataDatabase, storage_path: str) -> None:
         for batch_payload in _encode_table_batches(table=table):
             record_store.put_document(payload=batch_payload)
 
-    # Symbol binding document
+    # Symbol binding document (+ nid identity map, merged on load)
     symbols_doc: dict[str, Any] = {
         "kind": "symbols",
         "symbols": {
             name: entity_id.value for name, entity_id in database.symbols.items()
+        },
+        "nids": {
+            key: entity_id.value for key, entity_id in database.nids.items()
         },
     }
     record_store.put_document(payload=_json_bytes(doc=symbols_doc))
@@ -463,6 +466,10 @@ def append_database_changes(database: NaDataDatabase, storage_path: str) -> int:
         symbols_doc: dict[str, Any] = {
             "kind": "symbols",
             "symbols": changed_symbols,
+            "nids": {
+                key: entity_id.value
+                for key, entity_id in database.nids.items()
+            },
         }
         record_store.put_document(payload=_json_bytes(doc=symbols_doc))
         written += 1
@@ -608,6 +615,18 @@ def flush_dirty_instances(database: NaDataDatabase, storage_path: str) -> int:
                     types=types,
                     payload=row_payloads[instance.entity_id.value],
                 )
+
+    # Nid identity map rides along so upserted instances keep their
+    # named identity after the flush (merged on load, full map is safe)
+    if written > 0:
+        record_store.put_document(payload=_json_bytes(doc={
+            "kind": "symbols",
+            "symbols": {},
+            "nids": {
+                key: entity_id.value
+                for key, entity_id in database.nids.items()
+            },
+        }))
 
     page_manager.flush()
 

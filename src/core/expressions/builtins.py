@@ -94,6 +94,28 @@ def _struct_from_object(obj: Any) -> Optional[Any]:
     return None
 
 
+def _string_of(*args: Value) -> ValueStr:
+    """
+    Native str(x): converts a scalar value to its string form.
+
+    Args:
+        *args (Value): Exactly one value.
+
+    Returns:
+        ValueStr: The string form of the value.
+
+    Raises:
+        TypeError: On wrong arity.
+    """
+
+    if len(args) != 1:
+        raise TypeError("str() takes exactly one argument")
+
+    raw: Any = args[0].get()
+
+    return ValueStr(value_type=TypeStr(), value=str(raw))
+
+
 def _names_array(names: list[str]) -> ValueArray:
     """
     Wraps a list of names into a typed string array Value.
@@ -495,6 +517,187 @@ def _resolve_instance(value: Value) -> Any:
         )
 
     return payload
+
+
+def coerce_nid_value(value: Value) -> str:
+    """
+    Coerces a marshaled nid argument into its string form.
+
+    Args:
+        value (Value): The marshaled nid value.
+
+    Returns:
+        str: The nid string.
+
+    Raises:
+        TypeError: If the value does not wrap a string.
+    """
+
+    raw: Any = value.get()
+
+    if not isinstance(raw, str):
+        raise TypeError(
+            f"nid must be a string, got '{type(raw).__name__}'"
+        )
+
+    return raw
+
+
+class GetByNidFunction(ScopeAwareFunction):
+    """
+    Native get_by_nid(Struct, name): O(1) lookup of a named instance.
+
+    Returns None when the nid is unknown (missing is not an error);
+    only instances declared with a nid= argument are visible here.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Resolves the nid.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding and the nid.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Returns:
+            Any: External wrapping the instance, or None payload.
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 2 or kwargs:
+            raise TypeError("get_by_nid takes exactly two arguments")
+
+        binding: Any = args[0].get()
+        nid: str = coerce_nid_value(value=args[1])
+
+        instance: Any = binding.database.get_by_nid(
+            struct_name=binding.struct.name,
+            nid=nid,
+        )
+
+        if instance is None:
+            return None
+
+        return ValueExternal(payload=instance)
+
+
+class FirstFunction(ScopeAwareFunction):
+    """
+    Native first(Struct): the first instance of a struct, or None.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Returns the first instance.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Returns:
+            Any: External wrapping the instance, or None payload.
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("first takes exactly one argument")
+
+        binding: Any = args[0].get()
+
+        found: Any = binding._base_queryset().first()
+
+        return None if found is None else ValueExternal(payload=found)
+
+
+class LastFunction(ScopeAwareFunction):
+    """
+    Native last(Struct): the last instance of a struct, or None.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Returns the last instance.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Returns:
+            Any: External wrapping the instance, or None payload.
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("last takes exactly one argument")
+
+        binding: Any = args[0].get()
+
+        found: Any = binding._base_queryset().last()
+
+        return None if found is None else ValueExternal(payload=found)
+
+
+class NidsFunction(ScopeAwareFunction):
+    """
+    Native nids(Struct): the sorted nid strings of a struct's named
+    instances.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Returns the nid array.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding.
+            kwargs (dict[str, Value]): Keyword arguments (rejected).
+
+        Returns:
+            Any: Array of Str nids.
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 1 or kwargs:
+            raise TypeError("nids takes exactly one argument")
+
+        binding: Any = args[0].get()
+
+        return _names_array(
+            names=binding.database.nid_names(
+                struct_name=binding.struct.name
+            )
+        )
 
 
 class PinFunction(ScopeAwareFunction):
@@ -923,6 +1126,11 @@ def build_type_globals() -> dict[str, Any]:
         "detach": DetachFunction(),
         "pin": PinFunction(),
         "unpin": UnpinFunction(),
+        "get_by_nid": GetByNidFunction(),
+        "first": FirstFunction(),
+        "last": LastFunction(),
+        "nids": NidsFunction(),
+        "str": _string_of,
         "array_to_tensor": array_to_tensor,
         "tensor_to_array": tensor_to_array,
         "get_batch_of_partition": get_batch_of_partition,

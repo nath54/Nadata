@@ -197,6 +197,10 @@ def load_database(storage_path: str) -> NaDataDatabase:
         reader=lambda doc_id: record_store.read_document(doc_id=doc_id),
     )
 
+    row_decoder.set_nid_provider(
+        provider=database.nid_of_entity,
+    )
+
     instance_docs: list[dict[str, Any]] = []
 
     for doc_id in sorted(record_store.document_locations()):
@@ -310,6 +314,7 @@ def load_database(storage_path: str) -> NaDataDatabase:
         removed_entity_id: int = int(doc["entity_id"])
 
         row_decoder.remove_entity(entity_id=removed_entity_id)
+        database.drop_nids_of_entity(entity_id=removed_entity_id)
 
         type_id: int = EntityId(value=removed_entity_id).type_id
 
@@ -317,13 +322,23 @@ def load_database(storage_path: str) -> NaDataDatabase:
             removed_table = database.tables_by_type_id[type_id]
             dict.pop(removed_table.instances, EntityId(value=removed_entity_id).local_id, None)  # noqa: E501
 
-    # Phase 6: symbol bindings (merged, so incremental appends can extend)
+    # Phase 6: symbol bindings + nid identity map (merged, so incremental
+    # appends can extend)
     for doc in documents:
         if doc.get("kind") == "symbols":
             database.symbols.update({
                 name: EntityId(value=value)
                 for name, value in doc["symbols"].items()
             })
+
+            for key, value in doc.get("nids", {}).items():
+
+                nid_entity: EntityId = EntityId(value=value)
+                database.register_nid(
+                    struct_name=key.split("/", 1)[0],
+                    nid=key.split("/", 1)[1],
+                    entity_id=nid_entity,
+                )
 
     # Restore the type id counter for future registrations
     database.next_type_id = meta_docs[0]["next_type_id"]
