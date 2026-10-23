@@ -37,6 +37,9 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   `Tensor[T, d1, ...]` with symbolic dims bound to `const` attributes,
   entity references; indexing (`arr[0]`,
   `dict["k"]`) and string concatenation
+- **Error handling** — `raise "message";` and `try { ... } catch (err) { ... }`
+  in scripts and method bodies; runtime errors (indexing, I/O builtins)
+  are catchable too, while `return` / `break` / `continue` pass through
 - **Declarative data files** — forward and circular references, script
   statements, `print`, chained polymorphic queries
 - **Runtime introspection** — `elt.id`, `type(x)`, `elt.list_attr()` /
@@ -56,7 +59,9 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   per world, `#auto` syncs every open, `#manual` scripts take parameters
   (`#manual(lr: Float = 0.05)`), and `nid = "name"` gives instances stable,
   updatable identity (`get_by_nid`, `nids`, `first`/`last`) — schema files
-  re-merge on every open. I/O builtins (`read_json`, `write_csv`,
+  re-merge on every open, and schema evolution is reconciled against
+  persisted rows (removed attributes are dropped; type changes are
+  reported, never fatal). I/O builtins (`read_json`, `write_csv`,
   `file_hash`, ...) resolve against the project root, with
   `get_setting`/`set_setting` freshness markers
 - **Interactive console** — `nadata console <path>` REPL over any loaded
@@ -160,4 +165,4 @@ python -m scripts.inspect_parse examples/ex0_simple   # inspect the parse IR
 
 ## License
 
-See the repository for license information.
+MIT — see [LICENSE](LICENSE).

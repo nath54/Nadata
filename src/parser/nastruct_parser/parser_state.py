@@ -58,6 +58,11 @@ class NaStructParserState:
         # attributes / methods / functions replace instead of raising
         self.merge: bool = False
 
+        # Structs re-declared in the current merge -> member names that
+        # the re-declarations explicitly carry (union across parses);
+        # members absent from the set were removed from the schema
+        self.redeclared_members: dict[str, set[str]] = {}
+
     def to_ir_dict(self) -> dict[str, Any]:
         """
         Converts the intermediate representation to a plain JSON serializable dict.

@@ -51,6 +51,19 @@ class NaStructParser:
 
         self.parser_state.merge = value
 
+    @property
+    def redeclared_members(self) -> dict[str, set[str]]:
+        """
+        Structs re-declared during merge, with the member names their
+        re-declarations carry (members absent from a struct's set were
+        removed from the schema).
+
+        Returns:
+            dict[str, set[str]]: Struct name -> declared member names.
+        """
+
+        return self.parser_state.redeclared_members
+
 
     def resolve(self) -> NaDataDatabase:
         """

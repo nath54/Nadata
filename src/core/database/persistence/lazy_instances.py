@@ -364,6 +364,13 @@ class RowDecoder:
             instances by entity id, oldest first (also the resolver
             cache).
         max_decoded (int): Bound on simultaneously decoded instances.
+        reconcile_enabled (bool): When True, decoded rows are checked
+            against the current struct schema (stale columns dropped,
+            type violations reported). Armed by schema reconciliation.
+        reconciliation_dropped (dict[str, int]): Stale attribute values
+            dropped at decode time, per struct name.
+        reconciliation_errors (list[str]): Type mismatch reports from
+            decoded rows.
     """
 
     def __init__(
@@ -399,6 +406,9 @@ class RowDecoder:
         self._nid_provider: Optional[Callable[[str, int], Optional[str]]] = (
             None
         )
+        self.reconcile_enabled: bool = False
+        self.reconciliation_dropped: dict[str, int] = {}
+        self.reconciliation_errors: list[str] = []
 
     def set_struct_lookup(self, lookup: Callable[[str], Struct]) -> None:
         """
@@ -970,6 +980,15 @@ class RowDecoder:
         finally:
             self._in_progress.discard(entity_id)
 
+        # Schema reconciliation (session re-merge): drop attributes no
+        # longer declared and report values violating their type
+        if self.reconcile_enabled:
+            self._reconcile_row(
+                struct=struct,
+                entity_id=entity_id,
+                attributes=attributes,
+            )
+
         shell.attributes = attributes
 
         # Restore the named id (engine metadata, never stored in rows)
@@ -1073,6 +1092,52 @@ class RowDecoder:
                     dim if isinstance(dim, int) else extents[dim]
                     for dim in attr_def.attr_type.dims
                 ]
+
+    def _reconcile_row(
+        self,
+        struct: Struct,
+        entity_id: int,
+        attributes: dict[str, Any],
+    ) -> None:
+        """
+        Aligns one freshly decoded row with the current struct schema.
+
+        Stale attributes (no longer declared) are dropped from the
+        decoded dict; values violating their declared type are recorded
+        in the reconciliation errors. The row stays clean: the stale
+        column simply never materializes, while the on-disk payload is
+        superseded whenever the instance is rewritten.
+
+        Args:
+            struct (Struct): Current schema definition.
+            entity_id (int): Global entity handle (for error reports).
+            attributes (dict[str, Any]): Decoded attribute values.
+        """
+
+        for name in list(attributes.keys()):
+
+            attribute = struct.get_attribute(name=name)
+
+            if attribute is None:
+                dict.pop(attributes, name, None)
+                self.reconciliation_dropped[struct.name] = (
+                    self.reconciliation_dropped.get(struct.name, 0) + 1
+                )
+
+                continue
+
+            value: Any = attributes[name]
+
+            if isinstance(value, dict) or not hasattr(value, "get"):
+                continue
+
+            try:
+                attribute.attr_type.check_value(value=value.get())
+
+            except TypeError as error:
+                self.reconciliation_errors.append(
+                    f"{struct.name}.{name} on entity {entity_id}: {error}"
+                )
 
     def _decode_attributes(self, row: PendingRow) -> dict[str, Any]:
         """

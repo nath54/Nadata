@@ -223,6 +223,36 @@ nadata info <file.ndb>               # structs, counts, settings
 nadata compact <file.ndb> [output]   # rewrite without dead documents
 ```
 
+## Schema evolution
+
+A session folder re-merges its `.nastruct` files on every open. When
+the new schema no longer matches persisted rows, reconciliation runs
+after the merge and enforces two rules:
+
+| Schema change | Effect on stored rows |
+|---|---|
+| Attribute removed | Value dropped — eagerly for decoded rows (the row is marked dirty, so the next flush / dump persists the removal), at decode time for pending rows (the stale column never materializes). |
+| Attribute type changed | Mismatch **reported, not fatal**: the value is kept so the project opens and a migration script (`#manual`) can repair rows. The report lists struct, attribute, and entity id. |
+| Attribute added | Nothing to do — the schema default materializes on first access. |
+| Struct renamed | The old struct is untouched (still in the database); the new name creates a fresh table. |
+
+The report surfaces through `FolderResult.reconciliation` and the
+session summary, and stays live: lazy rows that decode later append
+their findings to it.
+
+```python
+database, result = load_folder_session("./my_project")
+print(result.reconciliation.summary())
+# schema reconciliation:
+#   dropped 2 stale attribute value(s) (Child: 2)
+#   type mismatch: Child.age on entity 4194305: ...
+```
+
+Removed attributes vanish from the *file* the next time their row is
+rewritten; untouched rows keep the old column on disk (harmlessly —
+it is never decoded into the model) and disappear on the next
+compaction that rewrites them.
+
 ## Invariants
 
 - Entity ids and type ids are stable across dump/load round trips.

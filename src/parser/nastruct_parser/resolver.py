@@ -549,6 +549,17 @@ class SchemaResolver:
             and name in self.database.tables_by_struct_name
         )
 
+        if merge_existing:
+
+            # Track exactly which members this re-declaration carries,
+            # so schema pruning can drop members removed from the source
+            declared: set[str] = (
+                self.parser_state.redeclared_members.setdefault(name, set())
+            )
+
+            declared.update(tmp_struct.attributes.keys())
+            declared.update(tmp_struct.methods.keys())
+
         struct: Struct = (
             self.database.tables_by_struct_name[name].struct
             if merge_existing

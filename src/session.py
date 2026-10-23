@@ -25,6 +25,11 @@ from src.core.database.persistence.dumper import (
     flush_dirty_instances,
 )
 from src.core.database.persistence.loader import load_database
+from src.core.database.reconciliation import (
+    ReconciliationReport,
+    prune_undeclared_members,
+    reconcile_schema,
+)
 from src.core.types.types import (
     Float32,
     Float64,
@@ -166,6 +171,8 @@ class FolderResult:
         init_errors (list[tuple[str, str]]): Init failures (path, error).
         auto_ran (list[str]): Auto scripts that executed.
         auto_errors (list[tuple[str, str]]): Auto failures.
+        reconciliation (Optional[ReconciliationReport]): Schema
+            reconciliation outcome (None for fresh worlds).
     """
 
     def __init__(
@@ -191,6 +198,7 @@ class FolderResult:
         self.init_errors: list[tuple[str, str]] = []
         self.auto_ran: list[str] = []
         self.auto_errors: list[tuple[str, str]] = []
+        self.reconciliation: Optional[ReconciliationReport] = None
         self.instance_count: int = 0
 
     def ok(self) -> bool:
@@ -218,6 +226,11 @@ class FolderResult:
             f" / {len(self.init_errors)} failed",
             f"auto {len(self.auto_ran)} ran / {len(self.auto_errors)} failed",
         ]
+
+        if self.reconciliation is not None and (
+            not self.reconciliation.ok or self.reconciliation.total_dropped > 0
+        ):
+            parts.append(self.reconciliation.summary())
 
         return "; ".join(parts)
 
@@ -553,13 +566,19 @@ def build_prelude(
     return prelude
 
 
-def _execute_schema_into(database: NaDataDatabase, path: Path) -> None:
+def _execute_schema_into(
+    database: NaDataDatabase,
+    path: Path,
+    redeclared: dict[str, set[str]],
+) -> None:
     """
     Parses and merges one schema file into the database.
 
     Args:
         database (NaDataDatabase): Target database.
         path (Path): Schema file.
+        redeclared (dict[str, set[str]]: Accumulator for structs
+            re-declared by this open's schema files.
     """
 
     from src.parser.nastruct_parser.nastruct_parser import NaStructParser
@@ -572,6 +591,11 @@ def _execute_schema_into(database: NaDataDatabase, path: Path) -> None:
 
     parser.parse_file(content=path.read_text(encoding="utf-8"))
     parser.resolve()
+
+    # Union across files: a member counts as removed only when no
+    # schema file of this open still declares it
+    for struct_name, members in parser.redeclared_members.items():
+        redeclared.setdefault(struct_name, set()).update(members)
 
 
 def _instance_count(database: NaDataDatabase) -> int:
@@ -677,8 +701,21 @@ def load_folder_session(
     # project root
     database.io_base = str(folder)
 
+    redeclared: dict[str, set[str]] = {}
+
     for schema_file in schema_files:
-        _execute_schema_into(database=database, path=schema_file)
+        _execute_schema_into(
+            database=database, path=schema_file, redeclared=redeclared
+        )
+
+    # Drop schema members removed from the sources, then align
+    # persisted rows with the re-merged schema: stale attributes are
+    # dropped (eagerly for decoded instances, at decode time for
+    # pending rows); type changes are reported, not fatal
+    prune_undeclared_members(database=database, redeclared=redeclared)
+
+    if not created_fresh:
+        result.reconciliation = reconcile_schema(database=database)
 
     init_failed: bool = False
 
