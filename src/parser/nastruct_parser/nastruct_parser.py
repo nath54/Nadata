@@ -8,6 +8,7 @@ from typing import Optional
 from pathlib import Path
 
 from src.core.database.database import NaDataDatabase
+from src.parser.nastruct_parser.imports import resolve_schema_entry
 from src.parser.utils.comments_remove import CommentsRemover
 from src.parser.utils.brackets import BracketsAndStrings, BracketTree
 from src.parser.nastruct_parser.parser_state import NaStructParserState
@@ -90,14 +91,26 @@ class NaStructParser:
         """
 
         # Locate all .nastruct files in folder
-        all_structs_files: list[str] = self.find_all_nastruct_files(
-            folder_path=folder_path
-        )
+        all_structs_files: list[Path] = [
+            Path(file) for file in self.find_all_nastruct_files(
+                folder_path=folder_path
+            )
+        ]
 
-        # Parse each file
+        # Resolve imports once for the whole folder: imported files
+        # parse before their importer, and a library imported by two
+        # files parses exactly once (deduped by canonical path)
+        ordered_files: list[tuple[Path, str]] = []
+        seen: set[Path] = set()
+
         for file_path in all_structs_files:
-            with open(file_path, "r", encoding="utf-8") as file:
-                self.parse_file(content=file.read())
+            ordered_files.extend(
+                resolve_schema_entry(entry=file_path, seen=seen)
+            )
+
+        # Parse each file in dependency order
+        for _path, content in ordered_files:
+            self.parse_file(content=content)
 
         # Resolve the intermediate representation into the database
         self.resolve()

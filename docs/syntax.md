@@ -504,6 +504,27 @@ object_type: ObjectType;
 A `.nastruct` file is a sequence of top-level blocks: `class` definitions and
 standalone `fn` definitions, separated by whitespace and comments.
 
+### 6.0 Imports
+
+A schema file may import other schema files at the top of its source:
+
+```c
+import "../shared/base.nastruct";   // relative to the importing file
+import "types.nastruct";
+
+class Dog(Animal) { ... }
+```
+
+- Imported files are parsed **before** the importer, in dependency
+  order — a schema library shared across projects loads transparently.
+- Import paths are relative to the importing file's directory (or
+  absolute). Cycles raise a clear error naming the chain; a missing
+  file raises `FileNotFoundError` with the importer.
+- Within one parse, every file is processed exactly once no matter how
+  many files import it.
+- Imports are a file-level construct: they must each sit on their own
+  line, like session directives.
+
 ### 6.1 Class declaration
 
 ```text
@@ -1011,6 +1032,8 @@ parser, so the files remain ordinary scripts.
 open** — re-declared structs / attributes / methods / functions replace
 their previous definitions in place; new ones are added; existing tables,
 type ids, and rows are untouched. Schema evolution is an edit + reopen.
+Schema files may also `import` shared libraries (see §6.0); in-folder
+files parse once, external imports load on every open.
 
 Parameterized manual scripts:
 

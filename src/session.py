@@ -566,30 +566,51 @@ def build_prelude(
     return prelude
 
 
-def _execute_schema_into(
+def _execute_schemas_into(
     database: NaDataDatabase,
-    path: Path,
+    schema_files: list[Path],
     redeclared: dict[str, set[str]],
 ) -> None:
     """
-    Parses and merges one schema file into the database.
+    Parses and merges all schema files into the database.
+
+    One parser handles the whole open, so schemas may reference each
+    other (inheritance, attribute types) across files. Each file's
+    `import` declarations resolve first — dependency order, deduped —
+    so shared libraries and out-of-folder schemas load transparently.
 
     Args:
         database (NaDataDatabase): Target database.
-        path (Path): Schema file.
-        redeclared (dict[str, set[str]]: Accumulator for structs
+        schema_files (list[Path]): Schema files of this open.
+        redeclared (dict[str, set[str]]): Accumulator for structs
             re-declared by this open's schema files.
     """
 
+    from src.parser.nastruct_parser.imports import resolve_schema_entry
     from src.parser.nastruct_parser.nastruct_parser import NaStructParser
 
     parser: NaStructParser = NaStructParser(database=database)
 
-    # Session schemas re-merge on every open: re-declared members replace,
-    # new ones are added, existing tables and rows stay untouched
+    # Session schemas re-merge on every open: re-declared members
+    # replace, new ones are added, existing tables and rows stay
+    # untouched
     parser.merge = True
 
-    parser.parse_file(content=path.read_text(encoding="utf-8"))
+    # In-folder files parse as scan entries, so imports of them dedupe
+    # to nothing; only external libraries load through the imports
+    seen: set[Path] = {
+        schema_file.resolve() for schema_file in schema_files
+    }
+
+    for schema_file in schema_files:
+
+        ordered: list[tuple[Path, str]] = resolve_schema_entry(
+            entry=schema_file, seen=seen
+        )
+
+        for _imported, content in ordered:
+            parser.parse_file(content=content)
+
     parser.resolve()
 
     # Union across files: a member counts as removed only when no
@@ -703,10 +724,11 @@ def load_folder_session(
 
     redeclared: dict[str, set[str]] = {}
 
-    for schema_file in schema_files:
-        _execute_schema_into(
-            database=database, path=schema_file, redeclared=redeclared
-        )
+    _execute_schemas_into(
+        database=database,
+        schema_files=schema_files,
+        redeclared=redeclared,
+    )
 
     # Drop schema members removed from the sources, then align
     # persisted rows with the re-merged schema: stale attributes are

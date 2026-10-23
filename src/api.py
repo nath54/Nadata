@@ -56,6 +56,7 @@ from src.parser.nadata_loader.loader import (
     NaDataLoader,
     collect_polymorphic_instances,
 )
+from src.parser.nastruct_parser.imports import resolve_schema_entry
 from src.parser.nastruct_parser.nastruct_parser import NaStructParser
 
 
@@ -332,11 +333,9 @@ class Nadata:
 
         parser: NaStructParser = NaStructParser()
 
-        schema_file = open(file_path, "r", encoding="utf-8")
-        content: str = schema_file.read()
-        schema_file.close()
-
-        parser.parse_file(content=content)
+        # Imports resolve before parsing: dependency order, deduped
+        for _path, content in resolve_schema_entry(entry=Path(file_path)):
+            parser.parse_file(content=content)
 
         return cls(database=parser.resolve())
 
