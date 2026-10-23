@@ -51,6 +51,7 @@ KEYWORDS: frozenset[str] = frozenset({
     "class", "fn", "if", "elif", "else", "return",
     "true", "false", "and", "or", "xor", "nand", "not",
     "for", "while", "break", "continue", "in",
+    "try", "catch", "raise",
 })
 
 # Two-character operators, checked before single-character ones

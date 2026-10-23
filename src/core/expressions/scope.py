@@ -65,6 +65,29 @@ class ContinueSignal(Exception):
     """
 
 
+class RaiseSignal(Exception):
+    """
+    Control flow signal raised by a raise statement in the language.
+
+    Carries a user provided message; catchable by try / catch blocks.
+
+    Attributes:
+        message (str): The raised error message.
+    """
+
+    def __init__(self, message: str) -> None:
+        """
+        Initializes the RaiseSignal instance.
+
+        Args:
+            message (str): The raised error message.
+        """
+
+        self.message: str = message
+
+        super().__init__(message)
+
+
 class ScopeAwareFunction:
     """
     Native function receiving the live execution scope when invoked.

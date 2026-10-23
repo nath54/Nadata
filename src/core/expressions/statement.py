@@ -10,13 +10,14 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
-from src.core.types.types import Type, TypeTensor, flatten_nested_lists
+from src.core.types.types import Type, TypeStr, TypeTensor, flatten_nested_lists
 from src.core.expressions.builtins import TensorInit, materialize_tensor_init
 from src.core.values.values import (
     Value,
     ValueArray,
     ValuePriorityQueue,
     ValueSpatialGrid,
+    ValueStr,
     ValueTensor,
     make_value,
 )
@@ -25,6 +26,7 @@ from src.core.expressions.scope import (
     BreakSignal,
     ContinueSignal,
     LoopLimitError,
+    RaiseSignal,
     ReturnSignal,
     ExecutionScope,
 )
@@ -764,6 +766,142 @@ class ContinueStmt(Statement):
         """
 
         return "continue;"
+
+
+class RaiseStmt(Statement):
+    """
+    AST statement raising a user error with a Str message.
+
+    Attributes:
+        value_expr (Expression): Expression producing the error message.
+    """
+
+    def __init__(self, value_expr: Expression) -> None:
+        """
+        Initializes the RaiseStmt instance.
+
+        Args:
+            value_expr (Expression): Expression producing the message.
+        """
+
+        self.value_expr: Expression = value_expr
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Evaluates the message expression and raises a RaiseSignal.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            TypeError: If the message expression is not a Str.
+            RaiseSignal: Always, with the evaluated message.
+        """
+
+        value: Value = self.value_expr.evaluate(scope=scope)
+        raw: Any = value.get()
+
+        if not isinstance(raw, str):
+            raise TypeError(
+                f"raise expects a Str message, got {type(raw).__name__}"
+            )
+
+        raise RaiseSignal(message=raw)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the raise statement.
+
+        Returns:
+            str: Raise statement representation.
+        """
+
+        return f"raise {repr(self.value_expr)};"
+
+
+class TryCatchStmt(Statement):
+    """
+    AST statement running a block with errors routed to a catch block.
+
+    Catches language raises (RaiseSignal) and runtime errors surfacing
+    as Python exceptions (TypeError, ValueError, KeyError, ...).
+    Control flow signals (return / break / continue) are never caught:
+    they unwind through the try block to their intended target. The
+    loop fuel guard (LoopLimitError) is also catchable, but catching it
+    does not reset any budget — every further loop iteration still
+    consumes fuel, so runaway computation stays impossible.
+
+    Attributes:
+        try_block (BlockStmt): Block whose errors are intercepted.
+        error_name (Optional[str]): Name to bind the error message under
+            (None for a bare 'catch { ... }').
+        catch_block (BlockStmt): Block executed on error.
+    """
+
+    def __init__(
+        self,
+        try_block: BlockStmt,
+        error_name: Optional[str],
+        catch_block: BlockStmt,
+    ) -> None:
+        """
+        Initializes the TryCatchStmt instance.
+
+        Args:
+            try_block (BlockStmt): Protected block.
+            error_name (Optional[str]): Error variable name, or None.
+            catch_block (BlockStmt): Handler block.
+        """
+
+        self.try_block: BlockStmt = try_block
+        self.error_name: Optional[str] = error_name
+        self.catch_block: BlockStmt = catch_block
+
+    def execute(self, scope: ExecutionScope) -> None:
+        """
+        Executes the protected block, routing errors to the handler.
+
+        Args:
+            scope (ExecutionScope): Current execution scope.
+
+        Raises:
+            ReturnSignal: Propagated from the try block, never caught.
+            BreakSignal: Propagated from the try block, never caught.
+            ContinueSignal: Propagated from the try block, never caught.
+        """
+
+        try:
+            self.try_block.execute(scope=scope.create_child_scope())
+
+        except (ReturnSignal, BreakSignal, ContinueSignal):
+            raise
+
+        except Exception as error:
+            message: str = str(error) if str(error) else type(error).__name__
+
+            child_scope: ExecutionScope = scope.create_child_scope()
+
+            if self.error_name is not None:
+                child_scope.define(
+                    name=self.error_name,
+                    value=ValueStr(value_type=TypeStr(), value=message),
+                )
+
+            self.catch_block.execute(scope=child_scope)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the try / catch statement.
+
+        Returns:
+            str: Try / catch statement representation.
+        """
+
+        binding: str = (
+            f"({self.error_name})" if self.error_name is not None else ""
+        )
+
+        return f"try {{ ... }} catch {binding} {{ ... }}"
 
 
 class TargetAssignStmt(Statement):

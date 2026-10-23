@@ -682,6 +682,34 @@ return result;                            // return (mandatory last expression)
   `self.items[0] += 1`) — the target is re-read as the left operand.
 - **Loops** (see §6.8): `for (...) { ... }`, `while (...) { ... }`, with
   `break` / `continue` confined to loop bodies (syntax error outside).
+- **Error handling**: `raise "message";` aborts execution with a user
+  error; `try { ... } catch (err) { ... }` intercepts it. See §6.9.
+
+### 6.9 Error handling: raise, try / catch
+
+```text
+try {
+    data = read_json("maybe-missing.json");
+    if (data.size == 0) { raise "empty dataset"; }
+} catch (err) {
+    print("failed:", err);
+}
+```
+
+- `raise <expr>;` — the expression must evaluate to `Str`; an uncaught
+  raise aborts the script with the message.
+- `try { ... } catch { ... }` — the catch binding is optional. With a
+  binding (`catch (err)`), `err` is a `Str` local holding the error
+  message, scoped to the handler.
+- Catchable errors: language `raise`s **and** runtime errors surfacing
+  from the engine (`TypeError`, `ValueError`, `IndexError`, ...), so
+  fallible I/O builtins and indexing can be guarded.
+- **Never caught**: `return`, `break`, and `continue` unwind through
+  protected blocks to their intended target — control flow is not an
+  error.
+- The loop fuel guard (`LoopLimitError`, §6.8) is catchable, but
+  catching it resets nothing: every further loop iteration still
+  consumes fuel, so runaway computation stays impossible.
 
 ### 6.8 Loops
 

@@ -21,8 +21,10 @@ from src.core.expressions.statement import (
     ForStmt,
     IfStmt,
     ReturnStmt,
+    RaiseStmt,
     Statement,
     TargetAssignStmt,
+    TryCatchStmt,
     VarDeclStmt,
     WhileStmt,
 )
@@ -144,6 +146,14 @@ class StatementParser:
         # Continue statement
         if token.token_type == TokenType.KEYWORD and token.value == "continue":
             return self._parse_continue()
+
+        # Raise statement
+        if token.token_type == TokenType.KEYWORD and token.value == "raise":
+            return self._parse_raise()
+
+        # Try / catch block
+        if token.token_type == TokenType.KEYWORD and token.value == "try":
+            return self._parse_try_catch()
 
         # Postfix increment / decrement and compound assignment statements
         # ('count++;', 'total += 2;', ...)
@@ -758,6 +768,92 @@ class StatementParser:
                     return offset - self.cursor
 
         return -1
+
+    def _parse_raise(self) -> RaiseStmt:
+        """
+        Parses a raise statement with its Str message expression.
+
+        Returns:
+            RaiseStmt: The parsed statement.
+
+        Raises:
+            SyntaxError: On a missing message or statement end.
+        """
+
+        # Consume the 'raise' keyword
+        self.cursor += 1
+
+        if self._at_statement_end():
+            raise SyntaxError("'raise' requires a Str message expression")
+
+        value: Expression
+        value, self.cursor = self.expression_parser.parse_expression_at(
+            cursor=self.cursor
+        )
+
+        self._consume_statement_end()
+
+        return RaiseStmt(value_expr=value)
+
+    def _parse_try_catch(self) -> TryCatchStmt:
+        """
+        Parses a try block with its catch handler.
+
+        The optional error binding is a plain identifier (bound to a Str
+        message inside the handler): 'catch (err)' or a bare 'catch'.
+
+        Returns:
+            TryCatchStmt: The parsed statement.
+
+        Raises:
+            SyntaxError: On a missing block, malformed binding, or a
+                missing catch block.
+        """
+
+        # Consume the 'try' keyword and parse the protected block
+        self.cursor += 1
+
+        try_block: BlockStmt = self._parse_block()
+
+        # 'catch' is mandatory: a bare try without a handler is invalid
+        next_token: Token = self._current()
+
+        if not (
+            next_token.token_type == TokenType.KEYWORD
+            and next_token.value == "catch"
+        ):
+            raise SyntaxError("'try' must be followed by a 'catch' block")
+
+        self.cursor += 1
+
+        # Optional '(error_name)' binding
+        error_name: Optional[str] = None
+
+        if self._current().token_type == TokenType.PUNCTUATION and (
+            self._current().value == "("
+        ):
+            self.cursor += 1
+
+            name_token: Token = self._current()
+
+            if name_token.token_type != TokenType.IDENTIFIER:
+                raise SyntaxError(
+                    "'catch' expects an identifier binding "
+                    "(the Str error message)"
+                )
+
+            error_name = name_token.value
+            self.cursor += 1
+
+            self._expect_punctuation(")")
+
+        catch_block: BlockStmt = self._parse_block()
+
+        return TryCatchStmt(
+            try_block=try_block,
+            error_name=error_name,
+            catch_block=catch_block,
+        )
 
     def _parse_break(self) -> BreakStmt:
         """
