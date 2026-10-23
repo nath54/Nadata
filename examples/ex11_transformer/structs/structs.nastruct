@@ -2,10 +2,11 @@
 # Example 11: A Minimal Transformer Block
 # A single-head transformer forward pass built entirely from the tensor
 # toolkit: token embeddings via gather(), sinusoidal positional encodings
-# with sin()/cos(), scaled dot-product attention with a numerically stable
-# softmax, a ReLU feed-forward network, residual connections with LayerNorm,
-# and a argmax/topk prediction head. All weights come from seeded randn(), so
-# every print below is deterministic and asserted by tests/test_examples.py.
+# with sin()/cos(), scaled dot-product attention with the differentiable
+# softmax() member, a ReLU feed-forward network via relu(), residual
+# connections with LayerNorm, and a argmax/topk prediction head. All weights
+# come from seeded randn(), so every print below is deterministic and asserted
+# by tests/test_examples.py.
 # ==============================================================================
 
 class MiniTransformer {
@@ -51,35 +52,16 @@ class MiniTransformer {
         return x;
     }
 
-    # Numerically stable softmax: subtract each row's peak before exp()
-    # so the exponent arguments never overflow
-    @softmax(scores: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
-        probs: Tensor[Float32, 4, 4] = zeros();
-
-        for (i: Int32 = 0 :: i < 4 :: i++) {
-            row: Tensor[Float32, 4] = scores[i, :];
-            peak: Float32 = row.max();
-            row = row.map((w: Float32) -> exp(w - peak));
-            total: Float32 = row.sum();
-
-            for (c: Int32 = 0 :: c < 4 :: c++) {
-                probs[i, c] = row[c] / total;
-            }
-        }
-
-        return probs;
-    }
-
-    # Scaled dot-product attention: scores = Q @ K^T / sqrt(4). The
-    # transpose returns a fresh [D, T] copy, so one matmul replaces the
-    # per-pair dot-product loop
+    # Numerically stable softmax over each row: the member subtracts
+    # each row's peak before exp() so the exponent arguments never
+    # overflow, and the whole op lands on the autograd tape
     @attention_weights(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
         q: Tensor[Float32, 4, 4] = x.matmul(self.wq);
         k: Tensor[Float32, 4, 4] = x.matmul(self.wk);
 
         scores: Tensor[Float32, 4, 4] = q.matmul(k.transpose()) * 0.5;
 
-        return self.softmax(scores);
+        return scores.softmax();
     }
 
     # Attention output: the probability distribution mixes the values
@@ -89,15 +71,10 @@ class MiniTransformer {
         return weights.matmul(v);
     }
 
-    # Position-wise feed-forward network with ReLU
+    # Position-wise feed-forward network with ReLU: the member applies
+    # max(cell, 0) elementwise and records on the autograd tape
     @feed_forward(x: Tensor[Float32, 4, 4]) -> Tensor[Float32, 4, 4] {
-        hidden: Tensor[Float32, 4, 8] = x.matmul(self.w1);
-
-        for (i: Int32 = 0 :: i < 4 :: i++) {
-            for (j: Int32 = 0 :: j < 8 :: j++) {
-                if (hidden[i, j] < 0.0) { hidden[i, j] = 0.0; }
-            }
-        }
+        hidden: Tensor[Float32, 4, 8] = x.matmul(self.w1).relu();
 
         return hidden.matmul(self.w2);
     }

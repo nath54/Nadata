@@ -184,6 +184,12 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "sentence c predicts: sat",
         "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
     ],
+    "ex12_optimizer_checkpoint": [
+        "loss x100000 after 40 epochs: [918]",
+        "loss x100000 after 40 resumed epochs: [171]",
+        "loss x100000 after 40 cold-restart epochs: [454]",
+        "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
+    ],
 }
 ALL_EXAMPLES: list[str] = [
     "ex0_simple",
@@ -198,6 +204,7 @@ ALL_EXAMPLES: list[str] = [
     "ex9_constants",
     "ex10_cnn",
     "ex11_transformer",
+    "ex12_optimizer_checkpoint",
 ]
 
 

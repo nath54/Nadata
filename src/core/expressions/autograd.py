@@ -18,6 +18,7 @@ library are the engine's own modules.
 # Import Modules
 from __future__ import annotations
 import math
+import pickle
 import random
 from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
@@ -2506,6 +2507,9 @@ def _shuffled_indices(length: int, seed: int) -> list[int]:
     return indices
 
 
+_OPTIMIZER_STATE_TAG: str = "nadata_optimizer_state"
+
+
 class Optimizer:
     """
     Base class for gradient-based optimizers.
@@ -2517,7 +2521,11 @@ class Optimizer:
     Attributes:
         state (dict[tuple[str, ...], dict[str, Any]]): Per-locator
             optimizer state (momentum buffers, moments, step counts).
+        _HYPERPARAM_NAMES (tuple[str, ...]): Attribute names persisted
+            with the state (class constant).
     """
+
+    _HYPERPARAM_NAMES: tuple[str, ...] = ()
 
     def __init__(self) -> None:
         """
@@ -2525,6 +2533,120 @@ class Optimizer:
         """
 
         self.state: dict[tuple[str, ...], dict[str, Any]] = {}
+
+    def save_to_file(self, path: Any) -> None:
+        """
+        Pickles the optimizer state to a sidecar file.
+
+        The file holds the optimizer class name, hyperparameters, and
+        per-locator moment buffers. Weights live in the database; this
+        file holds only the user-side training machinery, so it is
+        written (and removed) at the user's discretion. Only load
+        files you trust: pickle executes nothing by itself, but a
+        crafted payload can run arbitrary code on unpickling.
+
+        Args:
+            path (Any): Target file path (Str Value from scripts, or a
+                plain Python str from the API).
+        """
+
+        file_path: str = self._path_argument(path)
+
+        payload: dict[str, Any] = {
+            "tag": _OPTIMIZER_STATE_TAG,
+            "optimizer": type(self).__name__,
+            "hyperparams": self._hyperparams(),
+            "state": self.state,
+        }
+
+        with open(file_path, "wb") as handle:
+            pickle.dump(payload, handle)
+
+        return None
+
+    def load_from_file(self, path: Any) -> None:
+        """
+        Restores hyperparameters and moment buffers from a sidecar file.
+
+        Args:
+            path (Any): File path previously written by save_to_file
+                (Str Value from scripts, or a plain Python str).
+
+        Raises:
+            TypeError: If the file is not an optimizer state or was
+                saved by a different optimizer class.
+        """
+
+        file_path: str = self._path_argument(path)
+
+        try:
+
+            with open(file_path, "rb") as handle:
+                payload: Any = pickle.load(handle)
+
+        except (pickle.UnpicklingError, EOFError, ValueError) as error:
+            raise TypeError(
+                f"'{file_path}' is not a Nadata optimizer state file"
+            ) from error
+
+        if not isinstance(payload, dict) or payload.get("tag") != _OPTIMIZER_STATE_TAG:
+            raise TypeError(
+                f"'{path}' is not a Nadata optimizer state file"
+            )
+
+        if payload.get("optimizer") != type(self).__name__:
+            raise TypeError(
+                f"Optimizer state file '{path}' holds "
+                f"'{payload.get("optimizer")}' state, cannot load it "
+                f"into a '{type(self).__name__}'"
+            )
+
+        hyperparams: Any = payload.get("hyperparams", {})
+
+        for name, value in hyperparams.items():
+            setattr(self, name, value)
+
+        self.state = payload.get("state", {})
+
+        return None
+
+    def _hyperparams(self) -> dict[str, float]:
+        """
+        Collects the persistable hyperparameters.
+
+        Returns:
+            dict[str, float]: Attribute name to current value.
+        """
+
+        return {
+            name: getattr(self, name)
+            for name in self._HYPERPARAM_NAMES
+        }
+
+    @staticmethod
+    def _path_argument(path: Any) -> str:
+        """
+        Unwraps a script-level Str Value to a plain path string.
+
+        Args:
+            path (Any): Str Value or plain string.
+
+        Returns:
+            str: The file path.
+
+        Raises:
+            TypeError: On a non-string path argument.
+        """
+
+        raw: Any = path.get() if isinstance(path, Value) else path
+
+        if not isinstance(raw, str):
+            raise TypeError(
+                f"Optimizer file path must be a string, got "
+                f"'{type(raw).__name__}'"
+            )
+
+        return raw
 
     def step(self, model: Any) -> None:
         """
@@ -2595,6 +2717,8 @@ class SGD(Optimizer):
         momentum (float): Momentum factor (0 disables).
     """
 
+    _HYPERPARAM_NAMES: tuple[str, ...] = ("lr", "momentum")
+
     def __init__(self, lr: float = 0.01, momentum: float = 0.0) -> None:
         """
         Initializes the SGD instance.
@@ -2657,6 +2781,8 @@ class Adam(Optimizer):
         beta2 (float): Second-moment decay.
         eps (float): Denominator stabilizer.
     """
+
+    _HYPERPARAM_NAMES: tuple[str, ...] = ("lr", "beta1", "beta2", "eps")
 
     def __init__(
         self,

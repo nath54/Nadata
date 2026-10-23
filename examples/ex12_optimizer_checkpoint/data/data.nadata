@@ -1,0 +1,112 @@
+# ==============================================================================
+# Example 12: Training with Optimizer Checkpoints - data and script
+# Trains in three segments: the first ends by saving the optimizer state to a
+# sidecar file; the second resumes from a brand-new optimizer that loads that
+# state and keeps improving; the third is the counterfactual — a fresh
+# optimizer without the loaded state, whose cold restart undoes progress.
+# Losses are printed as hundred-thousandths integers (x100000, truncated) so
+# the golden output is platform-stable. The sidecar file ("checkpoint.opt")
+# is written next to the working directory at the user's discretion; weights
+# live in the database instances, and every print below is asserted by
+# tests/test_examples.py.
+# ==============================================================================
+
+n = Regressor();
+opt = Adam(lr = 0.05);
+
+# 24 rows of (x0, x1, y = 3*x0 - 2*x1)
+rows = [
+    [-0.148, -0.507, 0.57], [-1.446, 1.466, -7.27], [-1.974, 0.011, -5.944],
+    [1.593, -1.677, 8.133], [0.217, 0.467, -0.283], [-1.836, -0.484, -4.54],
+    [0.814, -0.192, 2.826], [0.9, -1.371, 5.442], [-1.048, -1.556, -0.032],
+    [0.025, 1.695, -3.315], [0.362, 1.097, -1.108], [-0.465, 0.984, -3.363],
+    [-1.593, -0.835, -3.109], [0.697, 0.903, 0.285], [-0.313, -1.649, 2.359],
+    [-0.933, -1.16, -0.479], [-0.875, 1.238, -5.101], [-1.202, 1.546, -6.698],
+    [1.517, -1.781, 8.113], [-0.485, -0.033, -1.389], [-1.906, -0.301, -5.116],
+    [1.626, -1.552, 7.982], [0.387, -1.515, 4.191], [0.315, 1.581, -2.217],
+];
+
+total: Int64 = get_partition_iteration_count(rows, 5, [1.0], 6, 0);
+loss_acc: Float32 = 0.0;
+
+# --- Segment 1: 40 epochs, then checkpoint the optimizer state ---
+for (epoch: Int64 = 0 :: epoch < 40 :: epoch++) {
+    loss_acc = 0.0;
+
+    for (it: Int64 = 0 :: it < total :: it++) {
+        batch: Array[Array[Float32]] = get_batch_of_partition(rows, 5, [1.0], 6, 0, it);
+
+        for (r: Array[Float32] in batch) {
+            x: Tensor[Float32, 2] = [r[0], r[1]];
+            y: Tensor[Float32, 1] = [r[2]];
+            pred: Tensor[Float32, 1] = n.predict(x);
+            diff: Tensor[Float32, 1] = pred - y;
+            loss: Float32 = (diff * diff).mean();
+            loss_acc = loss_acc + loss;
+            backward(loss);
+        }
+
+        opt.step(n);
+    }
+}
+
+milli1: Tensor[Float32, 1] = [loss_acc / 40.0 * 100000.0];
+print("loss x100000 after 40 epochs:", milli1.to_int());
+opt.save_to_file("checkpoint.opt");
+
+# --- Segment 2: a brand-new optimizer resumes from the checkpoint ---
+# Loading restores the moments, the step count, and the hyperparameters
+# (including the saved learning rate), so training continues exactly.
+resumed = Adam(lr = 0.001);
+resumed.load_from_file("checkpoint.opt");
+
+for (epoch: Int64 = 0 :: epoch < 40 :: epoch++) {
+    loss_acc = 0.0;
+
+    for (it: Int64 = 0 :: it < total :: it++) {
+        batch: Array[Array[Float32]] = get_batch_of_partition(rows, 5, [1.0], 6, 0, it);
+
+        for (r: Array[Float32] in batch) {
+            x: Tensor[Float32, 2] = [r[0], r[1]];
+            y: Tensor[Float32, 1] = [r[2]];
+            pred: Tensor[Float32, 1] = n.predict(x);
+            diff: Tensor[Float32, 1] = pred - y;
+            loss: Float32 = (diff * diff).mean();
+            loss_acc = loss_acc + loss;
+            backward(loss);
+        }
+
+        resumed.step(n);
+    }
+}
+
+milli2: Tensor[Float32, 1] = [loss_acc / 40.0 * 100000.0];
+print("loss x100000 after 40 resumed epochs:", milli2.to_int());
+
+# --- Segment 3: the counterfactual, a cold optimizer with no state ---
+# The restart throws away the accumulated moments, so progress is lost
+# until they rebuild — this is what load_from_file prevents.
+cold = Adam(lr = 0.05);
+
+for (epoch: Int64 = 0 :: epoch < 40 :: epoch++) {
+    loss_acc = 0.0;
+
+    for (it: Int64 = 0 :: it < total :: it++) {
+        batch: Array[Array[Float32]] = get_batch_of_partition(rows, 5, [1.0], 6, 0, it);
+
+        for (r: Array[Float32] in batch) {
+            x: Tensor[Float32, 2] = [r[0], r[1]];
+            y: Tensor[Float32, 1] = [r[2]];
+            pred: Tensor[Float32, 1] = n.predict(x);
+            diff: Tensor[Float32, 1] = pred - y;
+            loss: Float32 = (diff * diff).mean();
+            loss_acc = loss_acc + loss;
+            backward(loss);
+        }
+
+        cold.step(n);
+    }
+}
+
+milli3: Tensor[Float32, 1] = [loss_acc / 40.0 * 100000.0];
+print("loss x100000 after 40 cold-restart epochs:", milli3.to_int());

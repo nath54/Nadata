@@ -6,13 +6,16 @@ training through the full engine.
 
 # Import Modules
 from __future__ import annotations
+import os
 import random
+import tempfile
 from typing import Any
 
 import pytest
 
 from src.api import Nadata
 from src.core.database.database import NaDataDatabase
+from src.core.expressions.autograd import Adam, SGD
 
 
 class TestFlagsAndRecording:
@@ -1142,6 +1145,186 @@ class TestAdam:
 
         # After step 1 w = 0.9; step 2 moves less than a full lr
         assert 0.75 < value < 0.9
+
+
+class TestOptimizerPersistence:
+    """
+    Tests optimizer save_to_file / load_from_file sidecars.
+    """
+
+    def _probe(self, body: str) -> Any:
+        """
+        Runs a training body against a 1-cell probe schema.
+
+        Args:
+            body (str): Script statements.
+
+        Returns:
+            Any: The 'out' attribute of the newest probe.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 1] = [1.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        app.execute_data(data_text=body)
+
+        probe: Any = app.query(struct_name="P").last()
+
+        return probe.attributes["out"].get()
+
+    def test_roundtrip_restores_state_and_hyperparams(self) -> None:
+        """
+        Tests that save/load restores moments, step count, and lr.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 1] = [1.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            state_path: str = os.path.join(temp_dir, "state.opt")
+            script_path: str = state_path.replace(chr(92), "/")
+
+            # One step builds state (t=1) and hyperparams differ from the
+            # loader-optimizer defaults used below
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "opt = Adam(lr = 0.1);\n"
+                "loss = (p.w * p.w).sum();\n"
+                "backward(loss);\n"
+                "opt.step(p);\n"
+                f'opt.save_to_file("{script_path}");\n'
+            ))
+
+            fresh: Adam = Adam(lr = 0.001)
+
+            # Before loading: default state, no moments
+            assert fresh.state == {}
+
+            fresh.load_from_file(state_path)
+
+            assert fresh.lr == 0.1
+            assert list(fresh.state.keys()) == [("w",)]
+            assert fresh.state[("w",)]["t"] == 1
+
+    def test_resume_continues_dynamics(self) -> None:
+        """
+        Tests that a loaded optimizer reproduces the unbroken trajectory.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 1] = [1.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            state_path: str = os.path.join(temp_dir, "state.opt")
+            script_path: str = state_path.replace(chr(92), "/")
+
+            # Run A: two steps inside one script (ground truth)
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "opt = Adam(lr = 0.1);\n"
+                "loss = (p.w * p.w).sum();\n"
+                "backward(loss);\n"
+                "opt.step(p);\n"
+                "loss = (p.w * p.w).sum();\n"
+                "backward(loss);\n"
+                "opt.step(p);\n"
+                "p.out = p.w[0];\n"
+            ))
+
+            probe: Any = app.query(struct_name="P").last()
+            expected: float = probe.attributes["out"].get()
+
+            # Run B: step, save, fresh optimizer + load, step again
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "opt = Adam(lr = 0.1);\n"
+                "loss = (p.w * p.w).sum();\n"
+                "backward(loss);\n"
+                "opt.step(p);\n"
+                f'opt.save_to_file("{script_path}");\n'
+                "resumed = Adam(lr = 0.001);\n"
+                f'resumed.load_from_file("{script_path}");\n'
+                "loss = (p.w * p.w).sum();\n"
+                "backward(loss);\n"
+                "resumed.step(p);\n"
+                "p.out = p.w[0];\n"
+            ))
+
+            probe = app.query(struct_name="P").last()
+
+            assert probe.attributes["out"].get() == pytest.approx(expected)
+
+    def test_wrong_class_rejected(self) -> None:
+        """
+        Tests that loading Adam state into an SGD fails loudly.
+        """
+
+        app: Nadata = Nadata(database=NaDataDatabase())
+
+        app.execute_schema(schema_text=(
+            "class P {\n"
+            "  w: Tensor[Float32, 1] = [1.0];\n"
+            "  out: Float32 = 0.0;\n"
+            "}"
+        ))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            state_path: str = os.path.join(temp_dir, "state.opt")
+            script_path: str = state_path.replace(chr(92), "/")
+
+            app.execute_data(data_text=(
+                "p = P();\n"
+                "opt = Adam(lr = 0.1);\n"
+                "loss = (p.w * p.w).sum();\n"
+                "backward(loss);\n"
+                "opt.step(p);\n"
+                f'opt.save_to_file("{script_path}");\n'
+            ))
+
+            with pytest.raises(TypeError, match="cannot load it"):
+                app.execute_data(data_text=(
+                    "p = P();\n"
+                    "opt = SGD(lr = 0.1);\n"
+                    f'opt.load_from_file("{script_path}");\n'
+                ))
+
+    def test_garbage_file_rejected(self) -> None:
+        """
+        Tests that a non-state file fails loudly.
+        """
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+
+            junk_path: str = os.path.join(temp_dir, "junk.opt")
+
+            with open(junk_path, "wb") as handle:
+                handle.write(b"not an optimizer state")
+
+            opt: SGD = SGD()
+
+            with pytest.raises(TypeError, match="not a Nadata optimizer"):
+                opt.load_from_file(junk_path)
 
 
 class TestTraining:

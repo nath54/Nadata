@@ -147,6 +147,31 @@ The `meta` document carries a `settings` dict (persisted in every meta
 document, merged in replay order). `loop_limit` is the first setting;
 `Nadata.set_loop_limit(n)` and the `set_loop_limit(...)` builtin write it.
 
+## Optimizer state sidecars
+
+Model weights live in instance attributes and persist like any other
+data. Optimizer machinery state (Adam moments, step counts, SGD
+velocity, hyperparameters) is *user-side training junk* — it is
+deliberately **not** stored in the database. Instead, optimizers
+take a pickle sidecar file, written and loaded explicitly by the
+user:
+
+```text
+opt = Adam(lr = 0.001);
+...train...
+opt.save_to_file("checkpoint.opt");      // moments + t + hyperparams
+```
+
+```text
+opt = Adam(lr = 0.001);
+opt.load_from_file("checkpoint.opt");    // resume exactly
+```
+
+The file is tagged and class-checked: loading Adam state into an SGD
+is a `TypeError`. Only load files you trust (pickle). See
+`examples/ex12_optimizer_checkpoint` for the resume-vs-cold-restart
+demonstration.
+
 ## Python surface
 
 ```python

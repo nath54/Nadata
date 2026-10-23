@@ -392,6 +392,8 @@ opt = SGD(lr = 0.05);                  // built-in optimizers
 opt.step(p);                           // apply + clear accumulated grads
 opt.zero_grad(p);                      // clear without stepping
 opt = Adam(lr = 0.001);                // bias-corrected moments
+opt.save_to_file("run.opt");           // checkpoint moments + hyperparams
+opt.load_from_file("run.opt");         // resume a previous run
 ```
 
 - Supported ops: arithmetic (`+ - * /`, tensor and scalar chains),

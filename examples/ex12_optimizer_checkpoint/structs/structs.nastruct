@@ -1,0 +1,23 @@
+# ==============================================================================
+# Example 12: Training with Optimizer Checkpoints
+# A small regression network (2 -> 8 gelu -> 1) trained with Adam through the
+# batched data pipeline. Halfway through, the optimizer's moment state is
+# saved to a sidecar file; a brand-new optimizer object then loads that state
+# and training resumes with identical dynamics. Weights live in the database
+# instances; the sidecar file holds only the user-side training machinery and
+# is written next to the working directory ("checkpoint.opt") at the user's
+# discretion. Every print below is asserted by tests/test_examples.py.
+# ==============================================================================
+
+class Regressor {
+    w1: Tensor[Float32, 2, 8] = randn(21);
+    b1: Tensor[Float32, 8] = zeros();
+    w2: Tensor[Float32, 8, 1] = randn(22);
+    b2: Tensor[Float32, 1] = [0.0];
+    out: Float32 = 0.0;
+
+    @predict(x: Tensor[Float32, 2]) -> Tensor[Float32, 1] {
+        h: Tensor[Float32, 8] = (x.matmul(self.w1) + self.b1).gelu();
+        return h.matmul(self.w2) + self.b2;
+    }
+}
