@@ -37,6 +37,7 @@ from src.core.expressions.builtins import (
     ClearCacheFunction,
     FlushFunction,
     RemoveFromDbFunction,
+    RouteFunction,
     SchemaClassesFunction,
     SchemaFunctionsFunction,
     SetLoopLimitFunction,
@@ -865,6 +866,7 @@ class NaDataLoader:
         globals_dict["flush"] = FlushFunction(database=database)
         globals_dict["clear_cache"] = ClearCacheFunction(database=database)
         globals_dict["remove_from_db"] = RemoveFromDbFunction(database=database)
+        globals_dict["route"] = RouteFunction(database=database)
 
         register_io_builtins(globals_dict=globals_dict, database=database)
 

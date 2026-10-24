@@ -91,6 +91,10 @@ class StructTable:
         # Session-scoped spatial indexes over geometry attributes
         self.spatial_indexes: dict[str, Any] = {}
 
+        # Session-scoped routing networks involving this table (as the
+        # node or the edge side)
+        self.networks: list[Any] = []
+
     def insert(self, attributes: Optional[dict[str, Value]] = None) -> StructInstance:
         """
         Creates and stores a new StructInstance with a globally unique EntityId.
@@ -123,6 +127,9 @@ class StructTable:
 
         # New rows join any existing spatial indexes
         self.spatial_index_instance(instance=instance)
+
+        for network in self.networks:
+            network.on_insert(instance=instance)
 
         return instance
 
@@ -314,6 +321,9 @@ class StructTable:
         for spatial in self.spatial_indexes.values():
             spatial.remove_instance(local_id=local_id)
 
+        for network in self.networks:
+            network.on_remove(local_id=local_id, table=self)
+
     # --- Spatial indexes (session scoped) ---
 
     def create_spatial_index(
@@ -370,6 +380,40 @@ class StructTable:
             index.update_instance(
                 instance=instance, local_id=instance.entity_id.local_id
             )
+
+    def create_network(self, edges_table: Any) -> Any:
+        """
+        Builds a routing network over this table (nodes) and an edge
+        table, replacing any previous network for the same pair.
+
+        Args:
+            edges_table (Any): The edge StructTable.
+
+        Returns:
+            Any: The NetworkIndex.
+        """
+
+        from src.core.database.network_index import NetworkIndex
+
+        # Drop a previous network for the same pair from both tables
+        previous: list[Any] = [
+            existing
+            for existing in self.networks
+            if existing.edges_table is edges_table
+        ]
+
+        for stale in previous:
+            self.networks.remove(stale)
+            edges_table.networks.remove(stale)
+
+        network: Any = NetworkIndex(nodes_table=self, edges_table=edges_table)
+
+        network.build()
+
+        self.networks.append(network)
+        edges_table.networks.append(network)
+
+        return network
 
     def spatial_index_update(self, attribute: str, local_id: int) -> None:
         """

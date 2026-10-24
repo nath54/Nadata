@@ -9,16 +9,18 @@ Planning document — no implementation contract beyond the sequencing at
 the end. Companion to the memory plan (streaming reuses the bounded
 decode cache) and orthogonal to the autograd plan.
 
-> **STATUS: PHASES A+B+C+D IMPLEMENTED.** Phase A (planet settings,
+> **STATUS: PHASES A-E IMPLEMENTED.** Phase A (planet settings,
 > `Coordinate`, geodesy builtins, binary cell encodings), Phase B
 > (`Polyline` / `Polygon`, predicates, shape sugar), Phase C (the
 > `spatial_index` builtin, `locate` / `nearest` / `within` queries,
-> hierarchical descent, dump-time row clustering) and Phase D
+> hierarchical descent, dump-time row clustering), Phase D
 > (`GeoGrid[T]` field layers, bilinear `sample`, sea-level
-> registration, `altitude` integration) are merged with tests
-> (`tests/test_geodesy.py`, `tests/test_geometry.py`,
-> `tests/test_spatial_index.py`, `tests/test_geogrid.py`). Phases E-F
-> are not started.
+> registration, `altitude` integration) and Phase E (`network_index`,
+> `route` with distance/time costs, mode filtering, incremental
+> maintenance) are merged with tests (`tests/test_geodesy.py`,
+> `tests/test_geometry.py`, `tests/test_spatial_index.py`,
+> `tests/test_geogrid.py`, `tests/test_network.py`). Phase F is not
+> started.
 >
 > Phase C implementation notes (deviations from the original text
 > below): queries take no attribute argument — a struct with exactly
@@ -30,6 +32,19 @@ decode cache) and orthogonal to the autograd plan.
 > span > 180°) use a lat/lon-space anchor instead of the 3D direction
 > mean; the cell lower bound applies the sine rule with the query
 > point's latitude and a max-curvature radius on spheroids.
+>
+> Phase E implementation notes: `route(from, to, mode)` takes the
+> transport mode ("car", "walk", ...) for edge filtering plus an
+> optional `cost` keyword ("distance" meters, default, or "time"
+> seconds via the edge's per-mode speeds; a missing speed entry
+> falls back to the edge's fastest speed so partially annotated
+> networks stay connected). Networks are session-scoped and
+> registered on both the node and edge tables; node and edge local
+> ids live in separate per-table spaces, so removal hooks carry the
+> calling table. Edges inserted as shells (attributes populated in a
+> later pass) park as pending and resolve before the next route.
+> Endpoint snapping reuses a cell index over the node positions;
+> `route` needs exactly one network per session (several raise).
 >
 > Phase D implementation notes: the cell size is declared in the type
 > bracket (`GeoGrid[Float64, 3600]`, default 30 arc-seconds) matching

@@ -336,6 +336,11 @@ class StructInstance:
                 local_id=self.entity_id.local_id,
             )
 
+        # Keep routing networks consistent with the write
+        if self.table_ref is not None and self.table_ref.networks:
+            for network in self.table_ref.networks:
+                network.on_update(instance=self)
+
     def apply_upsert(self, values: dict[str, Value]) -> None:
         """
         Re-binds creation attributes onto an existing (nid'd) instance.

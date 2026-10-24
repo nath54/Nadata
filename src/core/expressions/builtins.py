@@ -850,6 +850,171 @@ class SpatialIndexFunction(ScopeAwareFunction):
         return ValueExternal(payload=None)
 
 
+class NetworkIndexFunction(ScopeAwareFunction):
+    """
+    Native network_index(NodeStruct, EdgeStruct): builds a
+    session-scoped routing network over a node struct (with a
+    Coordinate position) and an edge struct (with from / to
+    references, optional modes, per-mode speeds, and a Polyline
+    shape).
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Builds the network.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The node struct binding and the edge
+                struct binding.
+            kwargs (dict[str, Value]): Unused.
+
+        Returns:
+            Any: External wrapping None (statement-style call).
+
+        Raises:
+            TypeError: On wrong arity or non-binding arguments.
+        """
+
+        if len(args) != 2 or kwargs:
+            raise TypeError(
+                "network_index takes exactly (NodeStruct, EdgeStruct)"
+            )
+
+        node_binding: Any = args[0].get()
+        edge_binding: Any = args[1].get()
+
+        if not hasattr(node_binding, "database") or not hasattr(
+            node_binding, "struct"
+        ):
+            raise TypeError(
+                "network_index expects a struct as its first argument"
+            )
+
+        if not hasattr(edge_binding, "database") or not hasattr(
+            edge_binding, "struct"
+        ):
+            raise TypeError(
+                "network_index expects a struct as its second argument"
+            )
+
+        node_table: Any = node_binding.database.tables_by_struct_name[
+            node_binding.struct.name
+        ]
+        edge_table: Any = edge_binding.database.tables_by_struct_name[
+            edge_binding.struct.name
+        ]
+
+        node_table.create_network(edges_table=edge_table)
+
+        return ValueExternal(payload=None)
+
+
+class RouteFunction(ScopeAwareFunction):
+    """
+    Native route(from, to, mode, cost): routes between two coordinates
+    over the session's network. Bound to the database at globals
+    build time.
+    """
+
+    def __init__(self, database: Any) -> None:
+        """
+        Initializes the RouteFunction instance.
+
+        Args:
+            database (Any): The database whose tables host networks.
+        """
+
+        self.database: Any = database
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Routes between two coordinates.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): Start coordinate, end coordinate,
+                transport mode.
+            kwargs (dict[str, Value]): Optional cost ("distance" or
+                "time").
+
+        Returns:
+            Any: External wrapping the Path result.
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+            ValueError: If no (or several) networks exist, or no path
+                is found.
+        """
+
+        if len(args) != 3 or set(kwargs) - {"cost"}:
+            raise TypeError(
+                "route takes (from: Coordinate, to: Coordinate, mode: Str) "
+                "with an optional cost keyword"
+            )
+
+        from src.core.database.network_index import NetworkIndex
+        from src.core.types.home_types.coordinate import Coordinate
+
+        start: Any = args[0].get()
+        end: Any = args[1].get()
+        mode: Any = args[2].get()
+
+        if not isinstance(start, Coordinate) or not isinstance(end, Coordinate):
+            raise TypeError("route expects Coordinate endpoints")
+
+        if not isinstance(mode, str):
+            raise TypeError("route mode must be a string")
+
+        cost: str = "distance"
+
+        if "cost" in kwargs:
+            cost_value: Any = kwargs["cost"].get()
+
+            if not isinstance(cost_value, str):
+                raise TypeError("route cost must be a string")
+
+            cost = cost_value
+
+        # Gather the session networks across all tables (a network is
+        # registered on both its node and edge tables; dedupe by
+        # identity)
+        networks: list[Any] = []
+        seen: list[int] = []
+
+        for table in self.database.tables_by_struct_name.values():
+            for candidate in getattr(table, "networks", []):
+                if id(candidate) not in seen:
+                    seen.append(id(candidate))
+                    networks.append(candidate)
+
+        if not networks:
+            raise ValueError(
+                "route requires a network (build one with network_index)"
+            )
+
+        if len(networks) > 1:
+            raise ValueError(
+                "route is ambiguous: several networks exist in this session"
+            )
+
+        network: NetworkIndex = networks[0]
+
+        return ValueExternal(
+            payload=network.route(start=start, end=end, mode=mode, cost=cost)
+        )
+
+
 class LocateFunction(ScopeAwareFunction):
     """
     Native locate(Struct, coordinate): the deepest instance whose
@@ -1662,6 +1827,7 @@ def build_type_globals() -> dict[str, Any]:
         "spatial_index": SpatialIndexFunction(),
         "register_sea_level": RegisterSeaLevelFunction(),
         "clear_sea_level": ClearSeaLevelFunction(),
+        "network_index": NetworkIndexFunction(),
         "locate": LocateFunction(),
         "nearest": NearestFunction(),
         "within": WithinFunction(),
