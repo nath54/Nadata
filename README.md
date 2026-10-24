@@ -7,6 +7,11 @@ language. You describe your data model in `.nastruct` schema files, populate it
 in `.nadata` data files, and get a typed, queryable, persistent object graph —
 usable from the command line or as an embedded Python library.
 
+The same language models geospatial domains end to end: coordinates on real
+or fictional planets, hierarchical regions, road networks with transport
+modes, buildings with floor-by-floor interiors, and planet-scale spatial
+indexing — one `route()` can walk from a street to an upstairs bedroom.
+
 ```text
 # structs.nastruct — the model
 class Human {
@@ -60,6 +65,15 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
   tensors (arithmetic, `matmul`, reductions, shape ops, `gather`, slices,
   `relu`), seeded data partitioning for train/valid/test splits, and built-in
   `SGD` — train models end-to-end in `.nadata` scripts
+- **Geospatial layer** — `Coordinate` (geodetic lat/lon + radius from the
+  planet's center, spheres and spheroids), `Polyline` / `Polygon` geometry
+  with geodesy builtins (`distance`, `bearing`, `area`, `interpolate`, ...),
+  `spatial_index` with hierarchical `locate` / `nearest` / `within` queries
+  (one index serves a whole struct hierarchy via entity ids),
+  `GeoGrid[T]` field layers with bilinear `sample` and sea-level
+  registration (`altitude` reads the interpolated sea surface), and
+  `network_index` / `route(from, to, mode)` with distance or time costs,
+  mode filtering, and doors-and-stairs-as-edges indoor routing
 - **Sessions & identity** — a project folder is a session: `#init` seeds once
   per world, `#auto` syncs every open, `#manual` scripts take parameters
   (`#manual(lr: Float = 0.05)`), and `nid = "name"` gives instances stable,
@@ -120,6 +134,37 @@ print(app.count("Human"))                        # 3
 app.dump("store.ndb")                            # persist
 ```
 
+### Planet-scale data
+
+The geospatial layer in action (from `examples/ex13_earth`):
+
+```text
+# structs.nastruct
+class AdminRegion { name: Str; parent: AdminRegion; boundary: Polygon; }
+class Place { name: Str; kind: Str; position: Coordinate; }
+class Link {
+    name: Str; from_place: Place; to_place: Place;
+    modes: Array[Str] = []; speed: Dict[Str, Float64] = {};
+    shape: Polyline;
+}
+
+# data.nadata
+spatial_index(AdminRegion, "boundary", lod = 8, parent = "parent");
+network_index(Place, Link);
+
+here = locate(AdminRegion, Coordinate(43.6047, 1.4442, 6371008.8));
+print("located in:", here.name);            # deepest containing region
+
+path = route(Coordinate(43.6293, 1.3638, 6371008.8),   # Blagnac airport
+             Coordinate(43.6047, 1.4442, 6371008.8),   # the Capitole
+             "car", cost = "time");
+print("drive time s:", path.cost);
+```
+
+Coordinates carry the **radius from the planet's center** (not an
+altitude), resolved from per-world planet settings — so the same model
+describes Earth, Mars, or a fictional world.
+
 ## Documentation
 
 | Document | Contents |
@@ -152,6 +197,15 @@ edge cases:
 | `ex10_cnn` | Conv1d/conv2d, pooling, and a basic convolutional neural network |
 | `ex11_transformer` | A minimal transformer block: attention, LayerNorm, feed-forward, `topk` sampling |
 | `ex12_optimizer_checkpoint` | Training a gelu network with Adam, checkpointing optimizer state to a sidecar file, and resuming from it |
+| `ex13_earth` | Planet Earth: the full geospatial layer on real data — admin regions, road + indoor routing, elevation grids; `#init` / `#auto` / `#manual` session directives and parameterized scenarios |
+
+Real-world data converters ship under `tools/` (stdlib only, streaming):
+`tools/osm_to_nadata.py` turns OpenStreetMap extracts into routable
+networks, and `tools/geojson_to_nadata.py` converts GeoJSON polygons into
+admin-region rows. Both are exercised against committed real fixtures
+(central Toulouse, the French départements) in `tests/test_osm.py` —
+measured numbers for a 10 km × 8 km slice of Toulouse are in
+[docs/benchmarks.md](docs/benchmarks.md).
 
 ## Editor support
 
@@ -174,8 +228,8 @@ language: it fails whenever a builtin type, keyword, or scope is missing.
 ## Development
 
 ```bash
-python -m pytest tests/ -q        # run the test suite
-python -m mypy nadata/               # type check (strict)
+python -m pytest tests/ -q          # run the test suite
+python -m mypy nadata/              # type check (strict)
 python -m scripts.inspect_parse examples/ex0_simple   # inspect the parse IR
 ```
 
