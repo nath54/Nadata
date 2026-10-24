@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.console import NadataConsole
-from src.session import (
+from nadata.api import Nadata
+from nadata.console import NadataConsole
+from nadata.session import (
     folder_is_session,
     load_folder_session,
     parse_script_file,
@@ -107,7 +107,7 @@ class TestDirectiveParsing:
         _write(folder, "d.nadata", "w = 4;\n")
 
         _, scripts = __import__(
-            "src.session", fromlist=["scan_folder"]
+            "nadata.session", fromlist=["scan_folder"]
         ).scan_folder(folder=folder)
 
         by_name: dict[str, Any] = {

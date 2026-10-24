@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from src.cli import main
+from nadata.cli import main
 
 
 class TestCli:
@@ -121,7 +121,7 @@ class TestCompactCommand:
         Tests compacting a database file in place via the CLI.
         """
 
-        from src.api import Nadata
+        from nadata.api import Nadata
 
         storage_path: str = str(tmp_path / "db.ndb")
 
@@ -143,7 +143,7 @@ class TestCompactCommand:
         Tests compacting to an explicit output path via the CLI.
         """
 
-        from src.api import Nadata
+        from nadata.api import Nadata
 
         storage_path: str = str(tmp_path / "db.ndb")
         output_path: str = str(tmp_path / "compact.ndb")

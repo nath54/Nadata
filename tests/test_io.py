@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.console import NadataConsole
-from src.core.database.database import NaDataDatabase
+from nadata.api import Nadata
+from nadata.console import NadataConsole
+from nadata.core.database.database import NaDataDatabase
 
 
 SCHEMA: str = (

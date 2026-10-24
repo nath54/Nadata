@@ -32,13 +32,13 @@ import tempfile
 import time
 from typing import Any
 
-from src.core.database.persistence.dumper import dump_database
-from src.core.database.persistence.loader import load_database
-from src.parser.expressions.tokenizer import Tokenizer
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
-from src.parser.utils.brackets import BracketsAndStrings
-from src.parser.utils.comments_remove import CommentsRemover
+from nadata.core.database.persistence.dumper import dump_database
+from nadata.core.database.persistence.loader import load_database
+from nadata.parser.expressions.tokenizer import Tokenizer
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.parser.utils.brackets import BracketsAndStrings
+from nadata.parser.utils.comments_remove import CommentsRemover
 
 ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

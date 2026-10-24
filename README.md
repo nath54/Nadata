@@ -77,6 +77,12 @@ Array[Human] adults = Human.where((h: Human) -> h.age(DateTime.now()).year >= 18
 ## Installation
 
 ```bash
+pip install nadata          # from PyPI
+```
+
+Or from source:
+
+```bash
 git clone <repository-url>
 cd Nadata
 pip install -e .
@@ -169,7 +175,7 @@ language: it fails whenever a builtin type, keyword, or scope is missing.
 
 ```bash
 python -m pytest tests/ -q        # run the test suite
-python -m mypy src/               # type check (strict)
+python -m mypy nadata/               # type check (strict)
 python -m scripts.inspect_parse examples/ex0_simple   # inspect the parse IR
 ```
 

@@ -16,13 +16,10 @@ dependencies = []
 dev = ["pytest>=8.0", "mypy>=1.8"]
 
 [project.scripts]
-nadata = "nadata:main"
-
-[tool.setuptools]
-py-modules = ["nadata"]
+nadata = "nadata.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["src*"]
+include = ["nadata*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

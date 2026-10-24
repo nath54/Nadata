@@ -12,13 +12,13 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.parser.nastruct_parser.imports import (
+from nadata.api import Nadata
+from nadata.parser.nastruct_parser.imports import (
     extract_imports,
     resolve_schema_entry,
     strip_imports,
 )
-from src.session import load_folder_session
+from nadata.session import load_folder_session
 
 
 @pytest.fixture

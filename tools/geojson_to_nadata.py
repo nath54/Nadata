@@ -25,7 +25,7 @@ row via --parent-nid plus a get_by_nid binding appended to the file:
 
 The rows then merge into an existing world:
 
-    python -m src.cli console examples/ex13_earth   # then: import_data();
+    python -m nadata.cli console examples/ex13_earth   # then: import_data();
 
 or simply keep the generated file in the project's data/ folder: its
 rows are declared like any other instance declaration.

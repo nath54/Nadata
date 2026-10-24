@@ -10,24 +10,24 @@ entity ids, cross instance references, and symbols.
 import os
 from typing import Any
 
-from src.core.expressions.expression import LiteralExpr
-from src.core.types.types import TypeArray
-from src.core.values.values import Value, ValueArray
+from nadata.core.expressions.expression import LiteralExpr
+from nadata.core.types.types import TypeArray
+from nadata.core.values.values import Value, ValueArray
 
-from src.api import Nadata
-from src.core.database.persistence import (
+from nadata.api import Nadata
+from nadata.core.database.persistence import (
     append_database_changes,
     compact_database,
     count_documents,
     dump_database,
     load_database,
 )
-from src.core.database.persistence.record_store import RecordStore
-from src.core.database.page_manager import PageManager
-from src.core.database.database import NaDataDatabase
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
-from src.parser.nastruct_parser.resolver import build_type_globals
+from nadata.core.database.persistence.record_store import RecordStore
+from nadata.core.database.page_manager import PageManager
+from nadata.core.database.database import NaDataDatabase
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.parser.nastruct_parser.resolver import build_type_globals
 
 
 def load_example_database(example_name: str) -> NaDataDatabase:
@@ -227,8 +227,8 @@ class TestPersistenceRoundTrip:
         Tests that methods with arguments execute on the loaded database.
         """
 
-        from src.core.types.types import Float64
-        from src.core.values.values import ValueFloat
+        from nadata.core.types.types import Float64
+        from nadata.core.values.values import ValueFloat
 
         database: NaDataDatabase = load_example_database("ex2_inheritance")
         storage_path: str = str(tmp_path / "ex2.bin")
@@ -366,7 +366,7 @@ def _wrap_raw_value(raw: Any) -> Value:
         Value: Typed runtime Value.
     """
 
-    from src.api import _wrap_argument
+    from nadata.api import _wrap_argument
 
     return _wrap_argument(value=raw)
 

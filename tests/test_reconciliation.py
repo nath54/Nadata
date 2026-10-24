@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from src.session import load_folder_session
+from nadata.session import load_folder_session
 
 
 def _write(folder: Any, rel: str, text: str) -> None:
@@ -190,7 +190,7 @@ class TestRemovedAttribute:
                 allow_const=True,
             )
 
-        from src.core.database.persistence.dumper import flush_dirty_instances
+        from nadata.core.database.persistence.dumper import flush_dirty_instances
 
         flush_dirty_instances(
             database=database, storage_path=str(result.db_path)

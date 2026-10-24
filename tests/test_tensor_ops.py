@@ -13,8 +13,8 @@ import math
 import pytest
 from typing import Any
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
 
 SCHEMA: str = (
     "class P {\n"

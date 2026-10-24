@@ -13,13 +13,13 @@ import io
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.expressions.expression import BinaryOpExpr, Expression
-from src.core.expressions.scope import ExecutionScope
-from src.core.types.types import TypeArray, TypeDict, TypeInt, TypeStr
-from src.core.values.values import ValueArray, ValueDict, ValueInt, ValueStr
-from src.parser.expressions.expression_parser import ExpressionParser
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.expressions.expression import BinaryOpExpr, Expression
+from nadata.core.expressions.scope import ExecutionScope
+from nadata.core.types.types import TypeArray, TypeDict, TypeInt, TypeStr
+from nadata.core.values.values import ValueArray, ValueDict, ValueInt, ValueStr
+from nadata.parser.expressions.expression_parser import ExpressionParser
 
 
 def _env() -> dict[str, object]:

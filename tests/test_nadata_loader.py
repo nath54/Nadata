@@ -9,14 +9,14 @@ execution, and type validation on attribute assignment.
 # Import Modules
 from typing import Any
 
-from src.core.database.database import NaDataDatabase
-from src.core.expressions.scope import ExecutionScope
-from src.core.types.types import TypeBool
-from src.core.values.values import ValueBool
-from src.parser.expressions.expression_parser import ExpressionParser
-from src.parser.expressions.statement_parser import StatementParser
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.expressions.scope import ExecutionScope
+from nadata.core.types.types import TypeBool
+from nadata.core.values.values import ValueBool
+from nadata.parser.expressions.expression_parser import ExpressionParser
+from nadata.parser.expressions.statement_parser import StatementParser
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
 
 
 def load_example(example_name: str) -> NaDataDatabase:
@@ -102,7 +102,7 @@ class TestNotOperator:
         Tests that 'not' negates a boolean expression.
         """
 
-        from src.core.expressions.scope import ExecutionScope
+        from nadata.core.expressions.scope import ExecutionScope
 
         expr: Any = ExpressionParser.parse_text(text="not enabled")
 

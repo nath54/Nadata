@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.parser.expressions.statement_parser import StatementParser
-from src.parser.expressions.tokenizer import Tokenizer
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.parser.expressions.statement_parser import StatementParser
+from nadata.parser.expressions.tokenizer import Tokenizer
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
 
 SCHEMA: str = """
 class Box {
@@ -129,7 +129,7 @@ class TestScientificLiterals:
         Tests that '1e' without digits backtracks to INT + identifier.
         """
 
-        from src.parser.expressions.tokenizer import TokenType
+        from nadata.parser.expressions.tokenizer import TokenType
 
         tokens: list[Any] = Tokenizer(content="1e").tokenize()
 
@@ -157,7 +157,7 @@ class TestTargetAssignmentParsing:
         Tests that 'arr[0] = x' parses into a TargetAssignStmt.
         """
 
-        from src.core.expressions.statement import TargetAssignStmt
+        from nadata.core.expressions.statement import TargetAssignStmt
 
         statement: Any = _parse_statements(text="arr[0] = 5;")[0]
 
@@ -168,8 +168,8 @@ class TestTargetAssignmentParsing:
         Tests that 'self.count += 1' desugars with a re-read of the target.
         """
 
-        from src.core.expressions.statement import TargetAssignStmt
-        from src.core.expressions.expression import BinaryOpExpr
+        from nadata.core.expressions.statement import TargetAssignStmt
+        from nadata.core.expressions.expression import BinaryOpExpr
 
         statement: Any = _parse_statements(text="self.count += 1;")[0]
 
@@ -181,7 +181,7 @@ class TestTargetAssignmentParsing:
         Tests that 'arr[i]++' desugars into a target assignment.
         """
 
-        from src.core.expressions.statement import TargetAssignStmt
+        from nadata.core.expressions.statement import TargetAssignStmt
 
         statement: Any = _parse_statements(text="arr[i]++;")[0]
 
@@ -192,7 +192,7 @@ class TestTargetAssignmentParsing:
         Tests that 'x = 5;' still parses into a plain AssignStmt.
         """
 
-        from src.core.expressions.statement import AssignStmt
+        from nadata.core.expressions.statement import AssignStmt
 
         statement: Any = _parse_statements(text="x = 5;")[0]
 
@@ -338,8 +338,8 @@ class TestTargetAssignmentRuntime:
         import os
         import tempfile
 
-        from src.core.database.persistence.dumper import dump_database
-        from src.core.database.persistence.loader import load_database
+        from nadata.core.database.persistence.dumper import dump_database
+        from nadata.core.database.persistence.loader import load_database
 
         app: Nadata = Nadata(database=NaDataDatabase())
         app.execute_schema(schema_text=SCHEMA)

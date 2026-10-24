@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 import sys
 
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
-from src.parser.nastruct_parser.tmp_structs import TmpAttribute, TmpFunction, TmpStruct
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.parser.nastruct_parser.tmp_structs import TmpAttribute, TmpFunction, TmpStruct
 
 
 def format_attribute(

@@ -14,25 +14,25 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.database.persistence.dumper import dump_database
-from src.core.database.persistence.loader import load_database
-from src.core.types.types import (
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.database.persistence.dumper import dump_database
+from nadata.core.database.persistence.loader import load_database
+from nadata.core.types.types import (
     TypeFloat,
     TypeInt,
     TypePriorityQueue,
     TypeQueue,
     TypeStr,
 )
-from src.core.values.values import (
+from nadata.core.values.values import (
     ValuePriorityQueue,
     ValueQueue,
     make_value,
 )
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.expressions.type_parser import TypeParser
-from src.parser.nastruct_parser.resolver import TypeResolver
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.expressions.type_parser import TypeParser
+from nadata.parser.nastruct_parser.resolver import TypeResolver
 
 SCHEMA: str = """
 class T {
@@ -406,7 +406,7 @@ class TestQueuePersistence:
         Tests that queue columns stay pending on lazy open.
         """
 
-        from src.core.database.persistence.lazy_instances import LazyInstanceDict
+        from nadata.core.database.persistence.lazy_instances import LazyInstanceDict
 
         app: Nadata = Nadata(database=NaDataDatabase())
 

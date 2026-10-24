@@ -8,10 +8,10 @@ from typing import Any, Optional
 
 import pytest
 
-from src.core.struct.struct import Struct
-from src.core.struct.struct_method import StructMethod
-from src.core.struct.struct_attribute import StructAttribute
-from src.core.types.types import (
+from nadata.core.struct.struct import Struct
+from nadata.core.struct.struct_method import StructMethod
+from nadata.core.struct.struct_attribute import StructAttribute
+from nadata.core.types.types import (
     Int4,
     Int8,
     TypeStr,
@@ -21,7 +21,7 @@ from src.core.types.types import (
     TypeArray,
     TypeFloat,
 )
-from src.core.values.values import (
+from nadata.core.values.values import (
     ValueStr,
     ValueInt,
     ValueBool,

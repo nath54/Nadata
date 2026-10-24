@@ -94,7 +94,7 @@ Coordinates, polygons, field layers, and routing are builtins (see
 tables:
 
 ```python
-from src.core.types.home_types.coordinate import Coordinate
+from nadata.core.types.home_types.coordinate import Coordinate
 
 table = app.database.tables_by_struct_name["AdminRegion"]
 
@@ -370,7 +370,7 @@ The same loop is available from Python:
 
 ```python
 import nadata
-from src.console import NadataConsole
+from nadata.console import NadataConsole
 
 app = nadata.Nadata.load("store.ndb")
 NadataConsole(app=app).run()

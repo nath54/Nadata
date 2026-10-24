@@ -8,11 +8,11 @@ from __future__ import annotations
 import os
 import tempfile
 
-from src.core.struct import (
+from nadata.core.struct import (
     Struct,
     StructAttribute,
 )
-from src.core.database import (
+from nadata.core.database import (
     EntityId,
     QuerySet,
     SlottedPage,
@@ -24,25 +24,25 @@ from src.core.database import (
     QueryOptimizer,
 )
 
-from src.core.values.values import (
+from nadata.core.values.values import (
     ValueStr,
     ValueFloat,
     ValueDateTime,
 )
-from src.core.types.types import (
+from nadata.core.types.types import (
     Float32,
     TypeStr,
     TypeDateTime,
 )
 
-from src.core.expressions import (
+from nadata.core.expressions import (
     LiteralExpr,
     BinaryOpExpr,
     ExecutionScope,
     IdentifierExpr,
     MemberAccessExpr,
 )
-from src.core.types.home_types import DateTime
+from nadata.core.types.home_types import DateTime
 
 
 

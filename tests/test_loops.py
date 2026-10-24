@@ -8,10 +8,10 @@ from typing import Any, Optional
 
 import pytest
 
-from src.api import Nadata
-from src.core.expressions.scope import LoopLimitError
-from src.parser.expressions.statement_parser import StatementParser
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.api import Nadata
+from nadata.core.expressions.scope import LoopLimitError
+from nadata.parser.expressions.statement_parser import StatementParser
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
 
 
 class TestLoopParsing:
@@ -463,7 +463,7 @@ class TestConsoleMultiLine:
         Tests that a multi-line request with a loop body executes.
         """
 
-        from src.console import NadataConsole
+        from nadata.console import NadataConsole
 
         app: Nadata = Nadata.load(path="./examples/ex0_simple")
         console: NadataConsole = NadataConsole(app=app)
@@ -482,7 +482,7 @@ class TestConsoleMultiLine:
         Tests that run() executes the buffered request on a blank line.
         """
 
-        from src.console import NadataConsole
+        from nadata.console import NadataConsole
 
         app: Nadata = Nadata.load(path="./examples/ex0_simple")
         console: NadataConsole = NadataConsole(app=app)

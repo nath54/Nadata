@@ -14,8 +14,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from src.core.types.types import SPATIAL_GRID_NAMES
-from src.parser.nastruct_parser.resolver import TypeResolver
+from nadata.core.types.types import SPATIAL_GRID_NAMES
+from nadata.parser.nastruct_parser.resolver import TypeResolver
 
 EXTENSION_DIR: Path = Path(__file__).resolve().parent.parent / "editors" / "vscode-nadata"
 

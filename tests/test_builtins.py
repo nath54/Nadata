@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
+from nadata.api import Nadata
 
 
 class TestEntityIdMember:

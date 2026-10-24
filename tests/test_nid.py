@@ -11,10 +11,10 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.persistence.dumper import flush_dirty_instances
-from src.core.database.persistence.loader import load_database
-from src.parser.nadata_loader.loader import NaDataLoader
+from nadata.api import Nadata
+from nadata.core.database.persistence.dumper import flush_dirty_instances
+from nadata.core.database.persistence.loader import load_database
+from nadata.parser.nadata_loader.loader import NaDataLoader
 
 _TMP = tempfile.TemporaryDirectory()
 
@@ -27,7 +27,7 @@ def _fresh_app() -> Nadata:
         Nadata: The facade.
     """
 
-    from src.core.database.database import NaDataDatabase
+    from nadata.core.database.database import NaDataDatabase
 
     return Nadata(database=NaDataDatabase())
 
@@ -329,7 +329,7 @@ class TestNidPersistence:
             tuple[Nadata, str]: The app and the storage path.
         """
 
-        from src.core.database.persistence.dumper import dump_database
+        from nadata.core.database.persistence.dumper import dump_database
 
         app: Nadata = _fresh_app()
         app.execute_schema(schema_text=_child_schema())

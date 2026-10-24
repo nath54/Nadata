@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.expressions.autograd import Adam, SGD
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.expressions.autograd import Adam, SGD
 
 
 class TestFlagsAndRecording:

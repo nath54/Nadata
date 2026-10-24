@@ -8,3 +8,5 @@ __pycache__/
 *.ndb
 *.vsix
 *.opt
+build/
+dist/

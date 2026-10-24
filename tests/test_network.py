@@ -10,11 +10,11 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.types.home_types.coordinate import Coordinate
-from src.core.types.home_types.geometry import Polyline
-from src.core.types.home_types.planet import DEFAULT_PLANET, set_current_planet
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.types.home_types.coordinate import Coordinate
+from nadata.core.types.home_types.geometry import Polyline
+from nadata.core.types.home_types.planet import DEFAULT_PLANET, set_current_planet
 
 R: float = 6371008.8
 
@@ -297,8 +297,8 @@ class TestLanguageIntegration:
         network_index rejects non-struct arguments.
         """
 
-        from src.core.expressions.builtins import NetworkIndexFunction
-        from src.core.values.values import ValueStr, make_value
+        from nadata.core.expressions.builtins import NetworkIndexFunction
+        from nadata.core.values.values import ValueStr, make_value
 
         with pytest.raises(TypeError):
             NetworkIndexFunction().invoke(
@@ -306,13 +306,13 @@ class TestLanguageIntegration:
                 args=[
                     make_value(
                         value_type=__import__(
-                            "src.core.types.types", fromlist=["TypeStr"]
+                            "nadata.core.types.types", fromlist=["TypeStr"]
                         ).TypeStr(),
                         raw="nope",
                     ),
                     make_value(
                         value_type=__import__(
-                            "src.core.types.types", fromlist=["TypeStr"]
+                            "nadata.core.types.types", fromlist=["TypeStr"]
                         ).TypeStr(),
                         raw="nope",
                     ),
@@ -416,7 +416,7 @@ class TestMaintenance:
 
         edge: Any = edge_table.get(local_id=0)
 
-        from src.core.values.values import ValuePolyline
+        from nadata.core.values.values import ValuePolyline
 
         # Detour the a - b edge far east: the a -> b -> ... -> d car
         # route becomes much longer than a -> d is for walking, but

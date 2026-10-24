@@ -12,33 +12,33 @@ from typing import Any, Optional
 
 import pytest
 
-from src.core.database.database import NaDataDatabase
-from src.core.database.entity_id import EntityId
-from src.core.database.persistence.binary_cells import (
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.database.entity_id import EntityId
+from nadata.core.database.persistence.binary_cells import (
     decode_batch_document,
     decode_batch_row_spans,
     encode_batch_document,
     encode_row,
 )
-from src.core.database.persistence.dumper import (
+from nadata.core.database.persistence.dumper import (
     append_instance_removal,
     dump_database,
     flush_dirty_instances,
 )
-from src.core.database.persistence.lazy_instances import (
+from nadata.core.database.persistence.lazy_instances import (
     LazyInstanceDict,
     PendingRow,
     RowDecoder,
 )
-from src.core.database.persistence.loader import load_database
-from src.core.database.persistence.record_store import RecordStore
-from src.core.database.slotted_page import SlottedPage
-from src.core.expressions.builtins import (
+from nadata.core.database.persistence.loader import load_database
+from nadata.core.database.persistence.record_store import RecordStore
+from nadata.core.database.slotted_page import SlottedPage
+from nadata.core.expressions.builtins import (
     ClearCacheFunction,
     PinFunction,
     UnpinFunction,
 )
-from src.core.values.values import ValueExternal, ValueTensor
+from nadata.core.values.values import ValueExternal, ValueTensor
 
 _TMP = tempfile.TemporaryDirectory()
 
@@ -68,7 +68,7 @@ def _wrap_raw_value(raw: Any) -> Any:
         Any: Typed runtime Value.
     """
 
-    from src.api import _wrap_argument
+    from nadata.api import _wrap_argument
 
     return _wrap_argument(value=raw)
 
@@ -81,9 +81,9 @@ def _make_database() -> NaDataDatabase:
         NaDataDatabase: The in-memory database.
     """
 
-    from src.core.struct.struct import Struct
-    from src.core.struct.struct_attribute import StructAttribute
-    from src.core.types.types import TypeFloat, TypeInt
+    from nadata.core.struct.struct import Struct
+    from nadata.core.struct.struct_attribute import StructAttribute
+    from nadata.core.types.types import TypeFloat, TypeInt
 
     database: NaDataDatabase = NaDataDatabase()
 
@@ -157,7 +157,7 @@ class TestRecordStoreIndex:
         The index covers every document and read_document round-trips.
         """
 
-        from src.core.database.page_manager import PageManager
+        from nadata.core.database.page_manager import PageManager
 
         page_manager: PageManager = PageManager(storage_path=None)
         store: RecordStore = RecordStore(page_manager=page_manager)
@@ -189,7 +189,7 @@ class TestRecordStoreIndex:
         A document spanning many pages indexes one location per chunk.
         """
 
-        from src.core.database.page_manager import PageManager
+        from nadata.core.database.page_manager import PageManager
 
         page_manager: PageManager = PageManager(storage_path=None)
         store: RecordStore = RecordStore(page_manager=page_manager)
@@ -208,7 +208,7 @@ class TestRecordStoreIndex:
         New writes appear in document_locations after a cached call.
         """
 
-        from src.core.database.page_manager import PageManager
+        from nadata.core.database.page_manager import PageManager
 
         page_manager: PageManager = PageManager(storage_path=None)
         store: RecordStore = RecordStore(page_manager=page_manager)
@@ -225,7 +225,7 @@ class TestRecordStoreIndex:
         Reading an unknown doc id raises KeyError.
         """
 
-        from src.core.database.page_manager import PageManager
+        from nadata.core.database.page_manager import PageManager
 
         page_manager: PageManager = PageManager(storage_path=None)
         store: RecordStore = RecordStore(page_manager=page_manager)
@@ -373,10 +373,10 @@ class TestDirtyTracking:
         In-place tensor mutation (version bump) marks the row dirty.
         """
 
-        from src.core.struct.struct import Struct
-        from src.core.struct.struct_attribute import StructAttribute
-        from src.core.types.types import TypeFloat, TypeTensor
-        from src.core.values.values import make_value
+        from nadata.core.struct.struct import Struct
+        from nadata.core.struct.struct_attribute import StructAttribute
+        from nadata.core.types.types import TypeFloat, TypeTensor
+        from nadata.core.values.values import make_value
 
         database: NaDataDatabase = NaDataDatabase()
 
@@ -443,10 +443,10 @@ class TestDirtyTracking:
         A version-bumped tensor row is rewritten with the new payload.
         """
 
-        from src.core.struct.struct import Struct
-        from src.core.struct.struct_attribute import StructAttribute
-        from src.core.types.types import TypeFloat, TypeTensor
-        from src.core.values.values import make_value
+        from nadata.core.struct.struct import Struct
+        from nadata.core.struct.struct_attribute import StructAttribute
+        from nadata.core.types.types import TypeFloat, TypeTensor
+        from nadata.core.values.values import make_value
 
         path: str = _fresh_path("tensor")
 
@@ -500,9 +500,9 @@ class TestDirtyTracking:
         Instances created after load are dirty by default and flush.
         """
 
-        from src.core.struct.struct import Struct
-        from src.core.struct.struct_attribute import StructAttribute
-        from src.core.types.types import TypeFloat
+        from nadata.core.struct.struct import Struct
+        from nadata.core.struct.struct_attribute import StructAttribute
+        from nadata.core.types.types import TypeFloat
 
         path: str = _fresh_path("runtime")
 
@@ -688,9 +688,9 @@ class TestTombstones:
         New instances after a removal never take the removed local id.
         """
 
-        from src.core.struct.struct import Struct
-        from src.core.struct.struct_attribute import StructAttribute
-        from src.core.types.types import TypeFloat
+        from nadata.core.struct.struct import Struct
+        from nadata.core.struct.struct_attribute import StructAttribute
+        from nadata.core.types.types import TypeFloat
 
         path: str = _fresh_path("ids")
 
@@ -851,9 +851,9 @@ class TestStreamingScale:
 
         started: float = time.perf_counter()
 
-        from src.core.struct.struct import Struct
-        from src.core.struct.struct_attribute import StructAttribute
-        from src.core.types.types import TypeFloat, TypeInt
+        from nadata.core.struct.struct import Struct
+        from nadata.core.struct.struct_attribute import StructAttribute
+        from nadata.core.types.types import TypeFloat, TypeInt
 
         source: NaDataDatabase = NaDataDatabase()
 
@@ -906,7 +906,7 @@ class TestScriptBuiltins:
         A script can pin, mutate, flush, and clear the cache.
         """
 
-        from src.api import Nadata
+        from nadata.api import Nadata
 
         path: str = _fresh_path("script")
 
@@ -946,7 +946,7 @@ class TestScriptBuiltins:
         remove_from_db drops the instance and persists the tombstone.
         """
 
-        from src.api import Nadata
+        from nadata.api import Nadata
 
         path: str = _fresh_path("remove")
 

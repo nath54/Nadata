@@ -7,7 +7,7 @@ parser, and the declaration text parser built on top of them.
 from __future__ import annotations
 import pytest
 
-from src.core.expressions.expression import (
+from nadata.core.expressions.expression import (
     ArrayLiteralExpr,
     BinaryOpExpr,
     CallExpr,
@@ -17,7 +17,7 @@ from src.core.expressions.expression import (
     MemberAccessExpr,
     UnaryOpExpr,
 )
-from src.core.expressions.statement import (
+from nadata.core.expressions.statement import (
     AssignStmt,
     ExprStmt,
     IfStmt,
@@ -25,14 +25,14 @@ from src.core.expressions.statement import (
     Statement,
     VarDeclStmt,
 )
-from src.parser.expressions.expression_parser import ExpressionParser
-from src.parser.expressions.statement_parser import StatementParser
-from src.parser.expressions.type_parser import TmpType, TypeParser
-from src.parser.expressions.splitter import find_top_level, split_top_level
-from src.parser.expressions.tokenizer import Token, TokenType, Tokenizer
-from src.parser.expressions.type_parser import TmpType
-from src.parser.nastruct_parser.declaration import parse_declaration_text
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.parser.expressions.expression_parser import ExpressionParser
+from nadata.parser.expressions.statement_parser import StatementParser
+from nadata.parser.expressions.type_parser import TmpType, TypeParser
+from nadata.parser.expressions.splitter import find_top_level, split_top_level
+from nadata.parser.expressions.tokenizer import Token, TokenType, Tokenizer
+from nadata.parser.expressions.type_parser import TmpType
+from nadata.parser.nastruct_parser.declaration import parse_declaration_text
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
 
 
 class TestTokenizer:

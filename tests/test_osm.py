@@ -18,9 +18,9 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.types.home_types.coordinate import Coordinate
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.types.home_types.coordinate import Coordinate
 
 # Import Modules (paths)
 TOOLS_DIR: str = str(Path(__file__).parent.parent / "tools")

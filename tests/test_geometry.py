@@ -10,12 +10,12 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.database.persistence.binary_cells import decode_value, encode_value
-from src.core.database.persistence.serialization import DecodeContext, ObjectCodec
-from src.core.types.home_types.coordinate import Coordinate, destination
-from src.core.types.home_types.geometry import (
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.database.persistence.binary_cells import decode_value, encode_value
+from nadata.core.database.persistence.serialization import DecodeContext, ObjectCodec
+from nadata.core.types.home_types.coordinate import Coordinate, destination
+from nadata.core.types.home_types.geometry import (
     Polygon,
     Polyline,
     area,
@@ -25,14 +25,14 @@ from src.core.types.home_types.geometry import (
     perimeter,
     regular_polygon,
 )
-from src.core.types.home_types.planet import (
+from nadata.core.types.home_types.planet import (
     DEFAULT_PLANET,
     EARTH_MEAN_RADIUS,
     Planet,
     set_current_planet,
 )
-from src.core.types.types import TypePolygon, TypePolyline
-from src.core.values.values import make_value
+from nadata.core.types.types import TypePolygon, TypePolyline
+from nadata.core.values.values import make_value
 
 R: float = EARTH_MEAN_RADIUS
 

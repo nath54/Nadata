@@ -8,14 +8,14 @@ from typing import Any
 
 import pytest
 
-from src.core.types.types import TypeArray, TypeDict, UFloat32, UInt8
-from src.core.types.home_types.color import Color
-from src.core.types.home_types.datetime import DateTime
-from src.core.values.values import ValueDateTime, ValueStr
-from src.core.types.types import TypeStr
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
-from src.parser.nastruct_parser.resolver import build_type_globals
+from nadata.core.types.types import TypeArray, TypeDict, UFloat32, UInt8
+from nadata.core.types.home_types.color import Color
+from nadata.core.types.home_types.datetime import DateTime
+from nadata.core.values.values import ValueDateTime, ValueStr
+from nadata.core.types.types import TypeStr
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.parser.nastruct_parser.resolver import build_type_globals
 
 
 class TestResolution:

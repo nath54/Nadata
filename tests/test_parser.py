@@ -9,12 +9,12 @@ from typing import Optional
 
 import pytest
 
-import src.parser.nastruct_parser.nastruct_parser as nastruct_parser_module
-from src.core.expressions.expression import CallExpr, LiteralExpr
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
-from src.parser.nastruct_parser.parser_state import NaStructParserState
-from src.parser.nastruct_parser.tmp_structs import TmpStruct
-from src.parser.utils import (
+import nadata.parser.nastruct_parser.nastruct_parser as nastruct_parser_module
+from nadata.core.expressions.expression import CallExpr, LiteralExpr
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.parser.nastruct_parser.parser_state import NaStructParserState
+from nadata.parser.nastruct_parser.tmp_structs import TmpStruct
+from nadata.parser.utils import (
     BracketTree,
     BracketsAndStrings,
     CommentsRemover,

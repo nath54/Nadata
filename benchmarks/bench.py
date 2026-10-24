@@ -36,9 +36,9 @@ import tempfile
 import time
 from typing import Any, Callable
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.values.values import make_value
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.values.values import make_value
 
 ROOT: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

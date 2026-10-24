@@ -10,19 +10,19 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.types.home_types.coordinate import Coordinate, altitude
-from src.core.types.home_types.geogrid import bilinear_sample
-from src.core.types.home_types.planet import DEFAULT_PLANET, set_current_planet
-from src.core.types.home_types.sea_level import (
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.types.home_types.coordinate import Coordinate, altitude
+from nadata.core.types.home_types.geogrid import bilinear_sample
+from nadata.core.types.home_types.planet import DEFAULT_PLANET, set_current_planet
+from nadata.core.types.home_types.sea_level import (
     GeoSeaLevelAdapter,
     set_sea_level_surface,
 )
-from src.core.types.types import TypeGeoGrid
-from src.core.values.values import ValueGeoGrid
-from src.parser.expressions.type_parser import TypeParser
-from src.parser.nastruct_parser.resolver import TypeResolver
+from nadata.core.types.types import TypeGeoGrid
+from nadata.core.values.values import ValueGeoGrid
+from nadata.parser.expressions.type_parser import TypeParser
+from nadata.parser.nastruct_parser.resolver import TypeResolver
 
 R: float = 6371008.8
 
@@ -105,7 +105,7 @@ class TestTypeResolution:
         """
 
         grid_type: TypeGeoGrid = TypeGeoGrid(
-            value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+            value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
             cell_arcsec=60,
         )
 
@@ -124,7 +124,7 @@ class TestCellMath:
         """
 
         grid_type: TypeGeoGrid = TypeGeoGrid(
-            value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+            value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
             cell_arcsec=3600,
         )
 
@@ -145,7 +145,7 @@ class TestCellMath:
         """
 
         grid_type: TypeGeoGrid = TypeGeoGrid(
-            value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+            value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
             cell_arcsec=3600,
         )
 
@@ -177,7 +177,7 @@ class TestCellMath:
         """
 
         grid_type: TypeGeoGrid = TypeGeoGrid(
-            value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+            value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
             cell_arcsec=3600,
         )
 
@@ -190,7 +190,7 @@ class TestCellMath:
         """
 
         grid_type: TypeGeoGrid = TypeGeoGrid(
-            value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+            value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
             cell_arcsec=3600,
         )
 
@@ -221,7 +221,7 @@ class TestBilinear:
         """
 
         return TypeGeoGrid(
-            value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+            value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
             cell_arcsec=3600,
         )
 
@@ -521,7 +521,7 @@ class TestSeaLevel:
         register_sea_level rejects non-GeoGrid arguments.
         """
 
-        from src.core.expressions.builtins import RegisterSeaLevelFunction
+        from nadata.core.expressions.builtins import RegisterSeaLevelFunction
 
         with pytest.raises(TypeError):
             RegisterSeaLevelFunction()()
@@ -533,7 +533,7 @@ class TestSeaLevel:
 
         grid: ValueGeoGrid = ValueGeoGrid(
             value_type=TypeGeoGrid(
-                value_type=__import__("src.core.types.types", fromlist=["Float64"]).Float64,
+                value_type=__import__("nadata.core.types.types", fromlist=["Float64"]).Float64,
                 cell_arcsec=3600,
             ),
             cells={(181, 133): R + 10.0},

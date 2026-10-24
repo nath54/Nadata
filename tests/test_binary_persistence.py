@@ -14,20 +14,20 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.database.persistence.binary_cells import (
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.database.persistence.binary_cells import (
     decode_batch_document,
     decode_row,
     encode_batch_document,
     encode_row,
 )
-from src.core.database.persistence.dumper import dump_database
-from src.core.database.persistence.loader import load_database
-from src.core.database.persistence.lazy_instances import LazyInstanceDict
-from src.core.types.home_types.color import Color
-from src.core.types.home_types.datetime import DateTime
-from src.core.types.types import (
+from nadata.core.database.persistence.dumper import dump_database
+from nadata.core.database.persistence.loader import load_database
+from nadata.core.database.persistence.lazy_instances import LazyInstanceDict
+from nadata.core.types.home_types.color import Color
+from nadata.core.types.home_types.datetime import DateTime
+from nadata.core.types.types import (
     TypeArray,
     TypeBool,
     TypeColor,
@@ -37,9 +37,9 @@ from src.core.types.types import (
     TypeInt,
     TypeStr,
 )
-from src.core.values.values import make_value
-from src.parser.nadata_loader.loader import NaDataLoader
-from src.parser.nastruct_parser.nastruct_parser import NaStructParser
+from nadata.core.values.values import make_value
+from nadata.parser.nadata_loader.loader import NaDataLoader
+from nadata.parser.nastruct_parser.nastruct_parser import NaStructParser
 
 SCHEMA: str = """
 class Human {
@@ -183,7 +183,7 @@ class TestRowCodec:
 
         types: dict[str, Any] = _types()
 
-        from src.core.values.values import ValueExternal
+        from nadata.core.values.values import ValueExternal
 
         attributes: dict[str, Any] = {
             "name": make_value(value_type=types["name"], raw="x"),
@@ -487,7 +487,7 @@ class TestDeltaSaves:
 
         dump_database(database=app.database, storage_path=storage_path)
 
-        from src.core.database.persistence.dumper import append_database_changes
+        from nadata.core.database.persistence.dumper import append_database_changes
 
         reopened: Any = load_database(storage_path=storage_path)
 
@@ -498,9 +498,9 @@ class TestDeltaSaves:
         Tests that modifying one row appends a batch with just that row.
         """
 
-        from src.core.database.persistence.dumper import append_database_changes
-        from src.core.values.values import make_value
-        from src.core.types.types import TypeStr
+        from nadata.core.database.persistence.dumper import append_database_changes
+        from nadata.core.values.values import make_value
+        from nadata.core.types.types import TypeStr
 
         app: Nadata = Nadata(database=NaDataDatabase())
 

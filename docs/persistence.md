@@ -193,7 +193,7 @@ demonstration.
 ## Python surface
 
 ```python
-from src.core.database.persistence import (
+from nadata.core.database.persistence import (
     dump_database,
     load_database,
     append_database_changes,

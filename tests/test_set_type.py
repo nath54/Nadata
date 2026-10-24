@@ -13,14 +13,14 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.database.persistence.dumper import dump_database
-from src.core.database.persistence.loader import load_database
-from src.core.types.types import TypeInt, TypeSet, TypeStr
-from src.core.values.values import ValueSet
-from src.parser.expressions.expression_parser import ExpressionParser
-from src.parser.nadata_loader.loader import NaDataLoader
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.database.persistence.dumper import dump_database
+from nadata.core.database.persistence.loader import load_database
+from nadata.core.types.types import TypeInt, TypeSet, TypeStr
+from nadata.core.values.values import ValueSet
+from nadata.parser.expressions.expression_parser import ExpressionParser
+from nadata.parser.nadata_loader.loader import NaDataLoader
 
 SCHEMA: str = """
 class P {
@@ -82,7 +82,7 @@ class TestSetTypeLayer:
         Tests that make_value dispatches sets to ValueSet.
         """
 
-        from src.core.values.values import make_value
+        from nadata.core.values.values import make_value
 
         value: object = make_value(
             value_type=TypeSet(value_type=TypeStr()), raw={"a"}
@@ -109,7 +109,7 @@ class TestSetLiterals:
 
         ast: object = ExpressionParser.parse_text(text=expr)
 
-        from src.core.expressions.scope import ExecutionScope
+        from nadata.core.expressions.scope import ExecutionScope
 
         scope: ExecutionScope = ExecutionScope(globals_dict={})
 
@@ -352,7 +352,7 @@ class TestSetPersistence:
         Tests that a lazy open leaves set columns pending.
         """
 
-        from src.core.database.persistence.lazy_instances import LazyInstanceDict
+        from nadata.core.database.persistence.lazy_instances import LazyInstanceDict
 
         app: Nadata = Nadata(database=NaDataDatabase())
 

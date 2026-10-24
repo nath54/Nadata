@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.console import NadataConsole
+from nadata.api import Nadata
+from nadata.console import NadataConsole
 
 
 class TestNadataConsole:

@@ -14,7 +14,7 @@ pip install -e .[dev]      # nadata + pytest + mypy
 
 ```bash
 python -m pytest tests/ -q        # the full test suite must pass
-python -m mypy src/               # strict type check must stay clean
+python -m mypy nadata/               # strict type check must stay clean
 ```
 
 Both gates run quickly (the suite is unit-fast; nothing spawns processes).

@@ -35,7 +35,7 @@ jobs:
         run: python -m pytest tests/ -q
 
       - name: Type check
-        run: python -m mypy src/
+        run: python -m mypy nadata/
 
   smoke:
     name: Smoke (${{ matrix.os }})

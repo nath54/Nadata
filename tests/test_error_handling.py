@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from src.core.expressions.scope import RaiseSignal
-from src.parser.expressions.statement_parser import StatementParser
+from nadata.core.expressions.scope import RaiseSignal
+from nadata.parser.expressions.statement_parser import StatementParser
 
 
 class TestRaiseParsing:
@@ -23,7 +23,7 @@ class TestRaiseParsing:
         A raise statement parses to a RaiseStmt.
         """
 
-        from src.core.expressions.statement import RaiseStmt
+        from nadata.core.expressions.statement import RaiseStmt
 
         statements = StatementParser.parse_body('raise "boom";')
 
@@ -43,7 +43,7 @@ class TestRaiseParsing:
         A try / catch with a binding parses to a TryCatchStmt.
         """
 
-        from src.core.expressions.statement import TryCatchStmt
+        from nadata.core.expressions.statement import TryCatchStmt
 
         statements = StatementParser.parse_body(
             'try { raise "x"; } catch (err) { print(err); }'
@@ -58,7 +58,7 @@ class TestRaiseParsing:
         A catch without a binding parses with error_name None.
         """
 
-        from src.core.expressions.statement import TryCatchStmt
+        from nadata.core.expressions.statement import TryCatchStmt
 
         statements = StatementParser.parse_body(
             'try { print(1); } catch { print(2); }'
@@ -93,8 +93,8 @@ class TestRaiseExecution:
             Any: The Nadata instance.
         """
 
-        from src.api import Nadata
-        from src.core.database.database import NaDataDatabase
+        from nadata.api import Nadata
+        from nadata.core.database.database import NaDataDatabase
 
         app = Nadata(database=NaDataDatabase())
 

@@ -9,7 +9,7 @@ changes on purpose, update the EXPECTED_OUTPUTS entry in the same commit.
 # Import Modules
 import pytest
 
-from src.cli import main
+from nadata.cli import main
 
 # Project folder -> substrings that must appear in the run output, in order
 EXPECTED_OUTPUTS: dict[str, list[str]] = {
@@ -298,7 +298,7 @@ class TestExampleOutputs:
             assert exit_code == 0
 
             # Reload and re-execute a representative script line
-            from src.api import Nadata
+            from nadata.api import Nadata
 
             reloaded: Nadata = Nadata.open(storage_path=storage_path)
 

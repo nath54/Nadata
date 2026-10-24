@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.expressions.expression import IdentifierExpr, IndexExpr
-from src.core.expressions.scope import ExecutionScope
-from src.core.values.values import ValueStr
-from src.parser.expressions.dependencies import collect_dependencies
-from src.parser.expressions.expression_parser import ExpressionParser
+from nadata.api import Nadata
+from nadata.core.expressions.expression import IdentifierExpr, IndexExpr
+from nadata.core.expressions.scope import ExecutionScope
+from nadata.core.values.values import ValueStr
+from nadata.parser.expressions.dependencies import collect_dependencies
+from nadata.parser.expressions.expression_parser import ExpressionParser
 
 
 def _parse_expression(text: str) -> Any:

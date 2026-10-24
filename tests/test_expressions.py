@@ -6,30 +6,30 @@ Unit tests for AST expression and statement execution engine.
 from __future__ import annotations
 from typing import Optional
 
-from src.core.struct.struct import Struct
-from src.core.types.types import (
+from nadata.core.struct.struct import Struct
+from nadata.core.types.types import (
     Int32,
     Float32,
     TypeBool,
     TypeFloat,
 )
-from src.core.values.values import (
+from nadata.core.values.values import (
     Value,
     ValueInt,
     ValueBool,
     ValueFloat,
 )
-from src.core.struct.struct_method import StructMethod
-from src.core.expressions.scope import ExecutionScope
-from src.core.struct.struct_attribute import StructAttribute
-from src.core.expressions.statement import (
+from nadata.core.struct.struct_method import StructMethod
+from nadata.core.expressions.scope import ExecutionScope
+from nadata.core.struct.struct_attribute import StructAttribute
+from nadata.core.expressions.statement import (
     IfStmt,
     BlockStmt,
     AssignStmt,
     ReturnStmt,
     VarDeclStmt,
 )
-from src.core.expressions.expression import (
+from nadata.core.expressions.expression import (
     CallExpr,
     LiteralExpr,
     BinaryOpExpr,

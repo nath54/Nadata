@@ -11,12 +11,12 @@ from typing import Any
 
 import pytest
 
-from src.api import Nadata
-from src.core.database.database import NaDataDatabase
-from src.core.database.spatial_index import SpatialIndex
-from src.core.types.home_types.coordinate import Coordinate
-from src.core.types.home_types.geometry import Polygon, Polyline, circle
-from src.core.types.home_types.planet import DEFAULT_PLANET, set_current_planet
+from nadata.api import Nadata
+from nadata.core.database.database import NaDataDatabase
+from nadata.core.database.spatial_index import SpatialIndex
+from nadata.core.types.home_types.coordinate import Coordinate
+from nadata.core.types.home_types.geometry import Polygon, Polyline, circle
+from nadata.core.types.home_types.planet import DEFAULT_PLANET, set_current_planet
 
 R: float = 6371008.8
 
@@ -543,7 +543,7 @@ class TestMaintenance:
         instance: Any = table.get(local_id=0)
 
         # Move the point via the Python API (goes through set_attribute)
-        from src.core.values.values import ValueCoordinate
+        from nadata.core.values.values import ValueCoordinate
 
         instance.set_attribute(
             name="at",
@@ -688,7 +688,7 @@ class TestLanguageIntegration:
 
         table: Any = app.database.tables_by_struct_name["Area"]
 
-        from src.core.expressions.builtins import _spatial_index_of
+        from nadata.core.expressions.builtins import _spatial_index_of
 
         with pytest.raises(TypeError):
             _spatial_index_of(table=table, op_name="locate")
