@@ -728,6 +728,17 @@ class Coordinate:
 
         self._planet(planet=planet)  # Resolves / validates the session planet
 
+        # Exact endpoints: no trig round-trip (it loses the last ulp)
+        if clamped_t == 0.0:
+            return Coordinate(
+                lat=self.lat, lon=self.lon, radius=self.radius
+            )
+
+        if clamped_t == 1.0:
+            return Coordinate(
+                lat=other.lat, lon=other.lon, radius=other.radius
+            )
+
         v1: tuple[float, float, float] = _to_unit_vector(lat_deg=self.lat, lon_deg=self.lon)
         v2: tuple[float, float, float] = _to_unit_vector(lat_deg=other.lat, lon_deg=other.lon)
 
@@ -735,19 +746,25 @@ class Coordinate:
         omega: float = math.acos(dot)
 
         if omega < 1e-12:
-            direction: tuple[float, float, float] = v1
-        else:
-            sin_omega: float = math.sin(omega)
+            # Degenerate (identical points): the vector round-trip
+            # would perturb the coordinates
+            return Coordinate(
+                lat=self.lat,
+                lon=self.lon,
+                radius=self.radius + (other.radius - self.radius) * clamped_t,
+            )
 
-            mixed: list[float] = [
-                (
-                    math.sin((1.0 - clamped_t) * omega) * a
-                    + math.sin(clamped_t * omega) * b
-                ) / sin_omega
-                for a, b in zip(v1, v2)
-            ]
+        sin_omega: float = math.sin(omega)
 
-            direction = (mixed[0], mixed[1], mixed[2])
+        mixed: list[float] = [
+            (
+                math.sin((1.0 - clamped_t) * omega) * a
+                + math.sin(clamped_t * omega) * b
+            ) / sin_omega
+            for a, b in zip(v1, v2)
+        ]
+
+        direction: tuple[float, float, float] = (mixed[0], mixed[1], mixed[2])
 
         lat_mid: float
         lon_mid: float

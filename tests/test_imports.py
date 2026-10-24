@@ -30,7 +30,7 @@ def tmp_root() -> Any:
         Any: The temp directory Path.
     """
 
-    path: Any = Path(tempfile.mkdtemp())
+    path: Any = Path(tempfile.mkdtemp()).resolve()
 
     try:
         yield path
