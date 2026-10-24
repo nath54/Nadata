@@ -32,7 +32,28 @@ from src.core.expressions.autograd import (
 )
 from src.core.expressions.scope import ScopeAwareFunction
 from src.core.types.home_types.color import Color
+from src.core.types.home_types.coordinate import (
+    Coordinate,
+    altitude,
+    bearing,
+    destination,
+    distance,
+    geocentric_latitude,
+    interpolate,
+    surface_radius,
+)
 from src.core.types.home_types.datetime import DateTime
+from src.core.types.home_types.geometry import (
+    Polygon,
+    Polyline,
+    area,
+    circle,
+    contains,
+    ellipse,
+    perimeter,
+    regular_polygon,
+)
+from src.core.types.home_types.planet import Planet
 from src.core.types.types import (
     Float64,
     Int64,
@@ -743,6 +764,300 @@ class LastFunction(ScopeAwareFunction):
         return None if found is None else ValueExternal(payload=found)
 
 
+class SpatialIndexFunction(ScopeAwareFunction):
+    """
+    Native spatial_index(Struct, attribute, lod, parent): builds a
+    session-scoped cell index over a geometry attribute for locate /
+    nearest / within queries.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Builds the index.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding and attribute name.
+            kwargs (dict[str, Value]): Optional lod (Int) and parent
+                (Str, the self-reference attribute name).
+
+        Returns:
+            Any: External wrapping None (statement-style call).
+
+        Raises:
+            TypeError: On wrong arity or kinds.
+        """
+
+        if len(args) != 2 or ("lod" not in kwargs and "parent" not in kwargs and kwargs):
+            raise TypeError(
+                "spatial_index takes (Struct, attribute) with optional "
+                "lod and parent keyword arguments"
+            )
+
+        unknown = set(kwargs) - {"lod", "parent"}
+
+        if unknown:
+            raise TypeError(
+                f"spatial_index got unexpected keyword arguments: {sorted(unknown)}"
+            )
+
+        binding: Any = args[0].get()
+        attribute: Any = args[1].get()
+
+        if not isinstance(attribute, str):
+            raise TypeError(
+                f"spatial_index attribute must be a string, "
+                f"got '{type(attribute).__name__}'"
+            )
+
+        lod: int = 8
+
+        if "lod" in kwargs:
+            lod_value: Any = kwargs["lod"].get()
+
+            if isinstance(lod_value, bool) or not isinstance(lod_value, int):
+                raise TypeError("spatial_index lod must be an integer")
+
+            lod = lod_value
+
+        parent_attribute: Optional[str] = None
+
+        if "parent" in kwargs:
+            parent_value: Any = kwargs["parent"].get()
+
+            if not isinstance(parent_value, str):
+                raise TypeError("spatial_index parent must be a string")
+
+            parent_attribute = parent_value
+
+        table: Any = binding.database.tables_by_struct_name[
+            binding.struct.name
+        ]
+
+        table.create_spatial_index(
+            attribute=attribute,
+            lod=lod,
+            parent_attribute=parent_attribute,
+        )
+
+        return ValueExternal(payload=None)
+
+
+class LocateFunction(ScopeAwareFunction):
+    """
+    Native locate(Struct, coordinate): the deepest instance whose
+    indexed geometry contains the coordinate, via hierarchy descent
+    with fast paths. Requires a spatial index on the geometry
+    attribute; None when nothing contains the coordinate.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Resolves the containing instance.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding and the coordinate.
+            kwargs (dict[str, Value]): Rejected.
+
+        Returns:
+            Any: External wrapping the instance, or None payload.
+
+        Raises:
+            TypeError: On wrong arity, kinds, or a missing index.
+        """
+
+        if len(args) != 2 or kwargs:
+            raise TypeError("locate takes exactly two arguments")
+
+        binding: Any = args[0].get()
+        coord: Any = args[1].get()
+
+        if not isinstance(coord, Coordinate):
+            raise TypeError(
+                f"locate requires a Coordinate, got '{type(coord).__name__}'"
+            )
+
+        table: Any = binding.database.tables_by_struct_name[
+            binding.struct.name
+        ]
+
+        index: Any = _spatial_index_of(table=table, op_name="locate")
+
+        local_id: Optional[int] = index.locate(coord=coord)
+
+        if local_id is None:
+            return ValueExternal(payload=None)
+
+        return ValueExternal(payload=table.get(local_id=local_id))
+
+
+class NearestFunction(ScopeAwareFunction):
+    """
+    Native nearest(Struct, coordinate, k): the k indexed instances
+    whose cached geometry centers are nearest to the coordinate,
+    ranked by chord distance.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Resolves the nearest instances.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding, the coordinate,
+                and k.
+            kwargs (dict[str, Value]): Rejected.
+
+        Returns:
+            Any: External wrapping the instance list (for-in friendly).
+
+        Raises:
+            TypeError: On wrong arity, kinds, or a missing index.
+        """
+
+        if len(args) != 3 or kwargs:
+            raise TypeError("nearest takes exactly three arguments")
+
+        binding: Any = args[0].get()
+        coord: Any = args[1].get()
+        k: Any = args[2].get()
+
+        if not isinstance(coord, Coordinate):
+            raise TypeError(
+                f"nearest requires a Coordinate, got '{type(coord).__name__}'"
+            )
+
+        if isinstance(k, bool) or not isinstance(k, int):
+            raise TypeError(f"nearest requires an integer k, got '{type(k).__name__}'")
+
+        table: Any = binding.database.tables_by_struct_name[
+            binding.struct.name
+        ]
+
+        index: Any = _spatial_index_of(table=table, op_name="nearest")
+
+        local_ids: list[int] = index.nearest(coord=coord, k=k)
+
+        instances: list[Any] = [
+            table.get(local_id=local_id)
+            for local_id in local_ids
+            if table.get(local_id=local_id) is not None
+        ]
+
+        return ValueExternal(payload=instances)
+
+
+class WithinFunction(ScopeAwareFunction):
+    """
+    Native within(Struct, coordinate, radius): the indexed instances
+    whose geometry lies within a radius of the coordinate.
+    """
+
+    def invoke(
+        self,
+        scope: Any,
+        args: list[Value],
+        kwargs: dict[str, Value],
+    ) -> Any:
+        """
+        Resolves the instances within the radius.
+
+        Args:
+            scope (Any): Live execution scope (unused).
+            args (list[Value]): The struct binding, the coordinate,
+                and the radius in meters.
+            kwargs (dict[str, Value]): Rejected.
+
+        Returns:
+            Any: External wrapping the instance list (for-in friendly).
+
+        Raises:
+            TypeError: On wrong arity, kinds, or a missing index.
+        """
+
+        if len(args) != 3 or kwargs:
+            raise TypeError("within takes exactly three arguments")
+
+        binding: Any = args[0].get()
+        coord: Any = args[1].get()
+        radius: Any = args[2].get()
+
+        if not isinstance(coord, Coordinate):
+            raise TypeError(
+                f"within requires a Coordinate, got '{type(coord).__name__}'"
+            )
+
+        if isinstance(radius, bool) or not isinstance(radius, (int, float)):
+            raise TypeError(
+                f"within requires a numeric radius, got '{type(radius).__name__}'"
+            )
+
+        table: Any = binding.database.tables_by_struct_name[
+            binding.struct.name
+        ]
+
+        index: Any = _spatial_index_of(table=table, op_name="within")
+
+        local_ids: list[int] = index.within(coord=coord, radius_m=float(radius))
+
+        instances: list[Any] = [
+            table.get(local_id=local_id)
+            for local_id in local_ids
+            if table.get(local_id=local_id) is not None
+        ]
+
+        return ValueExternal(payload=instances)
+
+
+def _spatial_index_of(table: Any, op_name: str) -> Any:
+    """
+    Resolves the spatial index of a struct table.
+
+    Args:
+        table (Any): The StructTable.
+        op_name (str): Operation name for error messages.
+
+    Returns:
+        Any: The SpatialIndex.
+
+    Raises:
+        TypeError: If the table has no spatial index, or several
+            (ambiguous without an attribute argument).
+    """
+
+    count: int = len(table.spatial_indexes)
+
+    if count == 1:
+        return next(iter(table.spatial_indexes.values()))
+
+    if count == 0:
+        raise TypeError(
+            f"{op_name} requires a spatial index on Struct "
+            f"'{table.struct.name}' (build one with spatial_index)"
+        )
+
+    raise TypeError(
+        f"{op_name} is ambiguous on Struct '{table.struct.name}': "
+        f"multiple spatial indexes exist"
+    )
+
+
 class IndexFunction(ScopeAwareFunction):
     """
     Native index(Struct, attribute): build a session-scoped hash index
@@ -1311,6 +1626,23 @@ def build_type_globals() -> dict[str, Any]:
     return {
         "DateTime": DateTime,
         "Color": Color,
+        "Coordinate": Coordinate,
+        "Polyline": Polyline,
+        "Polygon": Polygon,
+        "Planet": Planet,
+        "area": area,
+        "perimeter": perimeter,
+        "contains": contains,
+        "circle": circle,
+        "ellipse": ellipse,
+        "regular_polygon": regular_polygon,
+        "distance": distance,
+        "bearing": bearing,
+        "destination": destination,
+        "interpolate": interpolate,
+        "surface_radius": surface_radius,
+        "altitude": altitude,
+        "geocentric_latitude": geocentric_latitude,
         "type": builtin_type,
         "zeros": TensorInitializer(kind="zeros"),
         "fill": TensorInitializer(kind="fill"),
@@ -1325,6 +1657,10 @@ def build_type_globals() -> dict[str, Any]:
         "unpin": UnpinFunction(),
         "get_by_nid": GetByNidFunction(),
         "index": IndexFunction(),
+        "spatial_index": SpatialIndexFunction(),
+        "locate": LocateFunction(),
+        "nearest": NearestFunction(),
+        "within": WithinFunction(),
         "get_by": GetByFunction(),
         "first": FirstFunction(),
         "last": LastFunction(),

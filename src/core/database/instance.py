@@ -311,6 +311,12 @@ class StructInstance:
         if tracks_index and name in self.attributes:
             old_indexed = self.attributes[name].get()
 
+        # Spatial indexes re-index on any write to their attribute
+        tracks_spatial: bool = (
+            self.table_ref is not None
+            and name in self.table_ref.spatial_indexes
+        )
+
         self.attributes[name] = value
         self.dirty = True
 
@@ -320,6 +326,13 @@ class StructInstance:
                 attribute=name,
                 old_raw=old_indexed,
                 new_raw=value.get(),
+                local_id=self.entity_id.local_id,
+            )
+
+        # Keep spatial indexes consistent with the write
+        if tracks_spatial and self.table_ref is not None:
+            self.table_ref.spatial_index_update(
+                attribute=name,
                 local_id=self.entity_id.local_id,
             )
 

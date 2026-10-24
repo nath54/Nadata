@@ -148,7 +148,16 @@ def _encode_table_batches(table: Any) -> list[bytes]:
 
     raw_rows: list[tuple[int, bytes]] = []
 
-    for local_id in sorted(_all_local_ids(instances=table.instances)):
+    # Spatially indexed tables cluster rows by cell key so "load
+    # district X" reads contiguous pages
+    ordered_ids: list[int] = sorted(_all_local_ids(instances=table.instances))
+
+    if getattr(table, "spatial_indexes", None):
+        spatial: Any = next(iter(table.spatial_indexes.values()))
+
+        ordered_ids.sort(key=lambda local_id: spatial.sort_key(local_id=local_id))
+
+    for local_id in ordered_ids:
         raw_row: Optional[bytes] = None
 
         if hasattr(table.instances, "raw_row_if_pending"):

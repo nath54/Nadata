@@ -25,6 +25,11 @@ Value encoding is driven by the declared type:
     - TypeStr: varint byte length + UTF-8 payload
     - TypeDateTime: 7 x int32 (y, m, d, H, M, S, MS)
     - TypeColor: 4 x uint8 (r, g, b, a)
+    - TypeCoordinate: 3 x float64 (lat, lon, radius)
+    - TypePolyline / TypePolygon: varint vertex count + per vertex
+      3 x float64 (exact round trips; delta compression deferred)
+    - TypePlanet: one flag byte (0 sphere, 1 spheroid) + float64
+      equatorial radius (+ float64 polar radius when spheroid)
     - Struct type: varint of the referenced entity id (resolved through a
       row resolver on decode, which may decode the referenced row lazily)
     - TypeArray / TypeDict: varint element count + per element value
@@ -49,10 +54,14 @@ from src.core.types.types import (
     TypeArray,
     TypeBool,
     TypeColor,
+    TypeCoordinate,
     TypeDateTime,
     TypeDict,
     TypeFloat,
     TypeInt,
+    TypePlanet,
+    TypePolygon,
+    TypePolyline,
     TypePriorityQueue,
     TypeQueue,
     TypeSet,
@@ -262,6 +271,27 @@ def encode_value(raw: Any, value_type: Any) -> bytes:
             raw.millisecond,
         )
 
+    if isinstance(value_type, TypeCoordinate):
+        return struct.pack("<3d", float(raw.lat), float(raw.lon), float(raw.radius))
+
+    if isinstance(value_type, (TypePolyline, TypePolygon)):
+        ring_bytes: bytearray = bytearray(encode_varint(value=len(raw.vertices)))
+
+        for vertex in raw.vertices:
+            ring_bytes += struct.pack(
+                "<3d", float(vertex.lat), float(vertex.lon), float(vertex.radius)
+            )
+
+        return bytes(ring_bytes)
+
+    if isinstance(value_type, TypePlanet):
+        if raw.is_sphere:
+            return b"\x00" + struct.pack("<d", raw.equatorial_radius)
+
+        return b"\x01" + struct.pack(
+            "<2d", raw.equatorial_radius, raw.polar_radius
+        )
+
     if isinstance(value_type, TypeColor):
         return struct.pack("<4B", raw.r, raw.g, raw.b, raw.a)
 
@@ -400,6 +430,60 @@ def decode_value(
             S=fields[5],
             MS=fields[6],
         ), offset + 28
+
+    if isinstance(value_type, TypeCoordinate):
+        lat: float
+        lon: float
+        radius: float
+        lat, lon, radius = struct.unpack_from("<3d", payload, offset)
+
+        from src.core.types.home_types.coordinate import Coordinate
+
+        return Coordinate(lat=lat, lon=lon, radius=radius), offset + 24
+
+    if isinstance(value_type, (TypePolyline, TypePolygon)):
+        vertex_count: int
+        vertex_count, offset = decode_varint(payload=payload, offset=offset)
+
+        from src.core.types.home_types.coordinate import Coordinate as _Coordinate
+        from src.core.types.home_types.geometry import Polygon as _Polygon
+        from src.core.types.home_types.geometry import Polyline as _Polyline
+
+        vertices: list[Any] = []
+
+        for _ in range(vertex_count):
+            v_lat: float
+            v_lon: float
+            v_radius: float
+            v_lat, v_lon, v_radius = struct.unpack_from("<3d", payload, offset)
+            offset += 24
+
+            vertices.append(_Coordinate(lat=v_lat, lon=v_lon, radius=v_radius))
+
+        if isinstance(value_type, TypePolyline):
+            return _Polyline(vertices=vertices), offset
+
+        return _Polygon(vertices=vertices), offset
+
+    if isinstance(value_type, TypePlanet):
+        is_spheroid: bool = payload[offset] == 1
+        offset += 1
+
+        from src.core.types.home_types.planet import Planet
+
+        if not is_spheroid:
+            equatorial: float = struct.unpack_from("<d", payload, offset)[0]
+
+            return Planet(equatorial_radius=equatorial, polar_radius=None), offset + 8
+
+        equatorial_pair: tuple[float, float] = struct.unpack_from(
+            "<2d", payload, offset
+        )
+
+        return Planet(
+            equatorial_radius=equatorial_pair[0],
+            polar_radius=equatorial_pair[1],
+        ), offset + 16
 
     if isinstance(value_type, TypeColor):
         channels: tuple[int, ...] = struct.unpack_from("<4B", payload, offset)

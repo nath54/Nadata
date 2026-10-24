@@ -48,7 +48,19 @@ from src.core.struct.struct import Struct
 from src.core.struct.struct_attribute import StructAttribute
 from src.core.struct.struct_method import StructMethod
 from src.core.types.home_types.color import Color
+from src.core.types.home_types.coordinate import Coordinate
 from src.core.types.home_types.datetime import DateTime
+from src.core.types.home_types.geometry import (
+    Polygon,
+    Polyline,
+    area,
+    circle,
+    contains,
+    ellipse,
+    perimeter,
+    regular_polygon,
+)
+from src.core.types.home_types.planet import Planet
 from src.core.types.types import (
     Type,
     TypeInt,
@@ -56,6 +68,10 @@ from src.core.types.types import (
     TypeBool,
     TypeDateTime,
     TypeColor,
+    TypeCoordinate,
+    TypePolyline,
+    TypePolygon,
+    TypePlanet,
     TypeArray,
     TypeDict,
     TypeSet,
@@ -109,6 +125,10 @@ def build_builtin_types() -> dict[str, Type]:
         "Bool": TypeBool(),
         "DateTime": TypeDateTime(),
         "Color": TypeColor(),
+        "Coordinate": TypeCoordinate(),
+        "Polyline": TypePolyline(),
+        "Polygon": TypePolygon(),
+        "Planet": TypePlanet(),
         "Int2": Int2,
         "Int4": Int4,
         "Int8": Int8,

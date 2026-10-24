@@ -37,11 +37,15 @@ from src.core.values.values import (
     ValueInt,
     ValueBool,
     ValueColor,
+    ValueCoordinate,
     ValueFloat,
     ValueArray,
     ValueDict,
     ValueDateTime,
     ValueExternal,
+    ValuePlanet,
+    ValuePolygon,
+    ValuePolyline,
     ValuePriorityQueue,
     ValueQueue,
     ValueSet,
@@ -50,7 +54,10 @@ from src.core.values.values import (
     make_value,
 )
 from src.core.types.home_types.color import Color
+from src.core.types.home_types.coordinate import Coordinate
 from src.core.types.home_types.datetime import DateTime
+from src.core.types.home_types.geometry import Polygon, Polyline
+from src.core.types.home_types.planet import Planet
 from src.core.expressions.autograd import (
     Optimizer,
     maybe_record_binary,
@@ -150,6 +157,14 @@ class LiteralExpr(Expression):
             self.value = ValueStr(value_type=TypeStr(), value=value)
         elif isinstance(value, DateTime):
             self.value = ValueDateTime(value=value)
+        elif isinstance(value, Coordinate):
+            self.value = ValueCoordinate(value=value)
+        elif isinstance(value, Polyline):
+            self.value = ValuePolyline(value=value)
+        elif isinstance(value, Polygon):
+            self.value = ValuePolygon(value=value)
+        elif isinstance(value, Planet):
+            self.value = ValuePlanet(value=value)
         elif isinstance(value, Color):
             self.value = ValueColor(value=value)
         else:
@@ -948,6 +963,10 @@ class MemberAccessExpr(Expression):
 
             if isinstance(native_val, Value):
                 return native_val
+
+            # Raw lists stay iterable in for-in (e.g. Polyline.vertices)
+            if isinstance(native_val, list):
+                return ValueExternal(payload=native_val)
 
             # Wrap raw native members (e.g. DateTime.year) into typed Values
             return LiteralExpr(value=native_val).evaluate(scope=scope)
@@ -2209,6 +2228,18 @@ class CallExpr(Expression):
 
             if isinstance(res, DateTime):
                 return ValueDateTime(value=res)
+
+            if isinstance(res, Coordinate):
+                return ValueCoordinate(value=res)
+
+            if isinstance(res, Polyline):
+                return ValuePolyline(value=res)
+
+            if isinstance(res, Polygon):
+                return ValuePolygon(value=res)
+
+            if isinstance(res, Planet):
+                return ValuePlanet(value=res)
 
             if isinstance(res, Color):
                 return ValueColor(value=res)

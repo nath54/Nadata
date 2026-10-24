@@ -22,9 +22,13 @@ from src.core.types.types import (
     TypeBool,
     TypeDict,
     TypeColor,
+    TypeCoordinate,
+    TypePolyline,
+    TypePolygon,
     TypeArray,
     TypeFloat,
     TypeDateTime,
+    TypePlanet,
     TypeSet,
     TypeQueue,
     TypePriorityQueue,
@@ -32,7 +36,10 @@ from src.core.types.types import (
     TypeTensor,
 )
 from src.core.types.home_types.color import Color
+from src.core.types.home_types.coordinate import Coordinate
 from src.core.types.home_types.datetime import DateTime
+from src.core.types.home_types.geometry import Polygon, Polyline
+from src.core.types.home_types.planet import Planet
 
 
 
@@ -982,13 +989,240 @@ class ValueDateTime(Value):
         """
 
         return self.value
-
     def __repr__(self) -> str:
         """
         Returns string representation of the ValueDateTime.
 
         Returns:
             str: Representation showing the DateTime value.
+        """
+
+        return repr(self.value)
+
+
+class ValueCoordinate(Value):
+    """
+    Runtime representation of a Coordinate value.
+
+    Attributes:
+        value_type (TypeCoordinate): Associated Coordinate schema type.
+        value (Coordinate): Native Coordinate instance stored in memory.
+    """
+
+    def __init__(
+        self,
+        value_type: Optional[TypeCoordinate] = None,
+        value: Optional[Coordinate] = None
+    ) -> None:
+        """
+        Initializes the ValueCoordinate instance.
+
+        Args:
+            value_type (Optional[TypeCoordinate], optional): Coordinate type spec. Defaults to None.
+            value (Optional[Coordinate], optional): Initial Coordinate value. Defaults to None.
+
+        Raises:
+            TypeError: If value is not a Coordinate.
+        """
+
+        resolved_type: TypeCoordinate = value_type if value_type is not None else TypeCoordinate()
+        resolved_value: Coordinate = value if value is not None else TypeCoordinate().default_value
+
+        # Initialize parent class
+        super().__init__(value_type=resolved_type)
+
+        resolved_type.check_value(value=resolved_value)
+
+        self.value_type: TypeCoordinate = resolved_type
+        self.value: Coordinate = resolved_value
+
+    def get(self) -> Coordinate:
+        """
+        Returns the raw Coordinate instance.
+
+        Returns:
+            Coordinate: Underlying Coordinate.
+        """
+
+        return self.value
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueCoordinate.
+
+        Returns:
+            str: Representation showing the Coordinate value.
+        """
+
+        return repr(self.value)
+
+
+class ValuePlanet(Value):
+    """
+    Runtime representation of a Planet value.
+
+    Attributes:
+        value_type (TypePlanet): Associated Planet schema type.
+        value (Planet): Native Planet instance stored in memory.
+    """
+
+    def __init__(
+        self,
+        value_type: Optional[TypePlanet] = None,
+        value: Optional[Planet] = None
+    ) -> None:
+        """
+        Initializes the ValuePlanet instance.
+
+        Args:
+            value_type (Optional[TypePlanet], optional): Planet type spec. Defaults to None.
+            value (Optional[Planet], optional): Initial Planet value. Defaults to None.
+
+        Raises:
+            TypeError: If value is not a Planet.
+        """
+
+        resolved_type: TypePlanet = value_type if value_type is not None else TypePlanet()
+        resolved_value: Planet = value if value is not None else TypePlanet().default_value
+
+        # Initialize parent class
+        super().__init__(value_type=resolved_type)
+
+        resolved_type.check_value(value=resolved_value)
+
+        self.value_type: TypePlanet = resolved_type
+        self.value: Planet = resolved_value
+
+    def get(self) -> Planet:
+        """
+        Returns the raw Planet instance.
+
+        Returns:
+            Planet: Underlying Planet.
+        """
+
+        return self.value
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValuePlanet.
+
+        Returns:
+            str: Representation showing the Planet value.
+        """
+
+        return repr(self.value)
+
+
+class ValuePolyline(Value):
+    """
+    Runtime representation of a Polyline value.
+
+    Attributes:
+        value_type (TypePolyline): Associated Polyline schema type.
+        value (Polyline): Native Polyline instance stored in memory.
+    """
+
+    def __init__(
+        self,
+        value_type: Optional[TypePolyline] = None,
+        value: Optional[Polyline] = None
+    ) -> None:
+        """
+        Initializes the ValuePolyline instance.
+
+        Args:
+            value_type (Optional[TypePolyline], optional): Polyline type spec. Defaults to None.
+            value (Optional[Polyline], optional): Initial Polyline value. Defaults to None.
+
+        Raises:
+            TypeError: If value is not a Polyline.
+        """
+
+        resolved_type: TypePolyline = value_type if value_type is not None else TypePolyline()
+        resolved_value: Polyline = value if value is not None else TypePolyline().default_value
+
+        # Initialize parent class
+        super().__init__(value_type=resolved_type)
+
+        resolved_type.check_value(value=resolved_value)
+
+        self.value_type: TypePolyline = resolved_type
+        self.value: Polyline = resolved_value
+
+    def get(self) -> Polyline:
+        """
+        Returns the raw Polyline instance.
+
+        Returns:
+            Polyline: Underlying Polyline.
+        """
+
+        return self.value
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValuePolyline.
+
+        Returns:
+            str: Representation showing the Polyline value.
+        """
+
+        return repr(self.value)
+
+
+class ValuePolygon(Value):
+    """
+    Runtime representation of a Polygon value.
+
+    Attributes:
+        value_type (TypePolygon): Associated Polygon schema type.
+        value (Polygon): Native Polygon instance stored in memory.
+    """
+
+    def __init__(
+        self,
+        value_type: Optional[TypePolygon] = None,
+        value: Optional[Polygon] = None
+    ) -> None:
+        """
+        Initializes the ValuePolygon instance.
+
+        Args:
+            value_type (Optional[TypePolygon], optional): Polygon type spec. Defaults to None.
+            value (Optional[Polygon], optional): Initial Polygon value. Defaults to None.
+
+        Raises:
+            TypeError: If value is not a Polygon.
+        """
+
+        resolved_type: TypePolygon = value_type if value_type is not None else TypePolygon()
+        resolved_value: Polygon = value if value is not None else TypePolygon().default_value
+
+        # Initialize parent class
+        super().__init__(value_type=resolved_type)
+
+        resolved_type.check_value(value=resolved_value)
+
+        self.value_type: TypePolygon = resolved_type
+        self.value: Polygon = resolved_value
+
+    def get(self) -> Polygon:
+        """
+        Returns the raw Polygon instance.
+
+        Returns:
+            Polygon: Underlying Polygon.
+        """
+
+        return self.value
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValuePolygon.
+
+        Returns:
+            str: Representation showing the Polygon value.
         """
 
         return repr(self.value)
@@ -1090,6 +1324,18 @@ def make_value(value_type: Type, raw: Any) -> Value:
 
     if isinstance(value_type, TypeDateTime):
         return ValueDateTime(value=raw)
+
+    if isinstance(value_type, TypeCoordinate):
+        return ValueCoordinate(value=raw)
+
+    if isinstance(value_type, TypePolyline):
+        return ValuePolyline(value=raw)
+
+    if isinstance(value_type, TypePolygon):
+        return ValuePolygon(value=raw)
+
+    if isinstance(value_type, TypePlanet):
+        return ValuePlanet(value=raw)
 
     if isinstance(value_type, TypeColor):
         return ValueColor(value=raw)

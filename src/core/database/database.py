@@ -68,6 +68,9 @@ class StructTable:
         next_local_id (int): Next local id index to assign.
         indexes (dict[str, dict[Any, set[int]]]): Optional per-attribute
             hash indexes (raw value -> local ids), session scoped.
+        spatial_indexes (dict[str, Any]): Optional per-attribute cell
+            indexes over geometry attributes (SpatialIndex), session
+            scoped.
     """
 
     def __init__(self, struct: Struct, type_id: int) -> None:
@@ -84,6 +87,9 @@ class StructTable:
         self.instances: dict[int, StructInstance] = {}
         self.next_local_id: int = 0
         self.indexes: dict[str, dict[Any, set[int]]] = {}
+
+        # Session-scoped spatial indexes over geometry attributes
+        self.spatial_indexes: dict[str, Any] = {}
 
     def insert(self, attributes: Optional[dict[str, Value]] = None) -> StructInstance:
         """
@@ -114,6 +120,9 @@ class StructTable:
 
         # New rows join any existing hash indexes (defaults included)
         self.index_instance(instance=instance)
+
+        # New rows join any existing spatial indexes
+        self.spatial_index_instance(instance=instance)
 
         return instance
 
@@ -301,6 +310,90 @@ class StructTable:
 
             for raw in empty:
                 index.pop(raw, None)
+
+        for spatial in self.spatial_indexes.values():
+            spatial.remove_instance(local_id=local_id)
+
+    # --- Spatial indexes (session scoped) ---
+
+    def create_spatial_index(
+        self,
+        attribute: str,
+        lod: int = 8,
+        parent_attribute: Optional[str] = None,
+    ) -> Any:
+        """
+        Builds a cell index over a geometry attribute of this table.
+
+        Args:
+            attribute (str): Declared geometry attribute name.
+            lod (int, optional): Level of detail (cell edge =
+                360 / 2^lod degrees). Defaults to 8.
+            parent_attribute (Optional[str], optional): Self-reference
+                attribute enabling hierarchical locate() descent.
+                Defaults to None (flat).
+
+        Returns:
+            Any: The built SpatialIndex.
+
+        Raises:
+            AttributeError: If the attribute is not declared.
+            TypeError: If the attribute is not a geometry type.
+        """
+
+        from src.core.database.spatial_index import SpatialIndex
+
+        index: Any = SpatialIndex(
+            table=self,
+            attribute=attribute,
+            lod=lod,
+            parent_attribute=parent_attribute,
+        )
+
+        self.spatial_indexes[attribute] = index
+
+        return index
+
+    def spatial_index_instance(self, instance: Any) -> None:
+        """
+        Indexes one instance under every existing spatial index of
+        this table (insert hook).
+
+        Args:
+            instance (Any): The instance to index.
+        """
+
+        if not self.spatial_indexes:
+            return
+
+        for index in self.spatial_indexes.values():
+            index.update_instance(
+                instance=instance, local_id=instance.entity_id.local_id
+            )
+
+    def spatial_index_update(self, attribute: str, local_id: int) -> None:
+        """
+        Re-indexes one instance after a geometry attribute write.
+
+        Args:
+            attribute (str): The written attribute (must be indexed).
+            local_id (int): Local instance id.
+        """
+
+        index: Optional[Any] = self.spatial_indexes.get(attribute)
+
+        if index is None:
+            return
+
+        instance: Optional[Any] = self.instances.get(local_id) if hasattr(
+            self.instances, "get"
+        ) else None
+
+        if instance is None:
+            instance = self.get(local_id=local_id)
+
+        if instance is not None:
+            index.update_instance(instance=instance, local_id=local_id)
 
     def lookup_by_index(
         self,

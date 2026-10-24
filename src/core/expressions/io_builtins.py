@@ -28,6 +28,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from src.core.types.home_types.planet import planet_from_settings, set_current_planet
+
 from src.core.expressions.scope import ScopeAwareFunction
 from src.core.types.types import (
     Float64,
@@ -935,6 +937,10 @@ class SetSettingFunction(IoFunction):
             )
 
         self.database.settings[name] = value
+
+        # Planet settings take effect immediately for geodesy builtins
+        if name.startswith("planet."):
+            set_current_planet(planet=planet_from_settings(settings=self.database.settings))
 
         return None
 

@@ -15,7 +15,10 @@ from src.core.types.bits.bits import (
     BitValueTypeFloat,
 )
 from src.core.types.home_types.color import Color
+from src.core.types.home_types.coordinate import Coordinate
 from src.core.types.home_types.datetime import DateTime
+from src.core.types.home_types.geometry import Polygon, Polyline
+from src.core.types.home_types.planet import DEFAULT_PLANET, Planet
 
 
 
@@ -946,6 +949,171 @@ class TypeDateTime(Type):
         """
 
         return "DateTime"
+
+
+class TypeCoordinate(Type):
+    """
+    Schema type representing a geodetic coordinate (latitude,
+    longitude, radius from the planet center).
+    """
+
+    def __init__(self) -> None:
+        """
+        Initializes the TypeCoordinate instance.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Default value is a sea-level coordinate at the equator
+        self.default_value: Coordinate = Coordinate(lat=0.0, lon=0.0, radius=6371008.8)
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a Coordinate instance.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            TypeError: If value is not a Coordinate.
+        """
+
+        if not isinstance(value, Coordinate):
+            raise TypeError(f"Expected Coordinate, got {type(value).__name__}")
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of TypeCoordinate.
+
+        Returns:
+            str: "Coordinate".
+        """
+
+        return "Coordinate"
+
+
+class TypePolyline(Type):
+    """
+    Schema type representing a geodesic path over Coordinates.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initializes the TypePolyline instance.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Default value is the empty path
+        self.default_value: Polyline = Polyline(vertices=[])
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a Polyline instance.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            TypeError: If value is not a Polyline.
+        """
+
+        if not isinstance(value, Polyline):
+            raise TypeError(f"Expected Polyline, got {type(value).__name__}")
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of TypePolyline.
+
+        Returns:
+            str: "Polyline".
+        """
+
+        return "Polyline"
+
+
+class TypePolygon(Type):
+    """
+    Schema type representing a closed ring over Coordinates.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initializes the TypePolygon instance.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Default value is the empty polygon
+        self.default_value: Polygon = Polygon(vertices=[])
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a Polygon instance.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            TypeError: If value is not a Polygon.
+        """
+
+        if not isinstance(value, Polygon):
+            raise TypeError(f"Expected Polygon, got {type(value).__name__}")
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of TypePolygon.
+
+        Returns:
+            str: "Polygon".
+        """
+
+        return "Polygon"
+
+
+class TypePlanet(Type):
+    """
+    Schema type representing a planet shape (sphere or spheroid).
+    """
+
+    def __init__(self) -> None:
+        """
+        Initializes the TypePlanet instance.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        # Default value is the default Earth sphere
+        self.default_value: Planet = DEFAULT_PLANET
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a Planet instance.
+
+        Args:
+            value (Any): Value to validate.
+
+        Raises:
+            TypeError: If value is not a Planet.
+        """
+
+        if not isinstance(value, Planet):
+            raise TypeError(f"Expected Planet, got {type(value).__name__}")
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of TypePlanet.
+
+        Returns:
+            str: "Planet".
+        """
+
+        return "Planet"
 
 
 class TypeColor(Type):

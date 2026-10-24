@@ -51,6 +51,7 @@ from src.core.expressions.expression import (
     SetLiteralExpr,
 )
 from src.core.types.types import TypePriorityQueue, TypeQueue, TypeSet, TypeSpatialGrid
+from src.core.types.home_types.planet import planet_from_settings, set_current_planet
 from src.parser.expressions.type_parser import TmpType, TypeParser
 from src.parser.utils.comments_remove import CommentsRemover
 from src.core.expressions.builtins import build_type_globals
@@ -853,6 +854,9 @@ class NaDataLoader:
         """
 
         globals_dict: dict[str, Any] = build_type_globals()
+
+        # Seed the session current planet from persisted settings
+        set_current_planet(planet=planet_from_settings(settings=database.settings))
 
         globals_dict["print"] = print_runtime_values
         globals_dict["schema_classes"] = SchemaClassesFunction(database=database)

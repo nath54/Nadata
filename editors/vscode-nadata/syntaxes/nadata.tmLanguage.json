@@ -178,7 +178,7 @@
 		},
 		"builtin-types": {
 			"name": "support.type.nadata",
-			"match": "\\b(Array|Dict|Set|Queue|PriorityQueue|Tensor|GridSquare2D|GridHex2D|GridCube3D|DateTime|Color|Str|Bool|BFloat16|UBFloat16|U?Float(?:8_E4M3|8_E5M2|16|32|64)|U?Int[0-9]+)\\b"
+			"match": "\\b(Array|Dict|Set|Queue|PriorityQueue|Tensor|GridSquare2D|GridHex2D|GridCube3D|DateTime|Color|Coordinate|Polyline|Polygon|Planet|Str|Bool|BFloat16|UBFloat16|U?Float(?:8_E4M3|8_E5M2|16|32|64)|U?Int[0-9]+)\\b"
 		},
 		"call": {
 			"name": "entity.name.function.call.nadata",
