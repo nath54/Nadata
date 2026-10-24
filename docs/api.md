@@ -87,6 +87,41 @@ the raw payload; aggregation helpers require numeric attributes. Attribute
 names may be passed as plain strings (Python) or string values (language
 side) — both are accepted.
 
+### Geospatial layer
+
+Coordinates, polygons, field layers, and routing are builtins (see
+[syntax.md](syntax.md) §5.10); the Python side works on the same
+tables:
+
+```python
+from src.core.types.home_types.coordinate import Coordinate
+
+table = app.database.tables_by_struct_name["AdminRegion"]
+
+# Session-scoped index over a geometry attribute; one index covers
+# the whole struct hierarchy (subclass tables included)
+index = table.create_spatial_index(
+    attribute="boundary", lod=8, parent_attribute="parent",
+    database=app.database,
+)
+
+found = index.locate(coord=Coordinate(43.6, 1.44, 6371008.8))
+instance = index.get_instance(key=found)      # deepest containing row
+hits = index.within(coord=coord, radius_m=8000.0)   # entity-id keys
+ordered = sorted(ids, key=lambda i: index.sort_key(local_id=i, table=table))
+
+# Routing networks: registered on both node and edge tables
+place_table = app.database.tables_by_struct_name["Place"]
+network = place_table.create_network(
+    edges_table=app.database.tables_by_struct_name["Link"]
+)
+path = network.route(start=coord_a, end=coord_b, mode="car")
+```
+
+The language-side builtins (`spatial_index`, `locate`, `nearest`,
+`within`, `network_index`, `route`) wrap the same machinery from
+scripts; `get_by_nid(Base, "nid")` resolves subclass rows too.
+
 ### Executing raw source
 
 ```python

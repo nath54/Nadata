@@ -1,0 +1,64 @@
+# ==============================================================================
+# Example 13: Planet Earth - the reference geospatial domain schema
+#
+# The map & world layer applied to a real planet:
+#   - AdminRegion: a generic administrative base (parent / boundary / name)
+#     with country-specific leaves coexisting in one schema (France's
+#     Departement next to a generic Region; fictional worlds reuse the base).
+#   - Place / Link: one network for roads AND interiors - junctions are
+#     nodes, streets / doors / stairs are edges. Rooms are nodes too, so a
+#     single route() spans street -> front door -> hall -> stairs -> room.
+#   - WorldData: elevation (sea surface) and terrain field layers.
+#
+# Data files are directive-marked: #init seeds the world once, #auto
+# rebuilds the session-scoped indexes and demos on every open, and the
+# scenarios/*.nadata files are #manual one-shot jobs.
+# ==============================================================================
+
+# Generic administrative base: never hardcoded into the engine - the
+# hierarchy is plain data (parent references + Polygon boundaries)
+class AdminRegion {
+    name: Str;
+    parent: AdminRegion;
+    boundary: Polygon;
+}
+
+# Country-specific leaves: France's decoupage lives next to any other
+# country's subdivisions under the same base
+class Country(AdminRegion) {}
+class Departement(AdminRegion) {}
+class Region(AdminRegion) {}
+
+# A place in the transport / indoor graph: a road junction, an entrance,
+# or a room (indoor navigation is the same machinery)
+class Place {
+    name: Str;
+    kind: Str;
+
+    position: Coordinate;
+}
+
+# An edge of the graph: a street (car + walk), a footpath, a door, or a
+# staircase. One street walkable AND drivable is one row with two modes;
+# geometry is never duplicated per mode. Doors and stairs are elements -
+# games render them.
+class Link {
+    name: Str;
+    from_place: Place;
+    to_place: Place;
+
+    modes: Array[Str] = [];
+    speed: Dict[Str, Float64] = {};
+
+    shape: Polyline;
+}
+
+# Planet-scale field layers: a sparse elevation grid of sea-surface
+# radii (1-degree cells here; 30 arc-seconds is the default) and a
+# terrain-type grid. Only written cells cost memory.
+class WorldData {
+    name: Str;
+
+    elevation: GeoGrid[Float64, 3600] = {};
+    terrain: GeoGrid[Str, 3600] = {};
+}

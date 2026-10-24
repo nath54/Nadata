@@ -1,0 +1,69 @@
+#auto
+# ==============================================================================
+# Example 13: demos - runs on every open (deterministic output)
+#
+# Session-scoped indexes are rebuilt on open (like hash indexes), so the
+# scripts re-declare them before querying.
+# ==============================================================================
+
+spatial_index(AdminRegion, "boundary", lod = 8, parent = "parent");
+
+# --- Hierarchical locate: the deepest region containing the point ---
+here = locate(AdminRegion, Coordinate(43.6, 1.44, 6371008.8));
+print("located:", here.name);
+
+# --- within: every region covering an area around a point ---
+count = 0;
+for (region: AdminRegion in within(AdminRegion, Coordinate(43.6, 1.44, 6371008.8), 20000.0)) {
+    count++;
+}
+print("regions within 20km:", count);
+
+# --- nearest ---
+near = nearest(AdminRegion, Coordinate(48.85, 2.35, 6371008.8), 1);
+print("nearest region to paris:", near[0].name);
+
+# --- field layers: sample the elevation grid ---
+earth = get_by_nid(WorldData, "earthdata");
+print("elevation sample:", earth.elevation.sample(Coordinate(44.0, 2.0, 6371008.8)));
+print("terrain at cell:", earth.terrain.at(Coordinate(43.5, 1.5, 6371008.8)));
+
+# altitude() references the sea surface where the grid has data and the
+# geometric surface radius elsewhere
+register_sea_level(earth.elevation);
+print("altitude over the bump:", altitude(Coordinate(43.5, 1.5, 6371108.8)));
+print("altitude far from data:", altitude(Coordinate(10.0, 10.0, 6371108.8)));
+clear_sea_level();
+
+# --- routing: car takes the motorway junction link, walking does not ---
+network_index(Place, Link);
+
+# Car distance: the direct southern arc (ring4) is shortest
+by_car = route(Coordinate(43.55, 1.40, 6371008.8), Coordinate(43.65, 1.40, 6371008.8), "car");
+print("car route:", by_car.nodes[0].name, "->", by_car.nodes[1].name);
+print("car distance km:", by_car.cost / 1000.0);
+
+on_foot = route(Coordinate(43.55, 1.40, 6371008.8), Coordinate(43.65, 1.40, 6371008.8), "walk");
+print("walk distance km:", on_foot.cost / 1000.0);
+
+# Mode filtering: the diagonal ring5 is car-only, so driving j2 -> j4
+# cuts through while walking must follow the two ring arcs
+j2_to_j4_car = route(Coordinate(43.55, 1.50, 6371008.8), Coordinate(43.65, 1.40, 6371008.8), "car");
+print("j2-j4 car km:", j2_to_j4_car.cost / 1000.0);
+
+j2_to_j4_walk = route(Coordinate(43.55, 1.50, 6371008.8), Coordinate(43.65, 1.40, 6371008.8), "walk");
+print("j2-j4 walk km:", j2_to_j4_walk.cost / 1000.0);
+
+# Time cost: the 90 km/h motorway arc priced in seconds
+by_time = route(Coordinate(43.55, 1.50, 6371008.8), Coordinate(43.65, 1.40, 6371008.8), "car", cost = "time");
+print("car time s:", by_time.cost);
+
+# --- indoor: one route spans street -> front door -> stairs -> bedroom ---
+home = route(Coordinate(43.55, 1.40, 6371008.8), Coordinate(43.552, 1.405, 6371092.8), "walk");
+count = 0;
+for (edge: Link in home.edges) {
+    count++;
+}
+print("door-to-bedroom hops:", count);
+print("door-to-bedroom first hop:", home.edges[0].name);
+print("door-to-bedroom last hop:", home.edges[2].name);

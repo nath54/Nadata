@@ -318,8 +318,12 @@ class StructTable:
             for raw in empty:
                 index.pop(raw, None)
 
+        entity_value: int = EntityId.from_parts(
+            type_id=self.type_id, local_id=local_id
+        ).value
+
         for spatial in self.spatial_indexes.values():
-            spatial.remove_instance(local_id=local_id)
+            spatial.remove_instance(key=entity_value)
 
         for network in self.networks:
             network.on_remove(local_id=local_id, table=self)
@@ -331,9 +335,16 @@ class StructTable:
         attribute: str,
         lod: int = 8,
         parent_attribute: Optional[str] = None,
+        database: Optional[Any] = None,
     ) -> Any:
         """
-        Builds a cell index over a geometry attribute of this table.
+        Builds a cell index over a geometry attribute across this
+        struct's hierarchy.
+
+        Subclass tables (rows of structs inheriting this struct)
+        share the index: one hierarchy, one cell grid, global entity
+        id keys. The index registers on every involved table so
+        insert / write / removal hooks maintain it.
 
         Args:
             attribute (str): Declared geometry attribute name.
@@ -342,6 +353,9 @@ class StructTable:
             parent_attribute (Optional[str], optional): Self-reference
                 attribute enabling hierarchical locate() descent.
                 Defaults to None (flat).
+            database (Optional[Any], optional): The owning database,
+                for subclass table discovery. Defaults to None (the
+                base table only).
 
         Returns:
             Any: The built SpatialIndex.
@@ -353,16 +367,63 @@ class StructTable:
 
         from src.core.database.spatial_index import SpatialIndex
 
+        # A previous index over the same attribute anywhere in the
+        # hierarchy is replaced
+        for involved in self._hierarchy_tables(database=database):
+            involved.spatial_indexes.pop(attribute, None)
+
+        hierarchy_tables: list[Any] = self._hierarchy_tables(
+            database=database
+        )
+
         index: Any = SpatialIndex(
             table=self,
             attribute=attribute,
             lod=lod,
             parent_attribute=parent_attribute,
+            tables=hierarchy_tables,
         )
 
-        self.spatial_indexes[attribute] = index
+        for involved in hierarchy_tables:
+            involved.spatial_indexes[attribute] = index
 
         return index
+
+    def _hierarchy_tables(
+        self,
+        database: Optional[Any] = None,
+    ) -> list[Any]:
+        """
+        Returns this table plus every subclass table.
+
+        Args:
+            database (Optional[Any], optional): The owning database.
+                Defaults to None (base table only).
+
+        Returns:
+            list[Any]: The hierarchy's StructTables, base first.
+        """
+
+        tables: list[Any] = [self]
+
+        if database is None:
+            return tables
+
+        for candidate in database.tables_by_struct_name.values():
+            if candidate is self:
+                continue
+
+            walker: Any = candidate.struct.parent
+
+            while walker is not None:
+                if walker.name == self.struct.name:
+                    tables.append(candidate)
+
+                    break
+
+                walker = walker.parent
+
+        return tables
 
     def spatial_index_instance(self, instance: Any) -> None:
         """
@@ -377,9 +438,7 @@ class StructTable:
             return
 
         for index in self.spatial_indexes.values():
-            index.update_instance(
-                instance=instance, local_id=instance.entity_id.local_id
-            )
+            index.update_instance(instance=instance)
 
     def create_network(self, edges_table: Any) -> Any:
         """
@@ -437,7 +496,7 @@ class StructTable:
             instance = self.get(local_id=local_id)
 
         if instance is not None:
-            index.update_instance(instance=instance, local_id=local_id)
+            index.update_instance(instance=instance)
 
     def lookup_by_index(
         self,
@@ -597,10 +656,41 @@ class NaDataDatabase:
             f"{struct_name}/{nid}"
         )
 
-        if entity_id is None:
+        if entity_id is not None:
+            return self.get_by_id(entity_id=entity_id)
+
+        # Subclass fallback: an instance of Country is also an
+        # AdminRegion; walk the registered namespaces by suffix
+        suffix: str = f"/{nid}"
+
+        candidates: list[tuple[str, EntityId]] = [
+            (key, value)
+            for key, value in self.nids.items()
+            if key.endswith(suffix)
+        ]
+
+        if not candidates:
             return None
 
-        return self.get_by_id(entity_id=entity_id)
+        for key, candidate_id in candidates:
+            candidate_name: str = key.rsplit("/", 1)[0]
+
+            candidate_table: Optional[Any] = (
+                self.tables_by_struct_name.get(candidate_name)
+            )
+
+            if candidate_table is None:
+                continue
+
+            walker: Any = candidate_table.struct.parent
+
+            while walker is not None:
+                if walker.name == struct_name:
+                    return self.get_by_id(entity_id=candidate_id)
+
+                walker = walker.parent
+
+        return None
 
     def register_nid(
         self,

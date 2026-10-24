@@ -1,0 +1,44 @@
+#manual(lat: Float64 = 43.62, lon: Float64 = 1.45)
+# ==============================================================================
+# Scenario: locate_and_route
+#
+# Locates a coordinate in the administrative hierarchy, then routes car vs
+# pedestrian from it to the house front door, and walks the interior graph.
+#
+# Run (after the world exists, e.g. one prior plain open):
+#   nadata run examples/ex13_earth scenarios/locate_and_route.nadata
+# With parameters:
+#   nadata run examples/ex13_earth scenarios/locate_and_route.nadata lat=43.55 lon=1.405
+# ==============================================================================
+
+# Session-scoped indexes are rebuilt on open
+spatial_index(AdminRegion, "boundary", lod = 8, parent = "parent");
+network_index(Place, Link);
+
+here = locate(AdminRegion, Coordinate(lat, lon, 6371008.8));
+print("located in:", here.name);
+
+# Car vs pedestrian to the front door area
+front = Coordinate(43.55, 1.40, 6371008.8);
+
+by_car = route(Coordinate(lat, lon, 6371008.8), front, "car");
+car_hops = 0;
+for (edge: Link in by_car.edges) {
+    car_hops++;
+}
+print("car hops:", car_hops);
+print("car distance m:", by_car.cost);
+
+on_foot = route(Coordinate(lat, lon, 6371008.8), front, "walk");
+print("walk distance m:", on_foot.cost);
+
+# Walk the interior graph from the front door to the upstairs bedroom
+bedroom = get_by_nid(Place, "bedroom");
+
+home = route(front, bedroom.position, "walk");
+count = 0;
+for (edge: Link in home.edges) {
+    count++;
+    print("  via:", edge.name);
+}
+print("interior hops:", count);

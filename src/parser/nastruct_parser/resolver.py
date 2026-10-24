@@ -622,6 +622,13 @@ class SchemaResolver:
             self.type_resolver.register_struct_type(struct=struct)
             self.database.register_struct(struct=struct)
 
+        else:
+
+            # Merge mode: same reason as above - self references in the
+            # re-declared body must resolve to the existing struct shell
+            self.resolved_structs[name] = struct
+            self.type_resolver.register_struct_type(struct=struct)
+
         # Resolve attributes and methods
         for tmp_attribute in tmp_struct.attributes.values():
             self.resolve_attribute(struct=struct, tmp_attribute=tmp_attribute)

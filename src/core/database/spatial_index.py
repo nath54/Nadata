@@ -176,10 +176,16 @@ class GeometryEntry:
 
 class SpatialIndex:
     """
-    Cell index over one geometry attribute of one struct table.
+    Cell index over one geometry attribute across a struct hierarchy.
+
+    The index covers the base struct's table plus every subclass
+    table (regions of different admin levels live in their own
+    tables but share one hierarchy). Rows are keyed by their global
+    64-bit entity id, so parent references resolve across tables.
 
     Attributes:
-        table (Any): The owning StructTable.
+        table (Any): The base StructTable the index was declared on.
+        tables (list[Any]): Every StructTable in the hierarchy.
         attribute (str): The indexed geometry attribute name.
         parent_attribute (Optional[str]): Self-reference attribute
             enabling hierarchical locate() descent.
@@ -187,10 +193,13 @@ class SpatialIndex:
         cell_deg (float): Cell edge in degrees.
         n_x (int): Longitude cell count.
         n_y (int): Latitude cell count.
-        cells (dict[tuple[int, int], set[int]]): Cell key to local ids.
-        entries (dict[int, GeometryEntry]): Local id to cached geometry.
-        children (dict[int, list[int]]): Parent local id to child ids.
-        roots (list[int]): Local ids without a parent.
+        cells (dict[tuple[int, int], set[int]]): Cell key to entity
+            ids.
+        entries (dict[int, GeometryEntry]): Entity id to cached
+            geometry.
+        children (dict[int, list[int]]): Parent entity id to child
+            entity ids.
+        roots (list[int]): Entity ids without a parent.
     """
 
     def __init__(
@@ -199,16 +208,20 @@ class SpatialIndex:
         attribute: str,
         lod: int = 8,
         parent_attribute: Optional[str] = None,
+        tables: Optional[list[Any]] = None,
     ) -> None:
         """
-        Builds the index over every current instance of the table.
+        Builds the index over every current instance of the tables.
 
         Args:
-            table (Any): The owning StructTable.
+            table (Any): The base StructTable.
             attribute (str): Geometry attribute name.
             lod (int, optional): Level of detail. Defaults to 8.
             parent_attribute (Optional[str], optional): Parent
                 attribute for hierarchical descent. Defaults to None.
+            tables (Optional[list[Any]], optional): Every table of
+                the struct hierarchy (base + subclasses). Defaults
+                to None (the base table only).
 
         Raises:
             AttributeError: If the attribute is not declared.
@@ -235,6 +248,9 @@ class SpatialIndex:
             raise ValueError(f"lod must be an integer in [1, 20], got {lod}")
 
         self.table: Any = table
+        self.tables: list[Any] = (
+            list(tables) if tables is not None else [table]
+        )
         self.attribute: str = attribute
         self.parent_attribute: Optional[str] = parent_attribute
         self.lod: int = lod
@@ -242,17 +258,63 @@ class SpatialIndex:
         self.n_x: int = 2**lod
         self.n_y: int = 2 ** (lod - 1)
 
+        # Type id -> table for entity id resolution across the
+        # hierarchy
+        self._tables_by_type_id: dict[int, Any] = {
+            cached.type_id: cached for cached in self.tables
+        }
+
         self.cells: dict[tuple[int, int], set[int]] = {}
         self.entries: dict[int, GeometryEntry] = {}
         self.children: dict[int, list[int]] = {}
         self.roots: list[int] = []
 
-        # Lazy rows decode once for the build (hash indexes do the same)
-        if hasattr(table.instances, "materialize_all"):
-            table.instances.materialize_all()
+        for hierarchy_table in self.tables:
 
-        for local_id, instance in dict.items(table.instances):
-            self._add_instance(instance=instance, local_id=local_id)
+            # Lazy rows decode once for the build (hash indexes do
+            # the same)
+            if hasattr(hierarchy_table.instances, "materialize_all"):
+                hierarchy_table.instances.materialize_all()
+
+            for _local_id, instance in dict.items(hierarchy_table.instances):
+                self._add_instance(instance=instance)
+
+    def _key(self, instance: Any) -> int:
+        """
+        Returns the global entity id key of an instance.
+
+        Args:
+            instance (Any): The StructInstance.
+
+        Returns:
+            int: The raw 64-bit entity id.
+        """
+
+        return int(instance.entity_id.value)
+
+    def get_instance(self, key: int) -> Optional[Any]:
+        """
+        Resolves an entity id key back to its instance.
+
+        Args:
+            key (int): The raw 64-bit entity id.
+
+        Returns:
+            Optional[Any]: The StructInstance, or None when absent.
+        """
+
+        from src.core.database.entity_id import EntityId
+
+        entity: EntityId = EntityId(value=key)
+
+        hierarchy_table: Optional[Any] = self._tables_by_type_id.get(
+            entity.type_id
+        )
+
+        if hierarchy_table is None:
+            return None
+
+        return hierarchy_table.get(local_id=entity.local_id)
 
     # --- Maintenance ---
 
@@ -278,17 +340,18 @@ class SpatialIndex:
 
         return None
 
-    def _add_instance(self, instance: Any, local_id: int) -> None:
+    def _add_instance(self, instance: Any) -> None:
         """
         Adds one instance to the cells, cache, and hierarchy maps.
 
         Args:
             instance (Any): The instance.
-            local_id (int): Its local id.
         """
 
+        key: int = self._key(instance=instance)
+
         # Drop any previous placement (attribute rewrite)
-        self._remove_instance(local_id=local_id)
+        self._remove_instance(key=key)
 
         geometry: Optional[Any] = self._geometry_of(instance=instance)
 
@@ -303,12 +366,13 @@ class SpatialIndex:
         if entry is None:
             return
 
-        self.entries[local_id] = entry
+        self.entries[key] = entry
 
         for cell in entry.cells:
-            self.cells.setdefault(cell, set()).add(local_id)
+            self.cells.setdefault(cell, set()).add(key)
 
-        # Hierarchy placement
+        # Hierarchy placement (parent references may point into any
+        # table of the hierarchy, hence the global entity id)
         if self.parent_attribute is not None:
             parent: Optional[Any] = None
 
@@ -316,13 +380,13 @@ class SpatialIndex:
                 parent = instance.attributes[self.parent_attribute].get()
 
             if parent is not None and hasattr(parent, "entity_id"):
-                parent_local: int = parent.entity_id.local_id
+                parent_key: int = parent.entity_id.value
 
-                self.children.setdefault(parent_local, []).append(local_id)
+                self.children.setdefault(parent_key, []).append(key)
             else:
-                self.roots.append(local_id)
+                self.roots.append(key)
         else:
-            self.roots.append(local_id)
+            self.roots.append(key)
 
     def _circumradius_chord(
         self,
@@ -442,63 +506,62 @@ class SpatialIndex:
 
         return None
 
-    def _remove_instance(self, local_id: int) -> None:
+    def _remove_instance(self, key: int) -> None:
         """
         Removes one local id from the cells, cache, and hierarchy maps.
 
         Args:
-            local_id (int): The local id to drop.
+            key (int): The entity id key to drop.
         """
 
-        entry: Optional[GeometryEntry] = self.entries.pop(local_id, None)
+        entry: Optional[GeometryEntry] = self.entries.pop(key, None)
 
         if entry is not None:
             for cell in entry.cells:
                 bucket: Optional[set[int]] = self.cells.get(cell)
 
                 if bucket is not None:
-                    bucket.discard(local_id)
+                    bucket.discard(key)
 
                     if not bucket:
                         self.cells.pop(cell, None)
 
         if self.parent_attribute is not None:
-            if local_id in self.roots:
-                self.roots.remove(local_id)
+            if key in self.roots:
+                self.roots.remove(key)
 
-            child_lists: list[int] = self.children.get(local_id, [])
+            child_lists: list[int] = self.children.get(key, [])
 
-            if local_id in self.children:
-                self.children.pop(local_id, None)
+            if key in self.children:
+                self.children.pop(key, None)
 
             # Children of a removed parent become roots
             for child_id in child_lists:
                 if child_id in self.entries and child_id not in self.roots:
                     self.roots.append(child_id)
         else:
-            if local_id in self.roots:
-                self.roots.remove(local_id)
+            if key in self.roots:
+                self.roots.remove(key)
 
-    def remove_instance(self, local_id: int) -> None:
+    def remove_instance(self, key: int) -> None:
         """
         Public removal hook (StructTable.index_remove_entity).
 
         Args:
-            local_id (int): The local id to drop.
+            key (int): The entity id key to drop.
         """
 
-        self._remove_instance(local_id=local_id)
+        self._remove_instance(key=key)
 
-    def update_instance(self, instance: Any, local_id: int) -> None:
+    def update_instance(self, instance: Any) -> None:
         """
         Re-indexes one instance after a geometry attribute write.
 
         Args:
             instance (Any): The instance.
-            local_id (int): Its local id.
         """
 
-        self._add_instance(instance=instance, local_id=local_id)
+        self._add_instance(instance=instance)
 
     # --- Cell helpers ---
 
@@ -676,24 +739,35 @@ class SpatialIndex:
             / planet.polar_radius_value
         )
 
-    def sort_key(self, local_id: int) -> "tuple[int, tuple[int, int], int]":
+    def sort_key(self, local_id: int, table: Any = None) -> "tuple[int, tuple[int, int], int]":
         """
-        Returns a dump-ordering key for one local id (minimum cell
-        key; uncached rows sort last).
+        Returns a dump-ordering key for one row (minimum cell key;
+        uncached rows sort last).
 
         Args:
-            local_id (int): The local id.
+            local_id (int): The row's local id in its table.
+            table (Optional[Any], optional): The owning table, for
+                entity key resolution in hierarchy indexes. Defaults
+                to None (the base table's id space).
 
         Returns:
             tuple[int, tuple[int, int], int]: The ordering key.
         """
 
-        entry: Optional[GeometryEntry] = self.entries.get(local_id)
+        resolved_table: Any = table if table is not None else self.table
+
+        from src.core.database.entity_id import EntityId
+
+        key: int = EntityId.from_parts(
+            type_id=resolved_table.type_id, local_id=local_id
+        ).value
+
+        entry: Optional[GeometryEntry] = self.entries.get(key)
 
         if entry is None or not entry.cells:
-            return (1, (0, 0), local_id)
+            return (1, (0, 0), key)
 
-        return (0, min(entry.cells), local_id)
+        return (0, min(entry.cells), key)
 
     # --- Queries ---
 
@@ -727,6 +801,11 @@ class SpatialIndex:
         Returns:
             bool: True when non-containment is certain.
         """
+
+        # Degenerate entries (points) have a zero circumradius; they
+        # must fall through to the exact test
+        if entry.circumradius_chord <= 0.0:
+            return False
 
         return coord.chord_distance(other=entry.center) > (
             _REJECT_MARGIN * entry.circumradius_chord
@@ -769,40 +848,33 @@ class SpatialIndex:
     def _find_containing(
         self,
         coord: Coordinate,
-        local_ids: list[int],
+        keys: list[int],
     ) -> Optional[int]:
         """
-        Returns the first local id whose geometry contains the
+        Returns the first entity key whose geometry contains the
         coordinate.
 
         Args:
             coord (Coordinate): The query coordinate.
-            local_ids (list[int]): Candidate local ids.
+            keys (list[int]): Candidate entity id keys.
 
         Returns:
-            Optional[int]: The containing local id, or None.
+            Optional[int]: The containing entity id key, or None.
         """
 
-        instances: Any = self.table.instances
-
-        for local_id in local_ids:
-            entry: Optional[GeometryEntry] = self.entries.get(local_id)
+        for key in keys:
+            entry: Optional[GeometryEntry] = self.entries.get(key)
 
             if entry is None:
                 continue
 
-            instance: Optional[Any] = instances.get(local_id) if hasattr(
-                instances, "get"
-            ) else None
-
-            if instance is None:
-                instance = self.table.get(local_id=local_id)
+            instance: Optional[Any] = self.get_instance(key=key)
 
             if instance is None:
                 continue
 
             if self._contains(coord=coord, instance=instance, entry=entry):
-                return local_id
+                return key
 
         return None
 
@@ -816,7 +888,7 @@ class SpatialIndex:
             coord (Coordinate): The query coordinate.
 
         Returns:
-            Optional[int]: The containing local id, or None.
+            Optional[int]: The containing entity id key, or None.
         """
 
         if self.parent_attribute is None:
@@ -826,7 +898,7 @@ class SpatialIndex:
             )
 
             flat_found: Optional[int] = self._find_containing(
-                coord=coord, local_ids=flat_candidates
+                coord=coord, keys=flat_candidates
             )
 
             return flat_found
@@ -836,7 +908,7 @@ class SpatialIndex:
 
         while candidates:
             found: Optional[int] = self._find_containing(
-                coord=coord, local_ids=candidates
+                coord=coord, keys=candidates
             )
 
             if found is None:
@@ -901,21 +973,21 @@ class SpatialIndex:
             # farther than the current k-th best center distance
             if len(best) >= k:
                 kth_best_geodesic: float = max(
-                    coord.distance(other=self.entries[local_id].center)
-                    for _, local_id in best
+                    coord.distance(other=self.entries[key].center)
+                    for _, key in best
                 )
 
                 if bound >= kth_best_geodesic:
                     break
 
-            for local_id in self.cells[cell]:
+            for key in self.cells[cell]:
 
-                if local_id in seen:
+                if key in seen:
                     continue
 
-                seen.add(local_id)
+                seen.add(key)
 
-                entry: Optional[GeometryEntry] = self.entries.get(local_id)
+                entry: Optional[GeometryEntry] = self.entries.get(key)
 
                 if entry is None:
                     continue
@@ -923,11 +995,11 @@ class SpatialIndex:
                 chord: float = coord.chord_distance(other=entry.center)
 
                 if len(best) < k or chord < kth_chord():
-                    best.append((chord, local_id))
+                    best.append((chord, key))
                     best.sort(key=lambda item: (item[0], item[1]))
                     del best[k:]
 
-        return [local_id for _, local_id in best]
+        return [key for _, key in best]
 
     def within(self, coord: Coordinate, radius_m: float) -> list[int]:
         """
@@ -939,7 +1011,7 @@ class SpatialIndex:
             radius_m (float): Radius in meters.
 
         Returns:
-            list[int]: Matching local ids.
+            list[int]: Matching entity id keys.
         """
 
         if radius_m < 0.0:
@@ -949,9 +1021,8 @@ class SpatialIndex:
 
         result: list[int] = []
         seen: set[int] = set()
-        instances: Any = self.table.instances
 
-        for cell, local_ids in self.cells.items():
+        for cell, cell_keys in self.cells.items():
             bound: float = self._cell_lower_bound(
                 coord=coord, cell=cell, radius_bound=radius_bound
             )
@@ -959,33 +1030,28 @@ class SpatialIndex:
             if bound > radius_m:
                 continue
 
-            for local_id in local_ids:
+            for key in cell_keys:
 
-                if local_id in seen:
+                if key in seen:
                     continue
 
-                seen.add(local_id)
+                seen.add(key)
 
-                entry: Optional[GeometryEntry] = self.entries.get(local_id)
+                entry: Optional[GeometryEntry] = self.entries.get(key)
 
                 if entry is None:
                     continue
 
                 # Fast paths on the center distance
                 if self._is_definitely_inside(coord=coord, entry=entry):
-                    result.append(local_id)
+                    result.append(key)
 
                     continue
 
                 if self._is_definitely_outside(coord=coord, entry=entry):
                     continue
 
-                instance: Optional[Any] = instances.get(local_id) if hasattr(
-                    instances, "get"
-                ) else None
-
-                if instance is None:
-                    instance = self.table.get(local_id=local_id)
+                instance: Optional[Any] = self.get_instance(key=key)
 
                 if instance is None:
                     continue
@@ -994,10 +1060,10 @@ class SpatialIndex:
 
                 if isinstance(geometry, (Polygon, Polyline)):
                     if geometry.distance_to(point=coord) <= radius_m:
-                        result.append(local_id)
+                        result.append(key)
 
                 elif isinstance(geometry, Coordinate):
                     if coord.distance(other=geometry) <= radius_m:
-                        result.append(local_id)
+                        result.append(key)
 
         return result

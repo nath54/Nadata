@@ -17,6 +17,7 @@ import heapq
 import math
 from typing import Any, Optional
 
+from src.core.database.entity_id import EntityId
 from src.core.types.home_types.coordinate import Coordinate
 from src.core.types.home_types.geometry import Polyline
 from src.core.types.home_types.planet import get_current_planet
@@ -682,7 +683,12 @@ class NetworkIndex:
 
         result: list[int] = index.nearest(coord=coord, k=1)
 
-        return result[0] if result else None
+        if not result:
+            return None
+
+        # The shared spatial index keys rows by global entity id;
+        # network node ids are local ids in the nodes table
+        return EntityId(value=result[0]).local_id
 
     def route(
         self,

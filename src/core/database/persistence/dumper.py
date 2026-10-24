@@ -155,7 +155,11 @@ def _encode_table_batches(table: Any) -> list[bytes]:
     if getattr(table, "spatial_indexes", None):
         spatial: Any = next(iter(table.spatial_indexes.values()))
 
-        ordered_ids.sort(key=lambda local_id: spatial.sort_key(local_id=local_id))
+        ordered_ids.sort(
+            key=lambda local_id: spatial.sort_key(
+                local_id=local_id, table=table
+            )
+        )
 
     for local_id in ordered_ids:
         raw_row: Optional[bytes] = None

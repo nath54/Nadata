@@ -1,0 +1,144 @@
+#init
+# ==============================================================================
+# Example 13: seeding - runs once per world database
+#
+# Creates the administrative hierarchy, the field layers, and the transport
+# network. Coordinates are (latitude, longitude, radius) with a spherical
+# Earth of mean radius 6371008.8 m. Everything carries a nid so later
+# sessions and scenarios can reference rows stably.
+# ==============================================================================
+
+set_setting("planet.radius", 6371008.8);
+
+# --- Administrative hierarchy (generic base, country-specific leaves) ---
+
+france = Country(
+    name = "France",
+    nid = "france",
+    boundary = Polygon([
+        Coordinate(42.0, -1.5, 6371008.8),
+        Coordinate(42.0, 8.0, 6371008.8),
+        Coordinate(51.5, 8.0, 6371008.8),
+        Coordinate(51.5, -1.5, 6371008.8)
+    ])
+);
+
+occitanie = Region(
+    name = "Occitanie",
+    nid = "occitanie",
+    parent = france,
+    boundary = Polygon([
+        Coordinate(42.3, 0.5, 6371008.8),
+        Coordinate(42.3, 3.5, 6371008.8),
+        Coordinate(44.9, 3.5, 6371008.8),
+        Coordinate(44.9, 0.5, 6371008.8)
+    ])
+);
+
+haute_garonne = Departement(
+    name = "Haute-Garonne",
+    nid = "haute_garonne",
+    parent = occitanie,
+    boundary = Polygon([
+        Coordinate(43.0, 0.7, 6371008.8),
+        Coordinate(43.0, 2.1, 6371008.8),
+        Coordinate(43.9, 2.1, 6371008.8),
+        Coordinate(43.9, 0.7, 6371008.8)
+    ])
+);
+
+toulouse = AdminRegion(
+    name = "Toulouse",
+    nid = "toulouse",
+    parent = haute_garonne,
+    boundary = Polygon([
+        Coordinate(43.5, 1.35, 6371008.8),
+        Coordinate(43.5, 1.55, 6371008.8),
+        Coordinate(43.7, 1.55, 6371008.8),
+        Coordinate(43.7, 1.35, 6371008.8)
+    ])
+);
+
+# A German sibling leaf under the same generic base
+bayern = Country(
+    name = "Bayern",
+    nid = "bayern",
+    boundary = Polygon([
+        Coordinate(47.4, 9.0, 6371008.8),
+        Coordinate(47.4, 13.0, 6371008.8),
+        Coordinate(50.6, 13.0, 6371008.8),
+        Coordinate(50.6, 9.0, 6371008.8)
+    ])
+);
+
+# --- Field layers ---
+
+earth = WorldData(name = "earth", nid = "earthdata");
+
+# A sea-surface bump and a depression around Toulouse (radii in meters);
+# unwritten cells fall back to the geometric surface radius
+earth.elevation.set_at(Coordinate(43.5, 1.5, 6371008.8), 6371018.8);
+earth.elevation.set_at(Coordinate(43.5, 2.5, 6371008.8), 6370998.8);
+earth.elevation.set_at(Coordinate(44.5, 1.5, 6371008.8), 6371008.8);
+earth.elevation.set_at(Coordinate(44.5, 2.5, 6371008.8), 6371008.8);
+
+# Terrain types: land around Toulouse, sea in the Mediterranean corner
+earth.terrain.set_at(Coordinate(43.5, 1.5, 6371008.8), "urban");
+earth.terrain.set_at(Coordinate(43.5, 2.5, 6371008.8), "forest");
+earth.terrain.set_at(Coordinate(42.5, 3.5, 6371008.8), "sea");
+
+# --- Transport + indoor graph ---
+
+# Road junctions around Toulouse
+j1 = Place(name = "junction1", kind = "junction", nid = "j1",
+    position = Coordinate(43.55, 1.40, 6371008.8));
+j2 = Place(name = "junction2", kind = "junction", nid = "j2",
+    position = Coordinate(43.55, 1.50, 6371008.8));
+j3 = Place(name = "junction3", kind = "junction", nid = "j3",
+    position = Coordinate(43.65, 1.50, 6371008.8));
+j4 = Place(name = "junction4", kind = "junction", nid = "j4",
+    position = Coordinate(43.65, 1.40, 6371008.8));
+
+ring1 = Link(name = "ring1", from_place = j1, to_place = j2,
+    modes = ["car", "walk"], speed = { "car": 50.0, "walk": 5.0 },
+    shape = Polyline([Coordinate(43.55, 1.40, 6371008.8), Coordinate(43.55, 1.50, 6371008.8)]));
+ring2 = Link(name = "ring2", from_place = j2, to_place = j3,
+    modes = ["car", "walk"], speed = { "car": 50.0, "walk": 5.0 },
+    shape = Polyline([Coordinate(43.55, 1.50, 6371008.8), Coordinate(43.65, 1.50, 6371008.8)]));
+ring3 = Link(name = "ring3", from_place = j3, to_place = j4,
+    modes = ["car", "walk"], speed = { "car": 50.0, "walk": 5.0 },
+    shape = Polyline([Coordinate(43.65, 1.50, 6371008.8), Coordinate(43.65, 1.40, 6371008.8)]));
+ring4 = Link(name = "ring4", from_place = j4, to_place = j1,
+    modes = ["car", "walk"], speed = { "car": 50.0, "walk": 5.0 },
+    shape = Polyline([Coordinate(43.65, 1.40, 6371008.8), Coordinate(43.55, 1.40, 6371008.8)]));
+ring5 = Link(name = "ring5", from_place = j2, to_place = j4,
+    modes = ["car"], speed = { "car": 90.0 },
+    shape = Polyline([Coordinate(43.55, 1.50, 6371008.8), Coordinate(43.65, 1.40, 6371008.8)]));
+
+# The house on the ring: rooms are places, doors and stairs are links
+hall = Place(name = "hall", kind = "room", nid = "hall",
+    position = Coordinate(43.551, 1.405, 6371008.8));
+kitchen = Place(name = "kitchen", kind = "room", nid = "kitchen",
+    position = Coordinate(43.552, 1.404, 6371008.8));
+living = Place(name = "living", kind = "room", nid = "living",
+    position = Coordinate(43.550, 1.406, 6371008.8));
+landing = Place(name = "landing", kind = "room", nid = "landing",
+    position = Coordinate(43.551, 1.406, 6371092.8));
+bedroom = Place(name = "bedroom", kind = "room", nid = "bedroom",
+    position = Coordinate(43.552, 1.405, 6371092.8));
+
+# The front door joins the street graph to the interior: one route()
+# spans street -> door -> hall
+front_door = Link(name = "front_door", from_place = j1, to_place = hall,
+    modes = ["walk"], shape = Polyline([Coordinate(43.55, 1.40, 6371008.8), Coordinate(43.551, 1.405, 6371008.8)]));
+door_hall_kitchen = Link(name = "door_hall_kitchen", from_place = hall, to_place = kitchen,
+    modes = ["walk"], shape = Polyline([Coordinate(43.551, 1.405, 6371008.8), Coordinate(43.552, 1.404, 6371008.8)]));
+door_hall_living = Link(name = "door_hall_living", from_place = hall, to_place = living,
+    modes = ["walk"], shape = Polyline([Coordinate(43.551, 1.405, 6371008.8), Coordinate(43.550, 1.406, 6371008.8)]));
+
+# The staircase is an element too (it is a link, games render it);
+# its shape reaches the upper floor radius
+stairs = Link(name = "stairs", from_place = hall, to_place = landing,
+    modes = ["walk"], shape = Polyline([Coordinate(43.551, 1.405, 6371008.8), Coordinate(43.551, 1.406, 6371092.8)]));
+door_landing_bedroom = Link(name = "door_landing_bedroom", from_place = landing, to_place = bedroom,
+    modes = ["walk"], shape = Polyline([Coordinate(43.551, 1.406, 6371092.8), Coordinate(43.552, 1.405, 6371092.8)]));

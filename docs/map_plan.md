@@ -9,18 +9,20 @@ Planning document — no implementation contract beyond the sequencing at
 the end. Companion to the memory plan (streaming reuses the bounded
 decode cache) and orthogonal to the autograd plan.
 
-> **STATUS: PHASES A-E IMPLEMENTED.** Phase A (planet settings,
+> **STATUS: PHASES A-F IMPLEMENTED.** Phase A (planet settings,
 > `Coordinate`, geodesy builtins, binary cell encodings), Phase B
 > (`Polyline` / `Polygon`, predicates, shape sugar), Phase C (the
 > `spatial_index` builtin, `locate` / `nearest` / `within` queries,
 > hierarchical descent, dump-time row clustering), Phase D
 > (`GeoGrid[T]` field layers, bilinear `sample`, sea-level
-> registration, `altitude` integration) and Phase E (`network_index`,
+> registration, `altitude` integration), Phase E (`network_index`,
 > `route` with distance/time costs, mode filtering, incremental
-> maintenance) are merged with tests (`tests/test_geodesy.py`,
+> maintenance) and Phase F (the `examples/ex13_earth` reference
+> example, the `tools/geojson_to_nadata.py` converter, golden tests)
+> are merged with tests (`tests/test_geodesy.py`,
 > `tests/test_geometry.py`, `tests/test_spatial_index.py`,
-> `tests/test_geogrid.py`, `tests/test_network.py`). Phase F is not
-> started.
+> `tests/test_geogrid.py`, `tests/test_network.py`,
+> `tests/test_examples.py`).
 >
 > Phase C implementation notes (deviations from the original text
 > below): queries take no attribute argument — a struct with exactly
@@ -43,6 +45,20 @@ decode cache) and orthogonal to the autograd plan.
 > ids live in separate per-table spaces, so removal hooks carry the
 > calling table. Edges inserted as shells (attributes populated in a
 > later pass) park as pending and resolve before the next route.
+>
+> Phase F implementation notes: the spatial index keys rows by global
+> 64-bit entity id, so one index covers a struct hierarchy across
+> subclass tables (an `AdminRegion` parent in the `Country` table
+> resolves during hierarchical `locate` descent); `get_by_nid` walks
+> the inheritance hierarchy too, so converters can bind
+> `parent = get_by_nid(Base, "nid")` across leaf tables. Point
+> geometries (a bare `Coordinate` attribute) fall through the
+> "definitely outside" fast path to the exact test — their
+> circumradius is zero. The reference example lives in
+> `examples/ex13_earth` (schema, `#init` seed, `#auto` demos,
+> `#manual` scenarios under `scenarios/`); the GeoJSON ingestion
+> tool is `tools/geojson_to_nadata.py` (stdlib only, simplified
+> rings, `--level/--radius/--max-points/--parent-nid`).
 > Endpoint snapping reuses a cell index over the node positions;
 > `route` needs exactly one network per session (several raise).
 >

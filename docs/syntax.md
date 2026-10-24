@@ -497,6 +497,105 @@ parents: Array[Entity] = [];
 object_type: ObjectType;
 ```
 
+### 5.10 Geospatial types
+
+Coordinates live on a planet (sphere or spheroid); `(lat, lon)` are
+**geodetic** and the third component is the **radius from the planet's
+center** (not an altitude):
+
+```text
+Coordinate(43.6, 1.44, 6371008.8)     // geodetic lat, lon, radius (m)
+Polyline([Coordinate(...), ...])      // ordered vertex path
+Polygon([Coordinate(...), ...])       // closed ring (auto-closing)
+```
+
+**Planet** — resolved from per-world settings; scripts set it in `#init`:
+
+```text
+set_setting("planet.radius", 6371008.8);   // sphere
+set_setting("planet.kind", "spheroid");    // or set equatorial/polar radii
+```
+
+**Geodesy builtins** (free functions; `distance(a, b)` and `a.distance(b)`
+both work):
+
+| Call | Result |
+|---|---|
+| `distance(a, b)` | Geodesic distance in meters |
+| `bearing(a, b)` / `destination(a, bearing, dist)` | Initial bearing (deg) / destination `Coordinate` |
+| `interpolate(a, b, f)` | Point at fraction `f` along the geodesic |
+| `area(polygon)` / `perimeter(polygon)` | Spherical area / length in meters |
+| `contains(polygon, point)` | Ring containment predicate |
+| `circle(center, radius, n)` / `ellipse(...)` / `regular_polygon(...)` | Shape sugar constructors |
+| `surface_radius(lat, lon)` | Local planet radius under the point |
+| `altitude(coord)` | Radius minus the registered sea surface (see below) |
+| `geocentric_latitude(coord)` | Geocentric (vs geodetic) latitude |
+
+**GeoGrid field layers** — a sparse lat/lon grid with the cell size in the
+type (arc-seconds; longitude wraps exactly, poles clamp):
+
+```text
+GeoGrid[Float64, 3600] elevation = {};   // 1-degree cells, T element
+GeoGrid[Str] terrain = {};               // default 30 arc-second cells
+
+elevation.set_at(Coordinate(44.0, 2.0, 6371008.8), 6371108.8);
+elevation.at(coord);                     // read a cell (missing raises)
+elevation.has(coord);                    // occupancy probe
+elevation.sample(coord);                 // bilinear over cell centers;
+                                         // falls back to the grid default
+elevation.set_default(6371008.8);        // value outside written cells
+```
+
+- `sample` weights the four surrounding cell centers bilinearly; missing
+  cells drop out and the weights renormalize.
+- A grid can be registered as the session's **sea-level surface**;
+  `altitude()` then returns the height over the interpolated sea surface
+  where the grid has data and over the geometric surface elsewhere:
+
+```text
+register_sea_level(earth.elevation);
+a = altitude(Coordinate(43.5, 1.5, 6371108.8));   // 100.0 over the bump
+clear_sea_level();
+```
+
+**Spatial indexing and queries** — session-scoped (rebuilt on open,
+like hash indexes), declared over one geometry attribute; a struct
+hierarchy shares one index (subclass tables included, parent
+references resolved by global entity id):
+
+```text
+spatial_index(AdminRegion, "boundary", lod = 8, parent = "parent");
+here = locate(AdminRegion, Coordinate(43.6, 1.44, 6371008.8));
+                                     // deepest region containing the
+                                     // point (hierarchical descent)
+near = nearest(AdminRegion, coord, 1);   // Array of the k closest
+around = within(Place, coord, 8000.0);   // everything within a radius
+```
+
+- `lod` is the cell level of detail: cell edge = 360 / 2^lod degrees.
+- `parent = "..."` names a self-reference attribute enabling the
+  hierarchical `locate` descent; without it the index is flat.
+- Queries take no attribute argument: a struct with exactly one spatial
+  index is disambiguated automatically (several indexes raise).
+
+**Routing networks** — nodes are a struct with a `Coordinate`
+attribute, edges reference them; edges carry transport modes and
+per-mode speeds, and doors / stairs are edges too, so one network
+spans streets and interiors:
+
+```text
+network_index(Place, Link);
+path = route(Coordinate(...), Coordinate(...), "car");
+path = route(a, b, "car", cost = "time");   // seconds via speed[mode]
+path.edges;                                  // the edges taken
+path.cost;                                   // meters (or seconds)
+```
+
+- `mode` filters edges: an edge without a `modes` attribute carries
+  every mode.
+- `cost` is "distance" (default, meters) or "time" (seconds via the
+  edge's `speed[mode]`, falling back to its fastest speed).
+
 ---
 
 ## 6. `.nastruct` files — schemas
@@ -955,6 +1054,10 @@ Rules:
 
 - The namespace is **per struct**: `nid = "tom"` on `Child` and on `Dog`
   are independent. The internal key is `Child/tom`.
+- Lookups walk the **inheritance hierarchy**: `get_by_nid(AdminRegion,
+  "france")` finds an instance registered as `Country/france` when
+  `Country` inherits `AdminRegion` (useful for hierarchies whose rows
+  live in several leaf tables).
 - A nid is **immutable** after creation; re-declaring the same nid always
   upserts the same instance.
 - `nid=` participates in the two-pass loader like any named argument.

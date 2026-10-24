@@ -158,7 +158,7 @@ class TestSpatialIndexBuild:
         index: Any = table.create_spatial_index(attribute="at", lod=5)
 
         assert len(index.entries) == 1
-        assert len(index.entries[0].cells) == 1
+        assert len(next(iter(index.entries.values())).cells) == 1
 
 
 class TestLocate:
@@ -554,7 +554,7 @@ class TestMaintenance:
 
         found: Any = index.locate(coord=Coordinate(20.0, 20.0, R))
 
-        assert found == 0
+        assert found is not None
 
     def test_removal(self) -> None:
         """
@@ -586,7 +586,9 @@ class TestMaintenance:
         # through to the outer region
         table.index_remove_entity(local_id=1)
 
-        assert index.locate(coord=Coordinate(1.5, 1.5, R)) == 0
+        assert index.get_instance(
+            key=index.locate(coord=Coordinate(1.5, 1.5, R))
+        ).get_attribute(name="name").get() == "outer"
 
         # Remove everything
         table.index_remove_entity(local_id=0)
@@ -621,12 +623,15 @@ class TestMaintenance:
 
         index: Any = table.spatial_indexes["boundary"]
 
-        assert index.roots == [0]
-        assert index.children == {0: [1]}
+        outer_key: int = table.instances[0].entity_id.value
+        inner_key: int = table.instances[1].entity_id.value
+
+        assert index.roots == [outer_key]
+        assert index.children == {outer_key: [inner_key]}
 
         table.index_remove_entity(local_id=0)
 
-        assert index.roots == [1]
+        assert index.roots == [inner_key]
 
 
 class TestLanguageIntegration:

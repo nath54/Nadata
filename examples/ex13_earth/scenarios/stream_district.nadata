@@ -1,0 +1,42 @@
+#manual(district: Str = "toulouse")
+# ==============================================================================
+# Scenario: stream_district
+#
+# Touches every place of a district under a bounded cache to demonstrate
+# planet-scale streaming: open the world with a small page budget
+# (max_cached_pages on the database constructor or --db with a compacted
+# world), then walk the elements district by district, evicting clean
+# pages between touches.
+#
+# Run:
+#   nadata run examples/ex13_earth scenarios/stream_district.nadata
+# With parameters:
+#   nadata run examples/ex13_earth scenarios/stream_district.nadata district=toulouse
+# ==============================================================================
+
+spatial_index(AdminRegion, "boundary", lod = 8, parent = "parent");
+spatial_index(Place, "position", lod = 8);
+network_index(Place, Link);
+
+district = get_by_nid(AdminRegion, district);
+
+print("streaming district:", district.name);
+
+# All places inside the district boundary, streamed under the cache
+# budget: the index touches only the cells covering the query
+nearby = within(Place, district.boundary.centroid(), 8000.0);
+
+count = 0;
+for (place: Place in nearby) {
+    count++;
+
+    # Touch the row's payload (decode + attribute read), then let the
+    # next eviction cycle reclaim clean pages
+    print("  place:", place.name, "(", place.kind, ")");
+}
+
+print("places touched:", count);
+
+# Free clean pages between districts; pinned or dirty rows stay
+evicted = clear_cache();
+print("evicted rows:", evicted);

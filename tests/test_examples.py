@@ -190,6 +190,27 @@ EXPECTED_OUTPUTS: dict[str, list[str]] = {
         "loss x100000 after 40 cold-restart epochs: [454]",
         "Loaded 1 struct(s), 1 instance(s), 0 function(s).",
     ],
+    # Numeric route/altitude lines are asserted as stable prefixes:
+    # geodesic math may differ across platforms in the last ulp
+    "ex13_earth": [
+        "located: Occitanie",
+        "regions within 20km: 4",
+        "nearest region to paris: France",
+        "elevation sample: 6371008.8",
+        "terrain at cell: urban",
+        "altitude over the bump: 90.0",
+        "altitude far from data: 100.0",
+        "car route: junction1 -> junction4",
+        "car distance km: 11.1",
+        "walk distance km: 11.1",
+        "j2-j4 car km: 13.7",
+        "j2-j4 walk km: 19.1",
+        "car time s: 549.1",
+        "door-to-bedroom hops: 3",
+        "door-to-bedroom first hop: front_door",
+        "door-to-bedroom last hop: door_landing_bedroom",
+        "Loaded 7 struct(s), 25 instance(s), 0 function(s).",
+    ],
 }
 ALL_EXAMPLES: list[str] = [
     "ex0_simple",
@@ -205,6 +226,7 @@ ALL_EXAMPLES: list[str] = [
     "ex10_cnn",
     "ex11_transformer",
     "ex12_optimizer_checkpoint",
+    "ex13_earth",
 ]
 
 

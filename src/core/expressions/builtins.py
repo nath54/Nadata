@@ -845,6 +845,7 @@ class SpatialIndexFunction(ScopeAwareFunction):
             attribute=attribute,
             lod=lod,
             parent_attribute=parent_attribute,
+            database=binding.database,
         )
 
         return ValueExternal(payload=None)
@@ -1061,12 +1062,12 @@ class LocateFunction(ScopeAwareFunction):
 
         index: Any = _spatial_index_of(table=table, op_name="locate")
 
-        local_id: Optional[int] = index.locate(coord=coord)
+        found: Optional[int] = index.locate(coord=coord)
 
-        if local_id is None:
+        if found is None:
             return ValueExternal(payload=None)
 
-        return ValueExternal(payload=table.get(local_id=local_id))
+        return ValueExternal(payload=index.get_instance(key=found))
 
 
 class NearestFunction(ScopeAwareFunction):
@@ -1119,12 +1120,14 @@ class NearestFunction(ScopeAwareFunction):
 
         index: Any = _spatial_index_of(table=table, op_name="nearest")
 
-        local_ids: list[int] = index.nearest(coord=coord, k=k)
+        keys: list[int] = index.nearest(coord=coord, k=k)
 
         instances: list[Any] = [
-            table.get(local_id=local_id)
-            for local_id in local_ids
-            if table.get(local_id=local_id) is not None
+            resolved
+            for resolved in (
+                index.get_instance(key=key) for key in keys
+            )
+            if resolved is not None
         ]
 
         return ValueExternal(payload=instances)
@@ -1181,12 +1184,14 @@ class WithinFunction(ScopeAwareFunction):
 
         index: Any = _spatial_index_of(table=table, op_name="within")
 
-        local_ids: list[int] = index.within(coord=coord, radius_m=float(radius))
+        keys: list[int] = index.within(coord=coord, radius_m=float(radius))
 
         instances: list[Any] = [
-            table.get(local_id=local_id)
-            for local_id in local_ids
-            if table.get(local_id=local_id) is not None
+            resolved
+            for resolved in (
+                index.get_instance(key=key) for key in keys
+            )
+            if resolved is not None
         ]
 
         return ValueExternal(payload=instances)

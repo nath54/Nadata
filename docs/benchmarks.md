@@ -71,6 +71,28 @@ The schema language and `.ndb` format are designed so this swap does not
 change user-visible behavior — that is why we measure now: today's numbers
 are the baseline to beat.
 
+### Planet-scale data
+
+Geospatial workloads stress the same machinery at a different scale: a
+world of millions of rows (regions, junctions, buildings, rooms) must
+be queryable without decoding it all. The levers, measured by the
+streaming scenario in `examples/ex13_earth` (`nadata run
+examples/ex13_earth scenarios/stream_district.nadata` under a small
+page budget):
+
+- **cell indexing**: `spatial_index` touches only the cells covering a
+  query — `locate` / `nearest` / `within` decode candidates, not the
+  planet (one index serves a whole struct hierarchy via entity-id
+  keys),
+- **dump-time row clustering**: rows of a spatially indexed struct are
+  written in cell order, so streaming a district reads contiguous
+  pages,
+- **bounded decode cache**: `clear_cache()` evicts clean pages between
+  district walks; pinned/dirty rows stay.
+
+Dedicated micro-benchmarks (cells/s, decode/page under streaming) are
+future work; the scenario doubles as the qualitative check.
+
 ---
 
 ## 3. Current numbers (10000 instances, Windows, Python 3.13)
