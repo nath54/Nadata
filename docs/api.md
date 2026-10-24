@@ -253,6 +253,50 @@ in the world's settings — persisted by the next `flush()`. See
 
 ---
 
+## Conversion tools
+
+Two stdlib-only converters under `tools/` turn real-world data into
+`.nadata` rows compatible with the ex13_earth schema (`Place` / `Link`
+/ `AdminRegion`); both stream, so city-scale files work on a laptop.
+
+**OpenStreetMap** (`tools/osm_to_nadata.py`) — OSM XML or `.osm.bz2`
+extracts (Overpass API or Geofabrik):
+
+```
+python tools/osm_to_nadata.py map.osm map.nadata
+```
+
+- every node of a highway way becomes a shared `Place` junction and
+  every consecutive node pair a `Link` segment, so the graph stays
+  connected at real-world crossings (ways pass *through* junction
+  nodes; endpoint-only edges would shred the network),
+- `highway` class maps to transport modes (`motorway` car-only,
+  `footway`/`steps`/... walk-only, the rest car + walk) and
+  `maxspeed` becomes the car speed,
+- named amenity / shop / tourism / leisure nodes (and building ways,
+  centroid-positioned) become typed `Place` rows; closed
+  `boundary=administrative` ways become `AdminRegion` rows,
+- ways referencing nodes outside the extract are dropped and counted.
+
+**GeoJSON** (`tools/geojson_to_nadata.py`) — FeatureCollections to
+`AdminRegion` rows (tested against the real france-geojson
+departements file):
+
+```
+python tools/geojson_to_nadata.py areas.geojson areas.nadata     --level Departement --parent-nid france
+```
+
+`--parent-nid` binds every row to a parent via `get_by_nid`; nid
+lookup walks the inheritance hierarchy, so parents declared in other
+leaf tables (Country, Region) resolve.
+
+See `tests/test_osm.py` for the committed real-data fixtures
+(central Toulouse OSM extract, the 96 metropolitan French
+departements) and the full pipeline assertions: convert, load,
+route car/walk, locate, radius queries.
+
+---
+
 ## CLI
 
 ```

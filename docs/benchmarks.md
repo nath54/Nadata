@@ -93,6 +93,27 @@ page budget):
 Dedicated micro-benchmarks (cells/s, decode/page under streaming) are
 future work; the scenario doubles as the qualitative check.
 
+**Measured on real data** (10 km x 8 km of Toulouse from the
+OpenStreetMap planet file, ~386k converted rows: 185k places,
+201k road segments; laptop-class hardware, CPython 3.13):
+
+| Stage | Cost |
+|---|---|
+| Convert (OSM XML, stdlib streaming) | ~25 s |
+| Load into a live world | ~2 min (~0.3 ms/row, linear) |
+| Spatial index + network build | ~1 s each |
+| Car route across the city (A*, ~450 segments) | ~4 s |
+| `within(200 m)` / `nearest(k=1)` | ~0.3 s |
+
+The load used to be quadratic (nid lookups scanned the whole
+registry per row); the registry is now indexed, and the spatial
+index root tracking is set-based, so index builds stay linear. The
+remaining per-query cost is Python interpreter overhead in the A*
+inner loop — a compiled core removes it without changing the
+algorithm. Reproduce with the Overpass query pattern in
+`tools/osm_to_nadata.py`'s docstring and
+`python tools/osm_to_nadata.py map.osm map.nadata`.
+
 ---
 
 ## 3. Current numbers (10000 instances, Windows, Python 3.13)

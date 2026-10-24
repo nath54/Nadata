@@ -571,6 +571,7 @@ class NaDataDatabase:
         self.tables_by_struct_name: dict[str, StructTable] = {}
         self.symbols: dict[str, EntityId] = {}
         self.nids: dict[str, EntityId] = {}
+        self._nids_by_name: dict[str, list[tuple[str, EntityId]]] = {}
         self._nid_by_entity: dict[int, tuple[str, str]] = {}
         self.functions: dict[str, StructMethod] = {}
         self.query_executor: QueryExecutor = QueryExecutor()
@@ -660,20 +661,15 @@ class NaDataDatabase:
             return self.get_by_id(entity_id=entity_id)
 
         # Subclass fallback: an instance of Country is also an
-        # AdminRegion; walk the registered namespaces by suffix
-        suffix: str = f"/{nid}"
-
-        candidates: list[tuple[str, EntityId]] = [
-            (key, value)
-            for key, value in self.nids.items()
-            if key.endswith(suffix)
-        ]
+        # AdminRegion; walk the registered namespaces by name
+        candidates: list[tuple[str, EntityId]] = (
+            self._nids_by_name.get(nid, [])
+        )
 
         if not candidates:
             return None
 
-        for key, candidate_id in candidates:
-            candidate_name: str = key.rsplit("/", 1)[0]
+        for candidate_name, candidate_id in candidates:
 
             candidate_table: Optional[Any] = (
                 self.tables_by_struct_name.get(candidate_name)
@@ -709,7 +705,31 @@ class NaDataDatabase:
 
         key: str = f"{struct_name}/{nid}"
 
+        previous: Optional[EntityId] = self.nids.get(key)
+
         self.nids[key] = entity_id
+
+        # Same-name index for the hierarchy fallback (kept
+        # incremental so lookups never scan the registry)
+        bucket: list[tuple[str, EntityId]] = (
+            self._nids_by_name.setdefault(nid, [])
+        )
+
+        if previous is not None:
+            for entry_index, (
+                entry_name,
+                entry_id,
+            ) in enumerate(bucket):
+                if entry_name == struct_name:
+                    bucket[entry_index] = (struct_name, entity_id)
+
+                    break
+
+        if not any(
+            entry_name == struct_name for entry_name, _ in bucket
+        ):
+            bucket.append((struct_name, entity_id))
+
         self._nid_by_entity[entity_id.value] = (
             struct_name,
             nid,
@@ -751,7 +771,21 @@ class NaDataDatabase:
         if mapped is None:
             return
 
-        self.nids.pop(f"{mapped[0]}/{mapped[1]}", None)
+        dropped_nid: str = mapped[1]
+        dropped_struct: str = mapped[0]
+
+        self.nids.pop(f"{dropped_struct}/{dropped_nid}", None)
+
+        bucket: Optional[list[tuple[str, EntityId]]] = (
+            self._nids_by_name.get(dropped_nid)
+        )
+
+        if bucket is not None:
+            self._nids_by_name[dropped_nid] = [
+                entry
+                for entry in bucket
+                if entry[0] != dropped_struct
+            ]
 
     def nid_names(self, struct_name: str) -> list[str]:
         """

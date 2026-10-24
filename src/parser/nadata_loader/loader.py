@@ -524,8 +524,10 @@ class NaDataLoader:
         circular references between symbols evaluate correctly in pass 2.
         """
 
+        symbol_structs: dict[str, str] = self._declared_struct_names()
+
         for _, symbol, _ in self.declarations:
-            struct_name: str = self._symbol_struct_name(symbol=symbol)
+            struct_name: str = symbol_structs[symbol]
             struct: Struct = self.database.tables_by_struct_name[struct_name].struct
 
             instance: StructInstance = self.database.create_instance(
@@ -555,6 +557,19 @@ class NaDataLoader:
                 return struct_name
 
         raise ValueError(f"Symbol '{symbol}' has no pending declaration")
+
+    def _declared_struct_names(self) -> dict[str, str]:
+        """
+        Builds a symbol to struct name map over pending declarations.
+
+        Returns:
+            dict[str, str]: The symbol lookup table.
+        """
+
+        return {
+            symbol: struct_name
+            for struct_name, symbol, _ in self.declarations
+        }
 
     # --- Pass 2: attribute population ---
 

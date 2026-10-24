@@ -269,6 +269,9 @@ class SpatialIndex:
         self.children: dict[int, list[int]] = {}
         self.roots: list[int] = []
 
+        # Membership mirror of roots: removals must not scan the list
+        self._root_keys: set[int] = set()
+
         for hierarchy_table in self.tables:
 
             # Lazy rows decode once for the build (hash indexes do
@@ -385,8 +388,10 @@ class SpatialIndex:
                 self.children.setdefault(parent_key, []).append(key)
             else:
                 self.roots.append(key)
+                self._root_keys.add(key)
         else:
             self.roots.append(key)
+            self._root_keys.add(key)
 
     def _circumradius_chord(
         self,
@@ -527,7 +532,8 @@ class SpatialIndex:
                         self.cells.pop(cell, None)
 
         if self.parent_attribute is not None:
-            if key in self.roots:
+            if key in self._root_keys:
+                self._root_keys.discard(key)
                 self.roots.remove(key)
 
             child_lists: list[int] = self.children.get(key, [])
@@ -537,10 +543,15 @@ class SpatialIndex:
 
             # Children of a removed parent become roots
             for child_id in child_lists:
-                if child_id in self.entries and child_id not in self.roots:
+                if (
+                    child_id in self.entries
+                    and child_id not in self._root_keys
+                ):
                     self.roots.append(child_id)
+                    self._root_keys.add(child_id)
         else:
-            if key in self.roots:
+            if key in self._root_keys:
+                self._root_keys.discard(key)
                 self.roots.remove(key)
 
     def remove_instance(self, key: int) -> None:

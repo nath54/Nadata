@@ -90,7 +90,10 @@ def feature_name(properties: dict[str, Any]) -> str:
         str: A name property or a fallback.
     """
 
-    for key in ("name", "NAME", "name_en", "ADMIN", "admin"):
+    for key in (
+        "name", "nom", "NAME", "name_en", "name_local", "ADMIN",
+        "admin",
+    ):
         value: Any = properties.get(key)
 
         if isinstance(value, str) and value:

@@ -25,6 +25,10 @@ from src.core.types.home_types.planet import get_current_planet
 # km/h to m/s
 _KMH_TO_MPS: float = 1.0 / 3.6
 
+# Fallback speed for edges (and networks) without any speed data;
+# keeps time-cost routing connected on unannotated graphs
+_DEFAULT_SPEED_MPS: float = 50.0 * _KMH_TO_MPS
+
 
 
 class Path:
@@ -188,9 +192,15 @@ class NetworkIndex:
         # -> seconds or meters
         self._edge_costs: dict[int, dict[tuple[str, str], float]] = {}
 
-        # Fastest speed seen on the network (m/s) for the time
-        # heuristic; grows as edges arrive
-        self._max_speed_mps: float = 1.0
+        # Mode -> node local id -> connected component id (lazily
+        # built for mode-aware snapping, cleared on every mutation)
+        self._component_cache: dict[str, dict[int, int]] = {}
+
+        # Fastest speed on the network (m/s) for the time heuristic
+        # and for unannotated edges; computed at build time (an
+        # underestimated max makes the heuristic inadmissible and
+        # strands A*)
+        self._max_speed_mps: float = 0.0
 
         # A cell index over node positions for endpoint snapping
         self._node_index: Any = None
@@ -227,11 +237,14 @@ class NetworkIndex:
 
         self._ensure_node_index()
 
+        self._component_cache.clear()
+
         for instance in self.nodes_table.instances.values():
             self._add_node(local_id=instance.entity_id.local_id)
 
         for instance in self.edges_table.instances.values():
             self._add_edge(instance=instance)
+            self._absorb_speed(instance=instance)
 
         self._resolve_pending_edges()
 
@@ -245,6 +258,8 @@ class NetworkIndex:
             instance (Any): The inserted StructInstance.
         """
 
+        self._component_cache.clear()
+
         if instance.struct is self.nodes_table.struct:
             self._add_node(local_id=instance.entity_id.local_id)
 
@@ -252,6 +267,7 @@ class NetworkIndex:
 
         if instance.struct is self.edges_table.struct:
             self._add_edge(instance=instance)
+            self._absorb_speed(instance=instance)
 
     def on_remove(self, local_id: int, table: Any) -> None:
         """
@@ -264,6 +280,8 @@ class NetworkIndex:
             local_id (int): The removed local id.
             table (Any): The StructTable the removal happened on.
         """
+
+        self._component_cache.clear()
 
         if table is self.nodes_table:
             self._remove_node(local_id=local_id)
@@ -282,6 +300,8 @@ class NetworkIndex:
 
         if instance.struct is not self.edges_table.struct:
             return None
+
+        self._component_cache.clear()
 
         local_id: int = instance.entity_id.local_id
 
@@ -595,6 +615,23 @@ class NetworkIndex:
 
         return mode in raw
 
+    def _unannotated_speed(self) -> float:
+        """
+        Returns the speed assumed for edges without speed data.
+
+        The network's fastest seen speed when known; a conservative
+        urban default otherwise (the heuristic divides by the same
+        value, so it stays admissible).
+
+        Returns:
+            float: Speed in m/s.
+        """
+
+        if self._max_speed_mps > 0.0:
+            return self._max_speed_mps
+
+        return _DEFAULT_SPEED_MPS
+
     def _time_cost(self, edge: Any, transport_mode: str) -> Optional[float]:
         """
         Returns the traversal time of an edge in seconds.
@@ -618,12 +655,17 @@ class NetworkIndex:
         value: Any = edge.attributes.get(self.speed_attribute)
 
         if value is None:
-            return None
+            # Missing (defaulted) speed attributes behave like empty
+            # ones: optimistic estimate keeps the edge connected
+            return self._edge_length(edge=edge) / self._unannotated_speed()
 
         raw: Any = value.get() if hasattr(value, "get") else value
 
         if not raw:
-            return None
+            # Unannotated edges stay connected with an optimistic
+            # estimate (the network's fastest seen speed); this also
+            # keeps the time heuristic admissible
+            return self._edge_length(edge=edge) / self._unannotated_speed()
 
         length: float = self._edge_length(edge=edge)
 
@@ -690,6 +732,209 @@ class NetworkIndex:
         # network node ids are local ids in the nodes table
         return EntityId(value=result[0]).local_id
 
+    def _absorb_speed(self, instance: Any) -> None:
+        """
+        Tracks an edge's fastest speed for the time heuristic.
+
+        Args:
+            instance (Any): The edge StructInstance.
+        """
+
+        if self.speed_attribute is None:
+            return None
+
+        value: Any = instance.attributes.get(self.speed_attribute)
+
+        if value is None:
+            return None
+
+        raw: Any = value.get() if hasattr(value, "get") else value
+
+        if not raw:
+            return None
+
+        for speed_kmh in raw.values():
+            if isinstance(speed_kmh, bool) or not isinstance(
+                speed_kmh, (int, float)
+            ):
+                continue
+
+            if speed_kmh > 0.0:
+                speed_mps: float = speed_kmh * _KMH_TO_MPS
+
+                if speed_mps > self._max_speed_mps:
+                    self._max_speed_mps = speed_mps
+
+    def _mode_components(self, mode: str) -> dict[int, int]:
+        """
+        Maps every mode-usable node to its connected component id.
+
+        Args:
+            mode (str): The transport mode.
+
+        Returns:
+            dict[int, int]: Node local id to component id.
+        """
+
+        cached: Optional[dict[int, int]] = self._component_cache.get(mode)
+
+        if cached is not None:
+            return cached
+
+        parent: dict[int, int] = {}
+        rank: dict[int, int] = {}
+
+        def find(node: int) -> int:
+            """
+            Returns the component root of one node (with path
+            compression).
+
+            Args:
+                node (int): The node local id.
+
+            Returns:
+                int: The root local id.
+            """
+
+            root: int = node
+
+            while parent.get(root, root) != root:
+                root = parent[root]
+
+            while parent.get(node, node) != node:
+                parent[node], node = root, parent[node]
+
+            return root
+
+        def union(node_a: int, node_b: int) -> None:
+            """
+            Merges two components (by rank).
+
+            Args:
+                node_a (int): One side's node local id.
+                node_b (int): The other side's node local id.
+            """
+
+            root_a: int = find(node_a)
+            root_b: int = find(node_b)
+
+            if root_a == root_b:
+                return None
+
+            rank_a: int = rank.get(root_a, 0)
+            rank_b: int = rank.get(root_b, 0)
+
+            if rank_a < rank_b:
+                parent[root_a] = root_b
+
+            elif rank_a > rank_b:
+                parent[root_b] = root_a
+
+            else:
+                parent[root_b] = root_a
+                rank[root_a] = rank_a + 1
+
+        for node_id in self.node_ids:
+            parent[node_id] = node_id
+
+        for node_id, entries in self.adjacency.items():
+            for edge_id, neighbor in entries:
+                edge: Any = self._edge_instance(local_id=edge_id)
+
+                if not self._allows_mode(edge=edge, mode=mode):
+                    continue
+
+                union(node_id, neighbor)
+
+        components: dict[int, int] = {
+            node_id: find(node_id) for node_id in parent
+        }
+
+        self._component_cache[mode] = components
+
+        return components
+
+    def _largest_component(self, components: dict[int, int]) -> int:
+        """
+        Returns the component id with the most nodes.
+
+        Args:
+            components (dict[int, int]): Node to component mapping.
+
+        Returns:
+            int: The dominant component id (0 when empty).
+        """
+
+        counts: dict[int, int] = {}
+
+        for component in components.values():
+            counts[component] = counts.get(component, 0) + 1
+
+        return max(counts, key=lambda c: counts[c]) if counts else 0
+
+    def _mode_snap(self, coord: Coordinate, mode: str) -> Optional[int]:
+        """
+        Snaps a coordinate to the nearest node usable in a mode.
+
+        The plain snap ignores transport modes; a point in a
+        pedestrian zone would otherwise anchor a car route to a
+        walk-only node. Candidates are scanned nearest-first, preferring
+        nodes of the mode's largest connected component so courtyards
+        and parking-lot stubs do not strand the route.
+
+        Args:
+            coord (Coordinate): The query coordinate.
+            mode (str): The transport mode.
+
+        Returns:
+            Optional[int]: The node local id, or None when no nearby
+            node is usable in the mode.
+        """
+
+        index: Any = self._ensure_node_index()
+
+        # Entity-id keys until converted; the scan widens until a
+        # node of the mode's dominant component is found (dense
+        # pedestrian zones can bury the car network deep in the
+        # nearest-first order)
+        fallback: Optional[int] = None
+
+        for radius in (32, 128, 512, 2048):
+            keys: list[int] = index.nearest(coord=coord, k=radius)
+
+            components: Optional[dict[int, int]] = None
+
+            for key in keys:
+                node_id: int = EntityId(value=key).local_id
+
+                usable: bool = False
+
+                for edge_id, _neighbor in self.adjacency.get(node_id, []):
+                    edge: Any = self._edge_instance(local_id=edge_id)
+
+                    if self._allows_mode(edge=edge, mode=mode):
+                        usable = True
+
+                        break
+
+                if not usable:
+                    continue
+
+                if fallback is None:
+                    fallback = node_id
+
+                if components is None:
+                    components = self._mode_components(mode=mode)
+
+                # The largest component wins: stubs and courtyards
+                # are real nodes but dead ends for routing
+                if components.get(
+                    node_id, -1
+                ) == self._largest_component(components=components):
+                    return node_id
+
+        return fallback
+
     def route(
         self,
         start: Coordinate,
@@ -727,8 +972,8 @@ class NetworkIndex:
                 f"Unknown cost mode '{cost}' (expected 'distance' or 'time')"
             )
 
-        start_id: Optional[int] = self.snap(coord=start)
-        end_id: Optional[int] = self.snap(coord=end)
+        start_id: Optional[int] = self._mode_snap(coord=start, mode=mode)
+        end_id: Optional[int] = self._mode_snap(coord=end, mode=mode)
 
         if start_id is None:
             raise ValueError("No network node near the start coordinate")
@@ -755,6 +1000,9 @@ class NetworkIndex:
             )
 
             if cost == "time":
+                if self._max_speed_mps <= 0.0:
+                    return 0.0
+
                 return distance / self._max_speed_mps
 
             return distance
