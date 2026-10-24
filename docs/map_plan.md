@@ -9,13 +9,16 @@ Planning document — no implementation contract beyond the sequencing at
 the end. Companion to the memory plan (streaming reuses the bounded
 decode cache) and orthogonal to the autograd plan.
 
-> **STATUS: PHASES A+B+C IMPLEMENTED.** Phase A (planet settings,
+> **STATUS: PHASES A+B+C+D IMPLEMENTED.** Phase A (planet settings,
 > `Coordinate`, geodesy builtins, binary cell encodings), Phase B
-> (`Polyline` / `Polygon`, predicates, shape sugar) and Phase C (the
+> (`Polyline` / `Polygon`, predicates, shape sugar), Phase C (the
 > `spatial_index` builtin, `locate` / `nearest` / `within` queries,
-> hierarchical descent, dump-time row clustering) are merged with
-> tests (`tests/test_geodesy.py`, `tests/test_geometry.py`,
-> `tests/test_spatial_index.py`). Phases D-F are not started.
+> hierarchical descent, dump-time row clustering) and Phase D
+> (`GeoGrid[T]` field layers, bilinear `sample`, sea-level
+> registration, `altitude` integration) are merged with tests
+> (`tests/test_geodesy.py`, `tests/test_geometry.py`,
+> `tests/test_spatial_index.py`, `tests/test_geogrid.py`). Phases E-F
+> are not started.
 >
 > Phase C implementation notes (deviations from the original text
 > below): queries take no attribute argument — a struct with exactly
@@ -27,6 +30,17 @@ decode cache) and orthogonal to the autograd plan.
 > span > 180°) use a lat/lon-space anchor instead of the 3D direction
 > mean; the cell lower bound applies the sine rule with the query
 > point's latitude and a max-curvature radius on spheroids.
+>
+> Phase D implementation notes: the cell size is declared in the type
+> bracket (`GeoGrid[Float64, 3600]`, default 30 arc-seconds) matching
+> the Tensor convention; grid attributes need an explicit `= {}`
+> default like the other grids; the per-value sample default
+> (`set_default`) is session state — the binary encoding persists
+> cells only, so scripts re-establish defaults and
+> `register_sea_level` after load (same pattern as index rebuilds);
+> bilinear sampling weights the four surrounding cell centers,
+> renormalizing over cells that have data, wrapping longitude and
+> clamping latitude at the poles.
 
 ---
 

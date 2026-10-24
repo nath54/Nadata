@@ -21,6 +21,7 @@ from src.core.types.home_types.planet import (
     Planet,
     get_current_planet,
 )
+from src.core.types.home_types.sea_level import get_sea_level_surface
 
 
 
@@ -774,8 +775,13 @@ class Coordinate:
 
     def altitude(self, planet: Optional[Planet] = None) -> float:
         """
-        Returns the height above the planet surface at this latitude
-        (negative for underground points).
+        Returns the height above sea level at this coordinate.
+
+        When a sea-level layer is registered (register_sea_level) and
+        has data around this coordinate, the interpolated sea-surface
+        radius is the reference; otherwise the geometric surface
+        radius at this latitude applies. Negative values are
+        underground / underwater.
 
         Args:
             planet (Optional[Planet], optional): Explicit planet
@@ -784,6 +790,16 @@ class Coordinate:
         Returns:
             float: Altitude in meters.
         """
+
+        surface: Optional[Any] = get_sea_level_surface()
+
+        if surface is not None:
+            sea_radius: Optional[float] = surface.radius_at(
+                lat_deg=self.lat, lon_deg=self.lon
+            )
+
+            if sea_radius is not None:
+                return self.radius - sea_radius
 
         return self.radius - self.surface_radius(planet=planet)
 

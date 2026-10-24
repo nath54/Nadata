@@ -79,6 +79,7 @@ from src.core.types.types import (
     TypePriorityQueue,
     SPATIAL_GRID_NAMES,
     TypeSpatialGrid,
+    TypeGeoGrid,
     TypeTensor,
     flatten_nested_lists,
     Int2,
@@ -303,6 +304,33 @@ class TypeResolver:
                 return cast(Type, self.struct_provider(tmp_type.name))
 
             raise TypeError(f"Unknown type '{tmp_type.name}'")
+
+        # GeoGrid takes an element type and an optional integer cell
+        # size in arc-seconds
+        if tmp_type.name == "GeoGrid":
+            if len(tmp_type.children) not in (1, 2):
+                raise TypeError(
+                    "Type 'GeoGrid' takes an element type and an optional "
+                    "cell size in arc-seconds"
+                )
+
+            cell_arcsec: int = 30
+
+            if len(tmp_type.children) == 2:
+                size_child: TmpType = tmp_type.children[1]
+
+                if size_child.children or not size_child.name.isdigit():
+                    raise TypeError(
+                        f"The GeoGrid cell size must be an integer literal "
+                        f"in arc-seconds, got '{size_child.name}'"
+                    )
+
+                cell_arcsec = int(size_child.name)
+
+            return TypeGeoGrid(
+                value_type=self.resolve(tmp_type=tmp_type.children[0]),
+                cell_arcsec=cell_arcsec,
+            )
 
         # Tensor takes an element type followed by dimension specifiers:
         # positive integer literals or names of const integer attributes of
@@ -1317,7 +1345,10 @@ class SchemaResolver:
         if (
             isinstance(expression, DictLiteralExpr)
             and not expression.entries
-            and isinstance(resolved_type, (TypeQueue, TypePriorityQueue, TypeSpatialGrid))
+            and isinstance(
+                resolved_type,
+                (TypeQueue, TypePriorityQueue, TypeSpatialGrid, TypeGeoGrid),
+            )
         ):
             expression.declared_type = resolved_type
 

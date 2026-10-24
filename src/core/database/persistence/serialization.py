@@ -69,6 +69,7 @@ from src.core.types.types import (
     TypeQueue,
     TypeSet,
     TypeSpatialGrid,
+    TypeGeoGrid,
     TypeTensor,
     TypeStr,
 )
@@ -91,6 +92,7 @@ from src.core.values.values import (
     ValueQueue,
     ValueSet,
     ValueSpatialGrid,
+    ValueGeoGrid,
     ValueStr,
     ValueTensor,
 )
@@ -141,6 +143,7 @@ DECODABLE_CLASSES: dict[str, type] = {
     "TypeQueue": TypeQueue,
     "TypeSet": TypeSet,
     "TypeSpatialGrid": TypeSpatialGrid,
+    "TypeGeoGrid": TypeGeoGrid,
     "TypeTensor": TypeTensor,
     "TypeStr": TypeStr,
     "TargetAssignStmt": TargetAssignStmt,
@@ -161,6 +164,7 @@ DECODABLE_CLASSES: dict[str, type] = {
     "ValueQueue": ValueQueue,
     "ValueSet": ValueSet,
     "ValueSpatialGrid": ValueSpatialGrid,
+    "ValueGeoGrid": ValueGeoGrid,
     "ValueTensor": ValueTensor,
     "ValueStr": ValueStr,
     "VarDeclStmt": VarDeclStmt,
@@ -552,6 +556,14 @@ def resolve_instance_refs(
         return value
 
     if isinstance(value, ValueSpatialGrid):
+        value.cells = {
+            coords: _resolve_raw(raw=cell, instances=instances)
+            for coords, cell in value.cells.items()
+        }
+
+        return value
+
+    if isinstance(value, ValueGeoGrid):
         value.cells = {
             coords: _resolve_raw(raw=cell, instances=instances)
             for coords, cell in value.cells.items()

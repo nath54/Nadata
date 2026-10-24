@@ -66,6 +66,7 @@ from src.core.types.types import (
     TypeQueue,
     TypeSet,
     TypeSpatialGrid,
+    TypeGeoGrid,
     TypeStr,
     TypeTensor,
 )
@@ -359,6 +360,19 @@ def encode_value(raw: Any, value_type: Any) -> bytes:
 
         return bytes(out)
 
+    if isinstance(value_type, TypeGeoGrid):
+        # Sorted cells; the per-value sample default is session state
+        # and is re-established by scripts after load
+        out = bytearray(encode_varint(value=len(raw)))
+
+        for coords in sorted(raw.keys()):
+            out += encode_zigzag(value=coords[0])
+            out += encode_zigzag(value=coords[1])
+
+            out += encode_value(raw=raw[coords], value_type=value_type.value_type)
+
+        return bytes(out)
+
     if isinstance(value_type, TypeTensor):
         # Flat row-major payload; the shape lives in the type
         out = bytearray(encode_varint(value=len(raw)))
@@ -630,6 +644,31 @@ def decode_value(
             grid_cells[tuple(coords)] = grid_element
 
         return grid_cells, offset
+
+    if isinstance(value_type, TypeGeoGrid):
+        cell_count: int
+        cell_count, offset = decode_varint(payload=payload, offset=offset)
+
+        geo_cells: dict[tuple[int, int], Any] = {}
+
+        for _ in range(cell_count):
+            ix: int
+            iy: int
+
+            ix, offset = decode_zigzag(payload=payload, offset=offset)
+            iy, offset = decode_zigzag(payload=payload, offset=offset)
+
+            cell_element: Any
+            cell_element, offset = decode_value(
+                payload=payload,
+                offset=offset,
+                value_type=value_type.value_type,
+                resolver=resolver,
+            )
+
+            geo_cells[(ix, iy)] = cell_element
+
+        return geo_cells, offset
 
     if isinstance(value_type, TypeTensor):
         tensor_count: int

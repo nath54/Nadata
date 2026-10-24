@@ -24,6 +24,7 @@ from src.core.types.types import (
     TypeQueue,
     TypePriorityQueue,
     TypeSpatialGrid,
+    TypeGeoGrid,
     TypeSet,
     Float64,
     UInt64,
@@ -50,6 +51,7 @@ from src.core.values.values import (
     ValueQueue,
     ValueSet,
     ValueSpatialGrid,
+    ValueGeoGrid,
     ValueTensor,
     make_value,
 )
@@ -67,6 +69,7 @@ from src.core.expressions.autograd import (
 from src.core.expressions.builtins import (
     DictCollectionCallable,
     GridCallable,
+    GeoGridCallable,
     LengthCallable,
     QueueCallable,
     SetCallable,
@@ -1051,6 +1054,17 @@ class MemberAccessExpr(Expression):
             )
         ):
             return GridCallable(target=target_obj, member=self.member)
+
+        # Typed geodetic field layer members (before the Python attr
+        # fallback)
+        if (
+            isinstance(target_obj, ValueGeoGrid)
+            and self.member in (
+                "set_at", "at", "has", "remove", "size", "cell_of",
+                "sample", "set_default",
+            )
+        ):
+            return GeoGridCallable(target=target_obj, member=self.member)
 
         # Typed tensor members (before the Python attr fallback)
         if (
@@ -2529,7 +2543,8 @@ class DictLiteralExpr(Expression):
         # Empty braces under a queue or sparse grid declaration produce the
         # empty container
         if isinstance(
-            self.declared_type, (TypeQueue, TypePriorityQueue, TypeSpatialGrid)
+            self.declared_type,
+            (TypeQueue, TypePriorityQueue, TypeSpatialGrid, TypeGeoGrid),
         ):
             return make_value(value_type=self.declared_type, raw=[])
 

@@ -33,6 +33,7 @@ from src.core.types.types import (
     TypeQueue,
     TypePriorityQueue,
     TypeSpatialGrid,
+    TypeGeoGrid,
     TypeTensor,
 )
 from src.core.types.home_types.color import Color
@@ -790,6 +791,125 @@ class ValueSpatialGrid(Value):
         return f"{repr(self.value_type)}({self.cells})"
 
 
+class ValueGeoGrid(Value):
+    """
+    Runtime representation of a sparse geodetic field layer.
+
+    Attributes:
+        value_type (TypeGeoGrid): Associated grid schema type.
+        cells (dict[tuple[int, int], Any]): Occupied cells keyed by
+            (column, row).
+        default (Optional[Any]): Fallback value for sample() when no
+            surrounding cell has data.
+        has_default (bool): Whether a default is set.
+    """
+
+    def __init__(
+        self,
+        value_type: TypeGeoGrid,
+        cells: Optional[Any] = None,
+        default: Optional[Any] = None,
+        has_default: bool = False,
+    ) -> None:
+        """
+        Initializes the ValueGeoGrid instance.
+
+        Args:
+            value_type (TypeGeoGrid): Grid type specification.
+            cells (Optional[Any], optional): Initial cells keyed by
+                (column, row). Defaults to None (empty grid).
+            default (Optional[Any], optional): Fallback sample value.
+                Defaults to None.
+            has_default (bool, optional): Whether a default is set.
+                Defaults to False.
+
+        Raises:
+            TypeError: If a cell violates the value type or a cell key
+                is malformed.
+        """
+
+        # Initialize parent class
+        super().__init__(value_type=value_type)
+
+        resolved_cells: dict[tuple[int, int], Any] = (
+            dict(cells) if cells else {}
+        )
+
+        # Validate keys and cells against the grid type
+        value_type.check_value(value=resolved_cells)
+
+        if has_default:
+            value_type.value_type.check_value(value=default)
+
+        self.value_type: TypeGeoGrid = value_type
+        self.cells: dict[tuple[int, int], Any] = resolved_cells
+        self.default: Optional[Any] = default
+        self.has_default: bool = has_default
+
+    def get(self) -> dict[tuple[int, int], Any]:
+        """
+        Returns the raw occupied-cell mapping.
+
+        Returns:
+            dict[tuple[int, int], Any]: Cells keyed by (column, row).
+        """
+
+        return self.cells
+
+    def sample(self, lat_deg: float, lon_deg: float) -> Optional[Any]:
+        """
+        Bilinearly samples the layer at a coordinate.
+
+        Args:
+            lat_deg (float): Latitude in degrees.
+            lon_deg (float): Longitude in degrees.
+
+        Returns:
+            Optional[Any]: The interpolated value; the grid default
+            when no surrounding cell has data and a default is set;
+            None when there is neither data nor a default.
+
+        Raises:
+            TypeError: If the cell values are not numeric.
+        """
+
+        from src.core.types.home_types.geogrid import bilinear_sample
+
+        result: Optional[Any] = bilinear_sample(
+            cells=self.cells,
+            n_x=self.value_type.n_x,
+            n_y=self.value_type.n_y,
+            cell_deg=self.value_type.cell_deg,
+            lat_deg=lat_deg,
+            lon_deg=lon_deg,
+        )
+
+        if result is None and self.has_default:
+            return self.default
+
+        return result
+
+    def __len__(self) -> int:
+        """
+        Returns count of occupied cells.
+
+        Returns:
+            int: Number of occupied cells.
+        """
+
+        return len(self.cells)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the ValueGeoGrid.
+
+        Returns:
+            str: Grid representation.
+        """
+
+        return f"{repr(self.value_type)}({self.cells})"
+
+
 class ValueTensor(Value):
     """
     Runtime representation of a dense tensor with a type-level shape.
@@ -1318,6 +1438,9 @@ def make_value(value_type: Type, raw: Any) -> Value:
 
     if isinstance(value_type, TypeSpatialGrid):
         return ValueSpatialGrid(value_type=value_type, cells=raw)
+
+    if isinstance(value_type, TypeGeoGrid):
+        return ValueGeoGrid(value_type=value_type, cells=raw)
 
     if isinstance(value_type, TypeTensor):
         return ValueTensor(value_type=value_type, cells=raw)

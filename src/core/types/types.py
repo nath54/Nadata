@@ -7,6 +7,7 @@ strings, booleans, arrays, and dictionaries.
 
 # Import Modules
 from __future__ import annotations
+import math
 from collections import deque
 from typing import Any, Optional
 
@@ -769,6 +770,160 @@ class TypeSpatialGrid(Type):
         """
 
         return f"{SPATIAL_GRID_REPRS[self.topology]}[{repr(self.value_type)}]"
+
+
+class TypeGeoGrid(Type):
+    """
+    Schema type representing a sparse geodetic field layer.
+
+    Cells live on a quantized lat/lon grid keyed by integer cell
+    indices with longitude wrapping at plus/minus 180. The cell size
+    is declared in arc-seconds; the effective cell edge is snapped so
+    the longitude axis wraps exactly (360 / n_x degrees with n_x
+    columns and n_y = n_x / 2 rows).
+
+    Attributes:
+        value_type (Type): Type of cell values.
+        cell_arcsec (int): Nominal cell size in arc-seconds.
+        default_value (dict[Any, Any]): Default empty grid.
+    """
+
+    def __init__(self, value_type: Type, cell_arcsec: int = 30) -> None:
+        """
+        Initializes the TypeGeoGrid instance.
+
+        Args:
+            value_type (Type): Type of cell values.
+            cell_arcsec (int, optional): Nominal cell size in
+                arc-seconds. Defaults to 30 (roughly one kilometer on
+                Earth).
+
+        Raises:
+            TypeError: If cell_arcsec is not an integer.
+            ValueError: If cell_arcsec is not a positive whole number
+                of arc-seconds not exceeding a hemisphere.
+        """
+
+        # Initialize parent class
+        super().__init__()
+
+        if isinstance(cell_arcsec, bool) or not isinstance(cell_arcsec, int):
+            raise TypeError(
+                f"Expected an integer cell size in arc-seconds, got "
+                f"{type(cell_arcsec).__name__}"
+            )
+
+        if cell_arcsec <= 0 or cell_arcsec > 648000:
+            raise ValueError(
+                f"Cell size must be between 1 and 648000 arc-seconds, "
+                f"got {cell_arcsec}"
+            )
+
+        self.value_type: Type = value_type
+        self.cell_arcsec: int = cell_arcsec
+
+        # Snap the column count so longitude wraps exactly; at least
+        # two columns (a hemisphere-wide cell) and two rows
+        self.n_x: int = max(2, round(360.0 * 3600.0 / cell_arcsec))
+        self.n_y: int = max(1, self.n_x // 2)
+
+        # Default value of the grid type (empty occupancy)
+        self.default_value: dict[Any, Any] = {}
+
+    @property
+    def cell_deg(self) -> float:
+        """
+        Returns the effective cell edge in degrees.
+
+        Returns:
+            float: Cell edge (360 / n_x).
+        """
+
+        return 360.0 / self.n_x
+
+    def cell_of(self, lat_deg: float, lon_deg: float) -> tuple[int, int]:
+        """
+        Returns the cell key containing a coordinate.
+
+        Args:
+            lat_deg (float): Latitude in degrees.
+            lon_deg (float): Longitude in degrees.
+
+        Returns:
+            tuple[int, int]: The (column, row) cell key.
+        """
+
+        ix: int = int(math.floor((lon_deg + 180.0) / self.cell_deg)) % self.n_x
+        iy: int = int(math.floor((lat_deg + 90.0) / self.cell_deg))
+
+        iy = min(self.n_y - 1, max(0, iy))
+
+        return (ix, iy)
+
+    def cell_center(self, cell: tuple[int, int]) -> tuple[float, float]:
+        """
+        Returns the center latitude / longitude of a cell.
+
+        Args:
+            cell (tuple[int, int]): The (column, row) cell key.
+
+        Returns:
+            tuple[float, float]: The (lat, lon) center in degrees.
+        """
+
+        lat: float = (cell[1] + 0.5) * self.cell_deg - 90.0
+        lon: float = (cell[0] + 0.5) * self.cell_deg - 180.0
+
+        return (lat, lon)
+
+    def check_value(self, value: Any) -> None:
+        """
+        Validates that a value is a cell keyed dict of typed values.
+
+        Args:
+            value (Any): Grid value to validate.
+
+        Raises:
+            TypeError: If value is not a dict, a cell key is malformed,
+                or a cell violates value_type.
+        """
+
+        # Verify container type
+        if not isinstance(value, dict):
+            raise TypeError(f"Expected dict, got {type(value).__name__}")
+
+        # Check each cell key and value
+        for coords, cell in value.items():
+            if (
+                not isinstance(coords, tuple)
+                or len(coords) != 2
+                or isinstance(coords[0], bool)
+                or isinstance(coords[1], bool)
+                or not isinstance(coords[0], int)
+                or not isinstance(coords[1], int)
+            ):
+                raise TypeError(
+                    "Expected an integer (column, row) cell key, got "
+                    f"{repr(coords)}"
+                )
+
+            if not (0 <= coords[0] < self.n_x and 0 <= coords[1] < self.n_y):
+                raise TypeError(
+                    f"Cell key {coords} outside the "
+                    f"{self.n_x} x {self.n_y} grid"
+                )
+
+            self.value_type.check_value(value=cell)
+
+    def __repr__(self) -> str:
+        """
+        Returns string representation of the TypeGeoGrid.
+
+        Returns:
+            str: Representation showing the cell type and cell size.
+        """
+
+        return f"GeoGrid[{repr(self.value_type)}, {self.cell_arcsec}]"
 
 
 class TypeTensor(Type):

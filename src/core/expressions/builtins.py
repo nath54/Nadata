@@ -62,6 +62,7 @@ from src.core.types.types import (
     TypeBool,
     TypeDict,
     TypeFloat,
+    TypeGeoGrid,
     TypeInt,
     TypeStr,
     TypeTensor,
@@ -74,6 +75,7 @@ from src.core.values.values import (
     ValueBool,
     ValueDict,
     ValueExternal,
+    ValueGeoGrid,
     ValueInt,
     ValuePriorityQueue,
     ValueQueue,
@@ -1658,6 +1660,8 @@ def build_type_globals() -> dict[str, Any]:
         "get_by_nid": GetByNidFunction(),
         "index": IndexFunction(),
         "spatial_index": SpatialIndexFunction(),
+        "register_sea_level": RegisterSeaLevelFunction(),
+        "clear_sea_level": ClearSeaLevelFunction(),
         "locate": LocateFunction(),
         "nearest": NearestFunction(),
         "within": WithinFunction(),
@@ -1968,6 +1972,225 @@ def _coords_array(coords_list: list[tuple[int, ...]]) -> ValueArray:
         value_type=TypeArray(value_type=TypeArray(value_type=Int64)),
         elements=[list(coords) for coords in coords_list],
     )
+
+
+class GeoGridCallable:
+    """
+    Callable bound to a typed member of a geodetic field layer value.
+
+    Provides set_at / at / has / remove / size / cell_of / sample /
+    set_default with coordinate and element validation.
+
+    Attributes:
+        target (ValueGeoGrid): Receiver grid value.
+        member (str): Requested member name.
+    """
+
+    def __init__(self, target: ValueGeoGrid, member: str) -> None:
+        """
+        Initializes the GeoGridCallable instance.
+
+        Args:
+            target (ValueGeoGrid): Receiver grid value.
+            member (str): Requested member name.
+        """
+
+        self.target: ValueGeoGrid = target
+        self.member: str = member
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Executes the requested field layer member.
+
+        Args:
+            *args (Value): Evaluated call arguments (unwrapped to raw).
+
+        Returns:
+            Value: Typed result.
+
+        Raises:
+            TypeError: On an unknown member or invalid arguments.
+            KeyError: On 'at' or 'sample' against empty data without a
+                default.
+        """
+
+        raw_args: list[Any] = [arg.get() for arg in args]
+        grid: ValueGeoGrid = self.target
+        grid_type: TypeGeoGrid = grid.value_type
+
+        def _coord_arg(index: int, member: str) -> Any:
+            """
+            Validates and returns one Coordinate argument.
+
+            Args:
+                index (int): Argument position.
+                member (str): Member name for error messages.
+
+            Returns:
+                Any: The raw Coordinate.
+
+            Raises:
+                TypeError: If the argument is not a Coordinate.
+            """
+
+            from src.core.types.home_types.coordinate import Coordinate
+
+            if index >= len(raw_args) or not isinstance(
+                raw_args[index], Coordinate
+            ):
+                raise TypeError(
+                    f"Member '{member}' expects a Coordinate argument"
+                )
+
+            return raw_args[index]
+
+        if self.member == "set_at":
+            coord: Any = _coord_arg(index=0, member=self.member)
+
+            if len(raw_args) != 2:
+                raise TypeError(
+                    "Member 'set_at' expects a Coordinate and one value"
+                )
+
+            grid_type.value_type.check_value(value=raw_args[1])
+
+            grid.cells[grid_type.cell_of(lat_deg=coord.lat, lon_deg=coord.lon)] = (
+                raw_args[1]
+            )
+
+            return ValueExternal(payload=None)
+
+        if self.member == "at":
+            coord = _coord_arg(index=0, member=self.member)
+
+            key: tuple[int, int] = grid_type.cell_of(
+                lat_deg=coord.lat, lon_deg=coord.lon
+            )
+
+            if key not in grid.cells:
+                raise KeyError(f"Empty grid cell at {key}")
+
+            return _wrap_raw(
+                raw=grid.cells[key], value_type=grid_type.value_type
+            )
+
+        if self.member == "has":
+            coord = _coord_arg(index=0, member=self.member)
+
+            key = grid_type.cell_of(lat_deg=coord.lat, lon_deg=coord.lon)
+
+            return ValueBool(value_type=TypeBool(), value=key in grid.cells)
+
+        if self.member == "remove":
+            coord = _coord_arg(index=0, member=self.member)
+
+            key = grid_type.cell_of(lat_deg=coord.lat, lon_deg=coord.lon)
+
+            grid.cells.pop(key, None)
+
+            return ValueExternal(payload=None)
+
+        if self.member == "size":
+            return ValueInt(
+                value_type=TypeInt(num_bits=64, signed=True),
+                value=len(grid.cells),
+            )
+
+        if self.member == "cell_of":
+            coord = _coord_arg(index=0, member=self.member)
+
+            key = grid_type.cell_of(lat_deg=coord.lat, lon_deg=coord.lon)
+
+            return ValueArray(
+                value_type=TypeArray(value_type=TypeInt(num_bits=32, signed=True)),
+                elements=list(key),
+            )
+
+        if self.member == "sample":
+            coord = _coord_arg(index=0, member=self.member)
+
+            result: Any = grid.sample(lat_deg=coord.lat, lon_deg=coord.lon)
+
+            if result is None:
+                raise KeyError(
+                    "No data around the sample point and no default set"
+                )
+
+            return _wrap_raw(raw=result, value_type=grid_type.value_type)
+
+        if self.member == "set_default":
+            if len(raw_args) != 1:
+                raise TypeError("Member 'set_default' expects one value")
+
+            grid_type.value_type.check_value(value=raw_args[0])
+
+            grid.default = raw_args[0]
+            grid.has_default = True
+
+            return ValueExternal(payload=None)
+
+        raise TypeError(f"Unknown geodetic grid member '{self.member}'")
+
+
+class RegisterSeaLevelFunction:
+    """
+    Registers a geodetic field layer as the session sea-level surface.
+
+    Once registered, altitude() references the interpolated sea-surface
+    radius where the layer has data; the geometric surface radius
+    applies elsewhere.
+    """
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Registers the layer.
+
+        Args:
+            *args (Value): The GeoGrid value to register.
+
+        Returns:
+            Value: An empty opaque Value.
+
+        Raises:
+            TypeError: If the argument is not a GeoGrid value.
+        """
+
+        if len(args) != 1 or not isinstance(args[0], ValueGeoGrid):
+            raise TypeError(
+                "register_sea_level expects a GeoGrid value"
+            )
+
+        from src.core.types.home_types.sea_level import (
+            GeoSeaLevelAdapter,
+            set_sea_level_surface,
+        )
+
+        set_sea_level_surface(surface=GeoSeaLevelAdapter(grid=args[0]))
+
+        return ValueExternal(payload=None)
+
+
+class ClearSeaLevelFunction:
+    """
+    Unregisters the session sea-level surface.
+    """
+
+    def __call__(self, *args: Value) -> Value:
+        """
+        Unregisters the layer.
+
+        Args:
+            *args (Value): Ignored.
+
+        Returns:
+            Value: An empty opaque Value.
+        """
+
+        from src.core.types.home_types.sea_level import set_sea_level_surface
+
+        set_sea_level_surface(surface=None)
+
+        return ValueExternal(payload=None)
 
 
 class GridCallable:
