@@ -502,6 +502,24 @@ def compile_shim(target: str, install: Path, output: Path,
     include = pbs_include(install)
     lib_dir, lib_ref = pbs_lib(install, target, free_threaded)
 
+    if "darwin" in target:
+        # PBS records the dylib's install name as an ABSOLUTE build-
+        # machine path (/install/lib/...); dyld will not consult rpath
+        # for absolute dependencies. Rewrite it to @rpath (resolved by
+        # the shim's and hosts' @loader_path/runtime/lib rpaths) and
+        # re-sign ad hoc, since the edit invalidates the signature.
+        version = pbs_version(install)
+        major, minor = version.split(".")[:2]
+        suffix = "t" if free_threaded else ""
+        dylib = (install / "lib"
+                 / f"libpython{major}.{minor}{suffix}.dylib")
+        subprocess.run(
+            ["install_name_tool", "-id",
+             f"@rpath/libpython{major}.{minor}{suffix}.dylib", str(dylib)],
+            check=True)
+        subprocess.run(["codesign", "--force", "--sign", "-",
+                        str(dylib)], check=True)
+
     # Free-threaded builds must be compiled with Py_GIL_DISABLED; it
     # also flips nd_runtime_info's free_threaded field.
     gil_flag = ["-DPy_GIL_DISABLED=1"] if free_threaded else []
@@ -588,9 +606,14 @@ def stage(target: str, install: Path, library: Path) -> Path:
     shutil.copytree(install, runtime)
 
     for prune_dir in PRUNE_DIRS:
-        for found in runtime.glob(f"*/{prune_dir}"):
-            log(f"pruning {found.relative_to(staged)}")
-            shutil.rmtree(found, ignore_errors=True)
+        # Windows stdlib: <runtime>/Lib/<dir>; POSIX: <runtime>/lib/
+        # python3.X/<dir>.
+        for pattern in (f"*/{prune_dir}",
+                        f"*/lib/python*/{prune_dir}",
+                        f"*/Lib/{prune_dir}"):
+            for found in runtime.glob(pattern):
+                log(f"pruning {found.relative_to(staged)}")
+                shutil.rmtree(found, ignore_errors=True)
 
     # 4. Windows hosts resolve python3xx.dll via PATH — ship a copy
     #    next to the shim so a single PATH entry suffices.
@@ -646,7 +669,18 @@ def validate(staged: Path, target: str) -> None:
     if dev_build.run_command(command, cwd=work) != 0:
         raise SystemExit("validation smoke build failed")
 
-    environment = {k: v for k, v in os.environ.items() if k != "NADATA_HOME"}
+    # Sanitize the environment: no NADATA_HOME (proves the staged
+    # layout self-locates) and no host-python library paths —
+    # LD_LIBRARY_PATH from the runner would make the loader resolve
+    # libpython3.12.so.1.0 to the HOST interpreter (e.g. 3.12.15)
+    # while the stdlib is the pinned 3.12.7 -> segfault at boot.
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not (key == "NADATA_HOME"
+                or key.startswith("DYLD_")
+                or key in ("LD_LIBRARY_PATH", "PYTHONHOME",
+                           "PYTHONPATH", "PYTHONSTARTUP"))
+    }
 
     if "windows" in target:
         environment["PATH"] = (
