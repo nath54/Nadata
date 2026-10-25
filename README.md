@@ -173,6 +173,7 @@ describes Earth, Mars, or a fictional world.
 | [docs/syntax.md](docs/syntax.md) | Full language reference: rules and syntax |
 | [docs/architecture.md](docs/architecture.md) | How the engine works, stage by stage |
 | [docs/api.md](docs/api.md) | Python API and CLI reference |
+| [docs/native.md](docs/native.md) | Native ABI: embedding the engine from C/C++/any host language |
 | [docs/persistence.md](docs/persistence.md) | The `.ndb` format, dumps and incremental saves |
 | [docs/benchmarks.md](docs/benchmarks.md) | Engine stage profiling, synthetic benchmarks, SQLite comparison |
 | [docs/development.md](docs/development.md) | Code style, testing, contributing |
