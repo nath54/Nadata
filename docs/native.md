@@ -63,6 +63,15 @@ int main() {
     q.where_str("h", "h.name == \"Tom\"");
     auto id = q.first_id();          // std::optional<int64_t> — nullopt if empty
 
+    // ABI 2: the same operations keyed by entity id instead of symbol
+    // names — the id IS the object reference.
+    if (id) {
+        auto name = db.get_attr_by_id(*id, "name");
+        db.set_attr_by_id(*id, "name", nadata::Value::str("Tom"));
+        auto methods = db.list_methods(*id);   // std::vector<std::string>
+        (void) name; (void) methods;
+    }
+
     // Errors are exceptions carrying the ABI status:
     try {
         db.get_symbol_id("nobody");
