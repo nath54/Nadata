@@ -141,16 +141,16 @@ def python_library() -> tuple[str, str]:
             libs_dir,
         ]
 
-        suffix = f"{sys.version_info.major}{sys.version_info.minor}"
+        win_suffix = f"{sys.version_info.major}{sys.version_info.minor}"
 
         for candidate in candidates:
-            lib = candidate / f"python{suffix}.lib"
+            lib = candidate / f"python{win_suffix}.lib"
 
             if lib.exists():
                 return str(lib.parent), lib.name
 
         raise SystemExit(
-            f"python{suffix}.lib not found — install the full CPython"
+            f"python{win_suffix}.lib not found — install the full CPython"
         )
 
     libdir = sysconfig.get_config_var("LIBDIR") or ""
@@ -270,8 +270,14 @@ def build() -> Path:
     build_dir = BUILD_DIR / sys.platform
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    extension = ".dll" if IS_WINDOWS else ".so"
-    library = build_dir / f"nadata{extension}"
+    # POSIX linkers only resolve -lnadata against libnadata.*; macOS
+    # additionally uses the .dylib suffix.
+    if IS_WINDOWS:
+        library = build_dir / "nadata.dll"
+    elif sys.platform == "darwin":
+        library = build_dir / "libnadata.dylib"
+    else:
+        library = build_dir / "libnadata.so"
 
     command = compiler_command(str(library), sources, include, lib_dir,
                                lib_name)

@@ -15,7 +15,7 @@ facade being mapped, see `docs/api.md`.
 
 ```
 dist/native/<target>/
-    nadata.dll | libnadata.so | nadata.dylib   the shim (interpreter inside on Linux)
+    nadata.dll | libnadata.so | libnadata.dylib   the shim (interpreter inside on Linux)
     nadata.lib                 Windows import library (for linking hosts)
     nadata.h                   the ABI — the only header hosts need
     nadata/                    the engine package (pure Python, zero deps)

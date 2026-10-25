@@ -60,7 +60,7 @@ def build(source: Path, kind: str) -> Path:
         ]
     else:
         if not (BUILD_DIR / "libnadata.so").exists() \
-                and not (BUILD_DIR / "nadata.dylib").exists():
+                and not (BUILD_DIR / "libnadata.dylib").exists():
             raise SystemExit("dev shim missing — run: python native/build.py")
 
         command = [

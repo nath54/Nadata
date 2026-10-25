@@ -213,7 +213,16 @@ static int boot_interpreter(void)
                 return -1;
             }
 
-            strncpy(g_embedded_libdir, libdir, sizeof(g_embedded_libdir) - 1);
+            /* Copy with explicit NUL termination (keeps gcc's
+             * -Wstringop-truncation quiet for full-length paths). */
+            size_t libdir_len = strlen(libdir);
+
+            if (libdir_len >= sizeof(g_embedded_libdir)) {
+                libdir_len = sizeof(g_embedded_libdir) - 1;
+            }
+
+            memcpy(g_embedded_libdir, libdir, libdir_len);
+            g_embedded_libdir[libdir_len] = '\0';
 
             return 0;
         }

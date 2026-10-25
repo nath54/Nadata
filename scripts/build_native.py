@@ -4,7 +4,7 @@ Phase 1b — distro-invariant native distribution builder.
 Produces a self-contained native release for one target platform:
 
     dist/native/<target[-variant]>/
-        nadata.dll | libnadata.so | nadata.dylib   <- the shim
+        nadata.dll | libnadata.so | libnadata.dylib  <- the shim
         nadata.h                                   <- the ABI header
         nadata/                                    <- the engine package
         runtime/                                   <- pinned CPython
@@ -723,7 +723,7 @@ def main() -> None:
         return
 
     library_name = ("nadata.dll" if "windows" in base_target
-                    else "nadata.dylib" if "darwin" in base_target
+                    else "libnadata.dylib" if "darwin" in base_target
                     else "libnadata.so")
     output = CACHE_DIR / "out" / target / library_name
 
