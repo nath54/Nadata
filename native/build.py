@@ -246,8 +246,15 @@ def lib_name_lib(name: str) -> str:
         str: The -l argument (e.g. python3.12).
     """
 
-    if name.startswith("lib") and name.endswith(".so"):
-        return name[3:-3]
+    if name.startswith("lib"):
+        # Strip the lib prefix and any .so / .dylib extension — -l
+        # resolves libpython3.12.dylib from just -lpython3.12.
+        stem = name[3:]
+
+        if stem.endswith((".so", ".dylib")):
+            stem = stem.rsplit(".", 1)[0]
+
+        return stem
 
     return name
 
