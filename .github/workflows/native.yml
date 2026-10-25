@@ -1,0 +1,111 @@
+# Native ABI CI — platform matrix for the C shim and distributions.
+#
+# Two tiers, to keep compute proportional to need:
+#
+#   validate — CHEAP, every push/PR: the dev shim compiles, the C smoke
+#              and the C++ wrapper conformance pass on every OS. This
+#              is the regression net for the platform-specific code
+#              (dladdr, static libpython, gcc/clang warnings).
+#
+#   dist     — EXPENSIVE, gated: builds the distributable artifacts
+#              (dist/native/<target>.tar.gz) and uploads them. Runs
+#              ONLY when:
+#                - a push commit message STARTS WITH '[dist]', or
+#                - dispatched manually with the `artifacts` input:
+#                    gh workflow run native.yml -f artifacts=true
+#
+# The PBS runtime download is cached; repeated dist builds are fast.
+
+name: Native
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      artifacts:
+        description: 'Export dist/ artifacts (also: commit message starting with [dist])'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, ubuntu-22.04, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Dev shim + C smoke
+        run: python native/build.py --run
+
+      - name: C++ wrapper conformance
+        run: python native/wrappers/tests/cpp/run.py
+
+  dist:
+    name: Dist artifacts (${{ matrix.os }})
+    needs: validate
+    if: >-
+      (github.event_name == 'push' && startsWith(github.event.head_commit.message, '[dist]'))
+      || (github.event_name == 'workflow_dispatch' && inputs.artifacts)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, ubuntu-22.04, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Cache PBS runtime
+        uses: actions/cache@v4
+        with:
+          path: .native-cache
+          key: native-pbs-20241016-3.12.7-${{ runner.os }}
+          restore-keys: native-pbs-20241016-3.12.7-
+
+      - name: Build distribution (staged + smoke-validated)
+        run: python scripts/build_native.py --run
+
+      - name: Determine target triple
+        id: target
+        shell: bash
+        run: |
+          target=$(python -c "import sys; sys.path.insert(0, 'scripts'); import build_native; print(build_native.host_target())")
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Pack
+        shell: bash
+        run: tar -czf "nadata-native-${{ steps.target.outputs.target }}.tar.gz" -C dist native
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nadata-native-${{ steps.target.outputs.target }}
+          path: nadata-native-*.tar.gz
+          if-no-files-found: error

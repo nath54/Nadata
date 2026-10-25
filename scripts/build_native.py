@@ -596,30 +596,43 @@ def validate(staged: Path, target: str) -> None:
     the engine works from the staged package alone.
     """
 
-    if "windows" not in target:
-        log("validation on non-host targets is CI's job — skipped")
-
-        return
-
     work = CACHE_DIR / "validate" / target
     work.mkdir(parents=True, exist_ok=True)
-    exe = work / "smoke_staged.exe"
 
-    command = [
-        "cl", "/nologo", "/W4", "/std:c11",
-        str(REPO_ROOT / "native" / "tests" / "smoke.c"),
-        f"/I{REPO_ROOT / 'native'}",
-        "/link", f"/OUT:{exe}",
-        f"/LIBPATH:{staged}", "nadata.lib",
-    ]
+    exe_name = "smoke_staged.exe" if "windows" in target \
+        else "smoke_staged"
+    exe = work / exe_name
+
+    if "windows" in target:
+        command = [
+            "cl", "/nologo", "/W4", "/std:c11",
+            str(REPO_ROOT / "native" / "tests" / "smoke.c"),
+            f"/I{REPO_ROOT / 'native'}",
+            "/link", f"/OUT:{exe}",
+            f"/LIBPATH:{staged}", "nadata.lib",
+        ]
+    else:
+        # rpath points at the staged dir: on Linux the interpreter is
+        # statically inside libnadata.so, on macOS the dylib resolves
+        # via the runtime/ rpath compiled into the shim.
+        command = [
+            os.environ.get("CC", "cc"), "-O2", "-Wall", "-std=c11",
+            str(REPO_ROOT / "native" / "tests" / "smoke.c"),
+            f"-I{REPO_ROOT / 'native'}",
+            f"-L{staged}", "-lnadata",
+            f"-Wl,-rpath,{staged}",
+            "-o", str(exe),
+        ]
 
     if dev_build.run_command(command, cwd=work) != 0:
         raise SystemExit("validation smoke build failed")
 
     environment = {k: v for k, v in os.environ.items() if k != "NADATA_HOME"}
-    environment["PATH"] = (
-        f"{staged};{staged / 'runtime'};"
-        + environment.get("PATH", ""))
+
+    if "windows" in target:
+        environment["PATH"] = (
+            f"{staged};{staged / 'runtime'};"
+            + environment.get("PATH", ""))
 
     log("running smoke test against the staged distribution "
         "(no NADATA_HOME)")

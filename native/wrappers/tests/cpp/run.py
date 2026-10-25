@@ -13,6 +13,7 @@ Usage:
 # Import Modules
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,57 +24,82 @@ sys.path.insert(0, str(REPO_ROOT / "native"))
 import build as dev_build
 
 HERE = Path(__file__).resolve().parent
-OUT_DIR = REPO_ROOT / "native" / "build" / "win32"
-SOURCES = [HERE / "test_conformance.cpp", HERE / "benchmark.cpp"]
+WRAPPER_DIR = REPO_ROOT / "native" / "wrappers" / "cpp"
+IS_WINDOWS = os.name == "nt"
+BUILD_DIR = REPO_ROOT / "native" / "build" / (
+    "win32" if IS_WINDOWS else sys.platform)
+
+SOURCES = {
+    "conformance": HERE / "test_conformance.cpp",
+    "bench": HERE / "benchmark.cpp",
+}
+EXES = {
+    "conformance": "test_conformance_cpp.exe"
+    if IS_WINDOWS else "test_conformance_cpp",
+    "bench": "bench_cpp.exe" if IS_WINDOWS else "bench_cpp",
+}
 
 
-def build(source: Path, exe_name: str) -> Path:
+def build(source: Path, kind: str) -> Path:
     """Compiles one test binary against the dev shim import lib."""
 
-    exe = OUT_DIR / exe_name
+    exe = BUILD_DIR / EXES[kind]
 
-    if not (OUT_DIR / "nadata.lib").exists():
-        raise SystemExit("dev shim missing — run: python native/build.py")
+    if IS_WINDOWS:
+        lib = BUILD_DIR / "nadata.lib"
 
-    command = [
-        "cl", "/nologo", "/W4", "/std:c++17", "/EHsc", "/O2",
-        f"/I{REPO_ROOT / 'native' / 'wrappers' / 'cpp'}",
-        f"/I{REPO_ROOT / 'native'}",
-        str(source),
-        "/link", f"/OUT:{exe}",
-        f"/LIBPATH:{OUT_DIR}", "nadata.lib",
-    ]
+        if not lib.exists():
+            raise SystemExit("dev shim missing — run: python native/build.py")
 
-    if dev_build.run_command(command, cwd=OUT_DIR) != 0:
-        raise SystemExit(f"failed to build {exe_name}")
+        command = [
+            "cl", "/nologo", "/W4", "/std:c++17", "/EHsc", "/O2",
+            f"/I{WRAPPER_DIR}", f"/I{REPO_ROOT / 'native'}",
+            str(source),
+            "/link", f"/OUT:{exe}",
+            f"/LIBPATH:{BUILD_DIR}", "nadata.lib",
+        ]
+    else:
+        if not (BUILD_DIR / "libnadata.so").exists() \
+                and not (BUILD_DIR / "nadata.dylib").exists():
+            raise SystemExit("dev shim missing — run: python native/build.py")
+
+        command = [
+            os.environ.get("CXX", "c++"), "-std=c++17", "-Wall", "-O2",
+            f"-I{WRAPPER_DIR}", f"-I{REPO_ROOT / 'native'}",
+            str(source),
+            f"-L{BUILD_DIR}", "-lnadata",
+            f"-Wl,-rpath,{BUILD_DIR}",
+            "-o", str(exe),
+        ]
+
+    if dev_build.run_command(command, cwd=BUILD_DIR) != 0:
+        raise SystemExit(f"failed to build {EXES[kind]}")
 
     return exe
 
 
 def run(exe: Path) -> None:
-    """Runs a test binary with the dev shim + runtime on PATH."""
+    """Runs a test binary with the dev shim + runtime reachable."""
 
     environment = os.environ.copy()
 
     if "NADATA_HOME" not in environment:
         environment["NADATA_HOME"] = str(REPO_ROOT)
 
-    base = Path(sys.base_prefix)
-    environment["PATH"] = (
-        f"{OUT_DIR};{base};{base / 'DLLs'};" + environment.get("PATH", ""))
+    if IS_WINDOWS:
+        base = Path(sys.base_prefix)
+        environment["PATH"] = (
+            f"{BUILD_DIR};{base};{base / 'DLLs'};"
+            + environment.get("PATH", ""))
+    else:
+        # The dev shim links the system python (rpath already set);
+        # the exe finds libnadata via its own rpath.
+        environment.setdefault("NADATA_HOME", str(REPO_ROOT))
 
-    result = subprocess_run([str(exe)], environment)
+    result = subprocess.run([str(exe)], env=environment,
+                            cwd=str(REPO_ROOT))
 
-    raise SystemExit(result)
-
-
-def subprocess_run(command: list, environment: dict) -> int:
-    """Runs a command, returns its exit code."""
-
-    import subprocess
-
-    return subprocess.run(command, env=environment,
-                          cwd=str(REPO_ROOT)).returncode
+    raise SystemExit(result.returncode)
 
 
 def main() -> None:
@@ -85,10 +111,8 @@ def main() -> None:
                         help="run the benchmark instead of conformance")
     arguments = parser.parse_args()
 
-    source = SOURCES[1] if arguments.bench else SOURCES[0]
-    exe_name = "bench_cpp.exe" if arguments.bench else "test_conformance_cpp.exe"
-
-    exe = build(source, exe_name)
+    kind = "bench" if arguments.bench else "conformance"
+    exe = build(SOURCES[kind], kind)
     run(exe)
 
 

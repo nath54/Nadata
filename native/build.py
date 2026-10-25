@@ -154,7 +154,23 @@ def python_library() -> tuple[str, str]:
         )
 
     libdir = sysconfig.get_config_var("LIBDIR") or ""
-    name = sysconfig.get_config_var("LDLIBRARY") or f"libpython{suffix()}"
+    name = sysconfig.get_config_var("LDLIBRARY") or ""
+
+    # Some installs (python.org / setup-python builds) report
+    # LDLIBRARY but ship only the versioned file — glob a fallback.
+    if not name or name.startswith("LDLIBRARY-NOT-FOUND"):
+        major_minor = suffix()
+
+        for pattern in (f"libpython{major_minor}.*",
+                        f"libpython{major_minor.replace('.', '')}.*"):
+            matches = sorted(Path(libdir or sys.base_prefix).glob(pattern))
+
+            if matches:
+                return str(matches[-1].parent), matches[-1].name
+
+        raise SystemExit(
+            f"no libpython{major_minor} found under {libdir or sys.base_prefix} "
+            "— install the dev headers/libraries (python3-dev)")
 
     return libdir, name
 
