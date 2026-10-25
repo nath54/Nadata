@@ -25,6 +25,7 @@
 #  include <windows.h>
 #elif defined(__APPLE__) || defined(__unix__)
 #  include <dlfcn.h>
+#  include <dirent.h>
 #endif
 
 #define BUILTIN_MODULE "builtins"
@@ -79,12 +80,12 @@ static int directory_exists(const char* path)
     return attributes != INVALID_FILE_ATTRIBUTES
         && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 #else
-    /* fopen on a directory succeeds on POSIX (reading fails) — the
-     * existence probe only. */
-    FILE* handle = fopen(path, "rb");
+    /* opendir() is the unambiguous POSIX directory probe (fopen on a
+     * directory is implementation-defined). */
+    DIR* handle = opendir(path);
 
     if (handle != NULL) {
-        fclose(handle);
+        closedir(handle);
         return 1;
     }
 
@@ -176,6 +177,17 @@ static int library_directory(char* out, size_t cap)
  *   3. Plain Py_Initialize: dev builds / bare hosts, where sys.path
  *      injection (NADATA_HOME or the embedded libdir) happens later.
  */
+static int boot_debug(void)
+{
+#ifdef NADATA_EMBEDDED
+    const char* flag = getenv("NADATA_BOOT_DEBUG");
+
+    return flag != NULL && flag[0] != '\0' && flag[0] != '0';
+#else
+    return 0;
+#endif
+}
+
 static int boot_interpreter(void)
 {
     if (Py_IsInitialized()) {
@@ -203,6 +215,13 @@ static int boot_interpreter(void)
             PyConfig_InitPythonConfig(&config);
             config.home = Py_DecodeLocale(runtime, NULL);
 
+            if (boot_debug()) {
+                fprintf(stderr,
+                        "[nadata] bundled boot: libdir=%s runtime=%s "
+                        "home_decoded=%d\n",
+                        libdir, runtime, config.home != NULL);
+            }
+
             PyStatus status = Py_InitializeFromConfig(&config);
 
             /* PyConfig_Clear frees every string field, including the
@@ -210,7 +229,27 @@ static int boot_interpreter(void)
             PyConfig_Clear(&config);
 
             if (PyStatus_Exception(status)) {
+                if (boot_debug()) {
+                    fprintf(stderr, "[nadata] bundled boot FAILED: %s\n",
+                            status.err_msg != NULL ? status.err_msg
+                                                   : "(no message)");
+                }
+
                 return -1;
+            }
+
+            if (boot_debug()) {
+                PyObject* path = PySys_GetObject("path");
+
+                if (path != NULL) {
+                    PyObject* repr = PyObject_Repr(path);
+
+                    if (repr != NULL) {
+                        fprintf(stderr, "[nadata] boot sys.path=%s\n",
+                                PyUnicode_AsUTF8(repr));
+                        Py_DECREF(repr);
+                    }
+                }
             }
 
             /* Copy with explicit NUL termination (keeps gcc's
@@ -229,6 +268,11 @@ static int boot_interpreter(void)
     }
 
     /* Dev build or bare host: plain initialization. */
+
+    if (boot_debug()) {
+        fprintf(stderr, "[nadata] plain boot (bundled layout not detected)\n");
+    }
+
     Py_Initialize();
 
     return 0;

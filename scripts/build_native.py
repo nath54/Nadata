@@ -694,6 +694,10 @@ def validate(staged: Path, target: str) -> None:
                            "PYTHONPATH", "PYTHONSTARTUP"))
     }
 
+    # One-line boot trace (branch taken, libdir, sys.path) on failure
+    # paths — the fastest way to debug embedded boots remotely.
+    environment["NADATA_BOOT_DEBUG"] = "1"
+
     if "windows" in target:
         environment["PATH"] = (
             f"{staged};{staged / 'runtime'};"
