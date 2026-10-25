@@ -18,6 +18,7 @@ dist/native/<target>/
     nadata.dll | libnadata.so | libnadata.dylib   the shim (interpreter inside on Linux)
     nadata.lib                 Windows import library (for linking hosts)
     nadata.h                   the ABI — the only header hosts need
+    nadata.hpp                 header-only C++17 wrapper (nadata::)
     nadata/                    the engine package (pure Python, zero deps)
     runtime/                   the pinned CPython (python-build-standalone)
     python312.dll              Windows copy next to the shim

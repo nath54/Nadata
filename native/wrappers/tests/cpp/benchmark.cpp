@@ -84,6 +84,11 @@ static double elapsed_ms(Clock::time_point start, Clock::time_point end)
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
+static void check(const char* name, int ok)
+{
+    std::printf("check %s: %s\n", name, ok ? "ok" : "FAIL");
+}
+
 /* ------------------------------------------------------------------ */
 /* Workloads                                                           */
 /* ------------------------------------------------------------------ */
@@ -112,6 +117,11 @@ int main(int argc, char** argv)
 
     nadata::Database db = nadata::Database::load(ex0);
     const int64_t tom = db.get_symbol_id("tom");
+
+    /* Verify the fixture before timing anything. */
+    check("fixture/birthplace",
+          std::string(db.get_attribute("tom", "birthplace").as_str())
+              == "Paris");
 
     /* 2. get_attribute. */
     {
@@ -146,6 +156,10 @@ int main(int argc, char** argv)
                     ops, ms, ops * 1000.0 / ms);
     }
 
+    check("set_attribute/roundtrip",
+          std::string(db.get_attribute("tom", "birthplace").as_str())
+              == "Lyon");
+
     /* 4. query where_str + count (full chain per op). */
     {
         const int ops = 1000;
@@ -164,6 +178,8 @@ int main(int argc, char** argv)
             "bench query_where_count: %d ops in %.1f ms => %.0f ops/sec "
             "(sink %lld)\n", ops, ms, ops * 1000.0 / ms,
             static_cast<long long>(sink));
+
+        check("query_where_count/expected", sink == ops);   // exactly one Tom
     }
 
     /* 5. create_instance (grows the db). */
@@ -186,6 +202,9 @@ int main(int argc, char** argv)
             "bench create_instance: %d ops in %.1f ms => %.0f ops/sec "
             "(last id %lld)\n", ops, ms, ops * 1000.0 / ms,
             static_cast<long long>(sink));
+
+        check("create_instance/count",
+              db.count("Weapon") == ops);   // all rows landed
     }
 
     /* 6. call_function. */
@@ -207,6 +226,8 @@ int main(int argc, char** argv)
         std::printf(
             "bench call_function: %d ops in %.1f ms => %.0f ops/sec "
             "(sink %d)\n", ops, ms, ops * 1000.0 / ms, sink);
+
+        check("call_function/expected", sink == ops);   // tom (23) is adult
     }
 
     const size_t end_rss = peak_rss_bytes();

@@ -6,6 +6,7 @@ Produces a self-contained native release for one target platform:
     dist/native/<target[-variant]>/
         nadata.dll | libnadata.so | libnadata.dylib  <- the shim
         nadata.h                                   <- the ABI header
+        nadata.hpp                                 <- C++17 wrapper (header-only)
         nadata/                                    <- the engine package
         runtime/                                   <- pinned CPython
         python312.dll (Windows copy, next to the shim)
@@ -594,6 +595,11 @@ def stage(target: str, install: Path, library: Path) -> Path:
         shutil.copy2(import_lib, staged / import_lib.name)
 
     shutil.copy2(REPO_ROOT / "native" / "nadata.h", staged / "nadata.h")
+
+    # The C++ reference binding — header-only, so C++ hosts only need
+    # this file plus the ABI header from the staged layout.
+    shutil.copy2(REPO_ROOT / "native" / "wrappers" / "cpp" / "nadata.hpp",
+                 staged / "nadata.hpp")
 
     # 2. The engine package (pure Python, zero dependencies).
     package_ignore = shutil.ignore_patterns(
