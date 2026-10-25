@@ -97,6 +97,28 @@ recommended predicate style for every binding (it is also the only one
 available on WASM); `nd_query_where_cb` takes a native function pointer
 and is for C/C++/Rust/JVM hosts.
 
+### The by-entity-id API (ABI 2 / Choice B)
+
+ABI 2 adds a parallel surface keyed by the 64-bit **entity id** instead
+of symbol names — the same handle an `ND_INSTANCE` value carries. It is
+append-only: every ABI 1 symbol is unchanged, and hosts feature-detect
+with `nd_runtime_info`'s `"abi": 2`.
+
+| Function | Contract |
+|---|---|
+| `nd_get_attr_by_id(db, id, name, &out)` | attribute read by id; unknown id/attribute → `ND_ERR_NOTFOUND` |
+| `nd_set_attr_by_id(db, id, name, value)` | attribute write by id; `value` is a borrowed `NdValue` |
+| `nd_call_method_by_id(db, id, name, args, kwargs, &out)` | method call by id; results/args follow the same rules as `nd_call_function` |
+| `nd_list_attr(db, id, &out)` / `nd_list_methods(db, id, &out)` | `ND_ARRAY` of `ND_STR` — the struct's attributes / methods |
+| `nd_instance_id_valid(db, id)` | 1 when the id resolves to a live instance, 0 otherwise (never raises) |
+| `nd_get_by_nid(db, struct_name, nid, &out)` | resolve a struct's **nid** (natural id) to an `ND_INSTANCE`; unknown → `ND_ERR_NOTFOUND` |
+
+The entity id is the stable object reference for host bindings: hold
+ids from `nd_get_symbol_id` / `nd_query_*_id` / `nd_get_by_nid` and
+operate on them directly. Invalid ids raise `ND_ERR_NOTFOUND`
+(`KeyError` underneath), so unknown-handle handling is uniform across
+the API.
+
 ---
 
 ## 4. Status codes and errors
@@ -227,8 +249,9 @@ nd_query_free(qs);
 | `nd_execute_script_file(db, path, params)` | runs a `#manual` script with its parameter prelude; `params` is an `ND_DICT` or NULL |
 
 `nd_runtime_info()` returns JSON such as
-`{"abi":1,"cpython":"3.12.7","free_threaded":false,"build":"embedded-pbs"}`
-— use it to detect the bundled interpreter and build variant.
+`{"abi":2,"cpython":"3.12.7","free_threaded":false,"build":"embedded-pbs"}`
+— use it to detect the bundled interpreter, build variant, and ABI
+level.
 
 ---
 
@@ -252,8 +275,8 @@ protocol (see `native/wrappers/tests/README.md`).
 ## 11. ABI stability rules
 
 - Symbols are never removed; signatures never change. New symbols are
-  appended (e.g. the future Choice-B by-entity-id API), new enum values
-  get new numeric slots.
+  appended (the ABI 2 by-entity-id API did exactly this), new enum
+  values get new numeric slots.
 - `ND_ABI_VERSION` bumps when symbols are added — hosts feature-detect
   with it.
 - The shim must never require host environment variables; the staged

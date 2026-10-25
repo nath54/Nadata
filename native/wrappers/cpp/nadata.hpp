@@ -911,6 +911,78 @@ public:
                 "nd_execute_script_file", handle_);
     }
 
+    /* ------------------ Choice B (by entity id) --------------------
+     *
+     * Every call below addresses an instance directly through its
+     * stable 64-bit entity id — no symbol lookup. Ids come from
+     * get_symbol_id, query.first_id()/to_list_ids(), create_instance,
+     * get_by_nid, ...
+     */
+
+    Value get_attr_by_id(int64_t id, const std::string& name) const {
+        NdValue out;
+        std::memset(&out, 0, sizeof(out));
+
+        require(nd_get_attr_by_id(handle_, id, name.c_str(), &out),
+                "nd_get_attr_by_id", handle_);
+
+        return Value(out);
+    }
+
+    void set_attr_by_id(int64_t id, const std::string& name,
+                        const Value& value) const {
+        require(nd_set_attr_by_id(handle_, id, name.c_str(), value.raw()),
+                "nd_set_attr_by_id", handle_);
+    }
+
+    Value call_method_by_id(int64_t id, const std::string& name,
+                            const Value& args = Value(),
+                            const Value& kwargs = Value()) const {
+        NdValue out;
+        std::memset(&out, 0, sizeof(out));
+
+        require(nd_call_method_by_id(
+                    handle_, id, name.c_str(),
+                    args.is_null() ? nullptr : args.raw(),
+                    kwargs.is_null() ? nullptr : kwargs.raw(), &out),
+                "nd_call_method_by_id", handle_);
+
+        return Value(out);
+    }
+
+    std::vector<std::string> list_attr(int64_t id) const {
+        return string_list_by_id(id, "nd_list_attr", nd_list_attr);
+    }
+
+    std::vector<std::string> list_methods(int64_t id) const {
+        return string_list_by_id(id, "nd_list_methods", nd_list_methods);
+    }
+
+    bool instance_id_valid(int64_t id) const {
+        int32_t out = 0;
+
+        require(nd_instance_id_valid(handle_, id, &out),
+                "nd_instance_id_valid", handle_);
+
+        return out != 0;
+    }
+
+    /* Subclass-aware nid lookup; NOTFOUND -> nullopt. */
+    std::optional<int64_t> get_by_nid(const std::string& base_struct,
+                                      const std::string& nid) const {
+        int64_t out = 0;
+        NdStatusCode status = nd_get_by_nid(
+            handle_, base_struct.c_str(), nid.c_str(), &out);
+
+        if (status == ND_ERR_NOTFOUND) {
+            return std::nullopt;
+        }
+
+        require(status, "nd_get_by_nid", handle_);
+
+        return out;
+    }
+
 private:
     NdDb* handle_ = nullptr;
 
@@ -934,6 +1006,31 @@ private:
         std::memset(&out, 0, sizeof(out));
 
         require(call(handle_, &out), context, handle_);
+
+        Value list(out);
+
+        if (list.is_null()) {
+            return {};
+        }
+
+        std::vector<std::string> names;
+
+        for (size_t i = 0; i < list.size(); i++) {
+            names.push_back(list.at(i).as_str());
+        }
+
+        return names;
+    }
+
+    /* Same, for the Choice B by-id variants (id is a leading arg). */
+    template <typename AbiCall>
+    std::vector<std::string> string_list_by_id(int64_t id,
+                                               const char* context,
+                                               AbiCall call) const {
+        NdValue out;
+        std::memset(&out, 0, sizeof(out));
+
+        require(call(handle_, id, &out), context, handle_);
 
         Value list(out);
 

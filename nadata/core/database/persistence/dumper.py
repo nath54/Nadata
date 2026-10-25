@@ -729,7 +729,13 @@ def _reference_attributes(
     Returns:
         Optional[dict[str, Any]]: Raw payloads by name, or None when the
             instance is unknown to the reference file.
+
+    Structs added after the reference dump have no reference mapping
+    at all (`instances is None`): every row is then treated as new.
     """
+
+    if instances is None:
+        return None
 
     if hasattr(instances, "row_attributes"):
         row_attrs: Optional[dict[str, Any]] = instances.row_attributes(

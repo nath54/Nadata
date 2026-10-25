@@ -511,6 +511,7 @@ static void persistence_cases(nadata::Database& db, const char* ex0)
 
         CHECK("nd_save_changes/delta_appended",
               db.save_changes(store.string()) >= 1);
+        std::fprintf(stderr, "marker: saved\n");
 
         db.set_attribute("tom", "birthplace", nadata::Value::str("Paris"));
     }
@@ -591,6 +592,99 @@ static void execution_cases(nadata::Database& db, const fs::path& dir)
 }
 
 /* ------------------------------------------------------------------ */
+/* Choice B — by-entity-id cases (ABI 2)                               */
+/* ------------------------------------------------------------------ */
+
+static void choice_b_cases(nadata::Database& db)
+{
+    const int64_t tom = db.get_symbol_id("tom");
+    const int64_t jean = db.get_symbol_id("jean");
+
+    CHECK("nd_get_attr_by_id/ok",
+          std::string(db.get_attr_by_id(tom, "birthplace").as_str())
+              == "Paris");
+
+    check_status(   // unknown id -> NOTFOUND (with the clear message)
+        "nd_get_attr_by_id/unknown_id",
+        [&] { return db.get_attr_by_id(12345, "name"); },
+        ND_ERR_NOTFOUND);
+
+    check_status(   // unknown attribute -> NOTFOUND (engine convention)
+        "nd_get_attr_by_id/unknown_attribute",
+        [&] { return db.get_attr_by_id(tom, "no_such"); },
+        ND_ERR_NOTFOUND);
+
+    {   // nd_set_attr_by_id roundtrip
+        db.set_attr_by_id(tom, "birthplace", nadata::Value::str("Nice"));
+
+        CHECK("nd_set_attr_by_id/roundtrip",
+              std::string(db.get_attr_by_id(tom, "birthplace").as_str())
+                  == "Nice");
+
+        db.set_attr_by_id(tom, "birthplace", nadata::Value::str("Paris"));
+    }
+
+    {   // nd_call_method_by_id — jean.older(tom)
+        nadata::Value result = db.call_method_by_id(
+            jean, "older",
+            nadata::Value::array({nadata::Value::instance(tom)}));
+
+        CHECK("nd_call_method_by_id/ok",
+              result.type() == ND_BOOL && result.as_bool());
+    }
+
+    check_status(   // unknown method -> NOTFOUND (engine AttributeError)
+        "nd_call_method_by_id/unknown_method",
+        [&] { return db.call_method_by_id(tom, "no_such_method"); },
+        ND_ERR_NOTFOUND);
+
+    {   // nd_list_attr / nd_list_methods (schema-declared names)
+        bool has_birthplace = false;
+
+        for (const auto& name : db.list_attr(tom)) {
+            has_birthplace = has_birthplace || name == "birthplace";
+        }
+
+        CHECK("nd_list_attr/ok", has_birthplace);
+
+        bool has_older = false;
+
+        for (const auto& name : db.list_methods(tom)) {
+            has_older = has_older || name == "older";
+        }
+
+        CHECK("nd_list_methods/ok", has_older);
+    }
+
+    CHECK("nd_instance_id_valid/true", db.instance_id_valid(tom));
+    CHECK("nd_instance_id_valid/false", !db.instance_id_valid(12345));
+
+    {   // nd_get_by_nid — the session project binds toms via nid
+        fs::path dir = temp_root() / "cpp_nid";
+        write_file(dir, "structs/schema.nastruct",
+                   "class Person {\n"
+                   "    name: Str;\n"
+                   "    age: Int32 = 0;\n" "}\n");
+        write_file(dir, "data/seed.nadata",
+                   "#init\n"
+                   "tom = Person(nid = \"tommy\", name = \"Tom\", age = 6);\n"
+                   "flush();\n");
+
+        nadata::Database session = nadata::Database::load(dir.string());
+
+        auto id = session.get_by_nid("Person", "tommy");
+
+        CHECK("nd_get_by_nid/ok", id.has_value());
+        CHECK("nd_get_by_nid/readback",
+              std::string(session.get_attr_by_id(*id, "name").as_str())
+                  == "Tom");
+
+        CHECK("nd_get_by_nid/unknown_nid",
+              !session.get_by_nid("Person", "nobody").has_value());
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Runner                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -605,7 +699,7 @@ int main(int argc, char** argv)
         std::string info = nadata::runtime_info();
 
         CHECK("nd_runtime_info/valid_json",
-              info.find("\"abi\":1") != std::string::npos);
+              info.find("\"abi\":2") != std::string::npos);
     }
 
     lifecycle_cases(ex0);
@@ -619,6 +713,7 @@ int main(int argc, char** argv)
     query_cases(db);
     persistence_cases(db, ex0);
     execution_cases(db, temp_root());
+    choice_b_cases(db);
 
     /* nd_set_loop_limit contract. */
     check_no_throw("nd_set_loop_limit/valid_value",

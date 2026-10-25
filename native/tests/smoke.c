@@ -84,7 +84,7 @@ int main(int argc, char** argv)
     char* info = nd_runtime_info();
 
     check_status("nd_runtime_info/valid_json",
-                 info != NULL && strstr(info, "\"abi\":1") != NULL
+                 info != NULL && strstr(info, "\"abi\":2") != NULL
                      ? ND_OK : ND_ERR_RUNTIME, ND_OK);
     printf("     runtime: %s\n", info ? info : "(null)");
     nd_free_str(info);

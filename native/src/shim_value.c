@@ -125,11 +125,13 @@ PyObject* nd_instance_from_id(PyObject* database, int64_t id)
 
     Py_DECREF(call_args);
 
-    /* get_by_id returns None for unknown ids -> map to a clear error. */
+    /* get_by_id returns None for unknown ids -> a KeyError with a
+     * clear message (nd_take_pyerror maps it to ND_ERR_NOTFOUND). */
     if (instance == Py_None) {
         Py_DECREF(instance);
-        nd_set_error("no instance for entity id %lld",
+        PyErr_Format(PyExc_KeyError, "no instance for entity id %lld",
                      (long long) id);
+
         return NULL;
     }
 

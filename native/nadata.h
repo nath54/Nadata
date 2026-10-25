@@ -83,7 +83,7 @@ extern "C" {
  *   - New symbols are appended; new enum values get new numeric slots.
  *   - Bump when symbols are added so hosts can feature-detect.
  */
-#define ND_ABI_VERSION 1
+#define ND_ABI_VERSION 2
 
 /* ------------------------------------------------------------------ */
 /* Status codes                                                        */
@@ -399,25 +399,53 @@ ND_API NdStatusCode nd_execute_script_file(NdDb* db, const char* file_path,
 ND_API const char* nd_last_error(NdDb* db);
 
 /* ------------------------------------------------------------------ */
-/* Reserved for Choice B (ABI 0.2) — do NOT use these names now.       */
+/* Choice B — by-entity-id API (added in ABI 2)                        */
 /* ------------------------------------------------------------------ */
 /*
- * The facade-mapping surface above works through symbols; the richer
- * layer works through entity ids (returned by every call above). When
- * added, it will introduce ONLY new symbols, leaving every signature
- * here untouched:
- *
- *   nd_get_attr_by_id(db, id, name, out)          — skip symbol lookup
- *   nd_set_attr_by_id(db, id, name, value)
- *   nd_call_method_by_id(db, id, name, args, kwargs, out)
- *   nd_list_attr(db, id, out)                     — instance.list_attr()
- *   nd_list_methods(db, id, out)                  — instance.list_methods()
- *   nd_instance_id_valid(db, id, out)
- *   nd_get_by_nid(db, base_struct, nid, out_id)   — subclass-aware nid lookup
- *   NdStr (len-paired) variants for embedded-NUL-safe strings
- *
- * Because NdValue, handles and statuses are already id-based, no host
- * binding needs structural changes to adopt B.
+ * The facade-mapping surface works through SYMBOL names; this layer
+ * works through the 64-bit ENTITY IDS returned by nd_get_symbol_id,
+ * nd_query_first_id, nd_query_to_list_ids, ... — no symbol lookup,
+ * and a coherent "handle = object reference" model for bindings.
+ * Append-only: no symbol above changed (hence ND_ABI_VERSION 2).
+ */
+
+/* Nadata.get_attribute / set_attribute, addressed by entity id.
+ * Unknown id -> ND_ERR_NOTFOUND; unknown attribute -> ND_ERR_NOTFOUND
+ * (engine convention); home-type payloads -> ND_ERR_TYPE as usual. */
+ND_API NdStatusCode nd_get_attr_by_id(NdDb* db, int64_t id,
+                                      const char* name, NdValue* out);
+
+ND_API NdStatusCode nd_set_attr_by_id(NdDb* db, int64_t id,
+                                      const char* name,
+                                      const NdValue* value);
+
+/* Nadata.call_method addressed by entity id (same result rules as
+ * nd_call_method). */
+ND_API NdStatusCode nd_call_method_by_id(NdDb* db, int64_t id,
+                                         const char* name,
+                                         const NdValue* args,
+                                         const NdValue* kwargs,
+                                         NdValue* out);
+
+/* Instance introspection: ND_ARRAY of ND_STR (schema-declared names). */
+ND_API NdStatusCode nd_list_attr(NdDb* db, int64_t id, NdValue* out);
+ND_API NdStatusCode nd_list_methods(NdDb* db, int64_t id, NdValue* out);
+
+/* 1 when a live instance exists for the id, 0 otherwise.
+ * Never errors on unknown ids (that is the point) — only on NULL args. */
+ND_API NdStatusCode nd_instance_id_valid(NdDb* db, int64_t id,
+                                         int32_t* out);
+
+/* Subclass-aware named-id lookup (Nadata-style nid namespaces are
+ * per base struct). Unknown nid -> ND_ERR_NOTFOUND. */
+ND_API NdStatusCode nd_get_by_nid(NdDb* db, const char* base_struct,
+                                  const char* nid, int64_t* out_id);
+
+/* ------------------------------------------------------------------ */
+/* Still reserved (ABI 0.3+) — do NOT use these names yet.             */
+/* ------------------------------------------------------------------ */
+/*
+ * NdStr (len-paired) variants for embedded-NUL-safe strings.
  */
 
 #ifdef __cplusplus

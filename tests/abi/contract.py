@@ -147,11 +147,17 @@ def registered_case_ids() -> set[str]:
     return set(_REGISTRY)
 
 
+# Current ABI version (native/nadata.h ND_ABI_VERSION). Bumped 1 -> 2
+# when the Choice B by-entity-id symbols were appended. The header
+# sync test fails if the header and this constant drift apart.
+ABI_VERSION: int = 2
+
+
 # Engine results that are NOT representable in ABI v1. When a call
 # produces one of these, the shim returns ND_ERR_TYPE with a message
 # naming the type. Bindings must document this in their error docs.
 # (Length-paired strings and richer value variants are reserved for
-# ABI 0.2 — see native/nadata.h "Reserved for Choice B".)
+# a future ABI — see native/nadata.h.)
 HOME_TYPES_NOT_REPRESENTABLE: tuple[str, ...] = (
     "DateTime",
     "Color",

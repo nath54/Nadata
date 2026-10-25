@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from abi.contract import NdStatus
+from abi.contract import ABI_VERSION, NdStatus
 
 HEADER_PATH: Path = Path(__file__).parent.parent / "native" / "nadata.h"
 
@@ -97,7 +97,7 @@ class TestAbiHeaderSync:
 
         header: str = _read_header()
 
-        assert _parse_version(header) == 1
+        assert _parse_version(header) == ABI_VERSION
 
     def test_status_codes_match(self) -> None:
         """
