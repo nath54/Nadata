@@ -156,20 +156,33 @@ def python_library() -> tuple[str, str]:
     libdir = sysconfig.get_config_var("LIBDIR") or ""
     name = sysconfig.get_config_var("LDLIBRARY") or ""
 
+    # macOS framework builds report LDLIBRARY as a path INSIDE the
+    # framework ("Python.framework/Versions/3.12/Python") which no -l
+    # flag can consume — the framework also ships lib/libpythonX.Y.dylib
+    # in LIBDIR, so fall through to the glob below.
+    if "/" in name:
+        name = ""
+
     # Some installs (python.org / setup-python builds) report
     # LDLIBRARY but ship only the versioned file — glob a fallback.
     if not name or name.startswith("LDLIBRARY-NOT-FOUND"):
         major_minor = suffix()
 
-        for pattern in (f"libpython{major_minor}.*",
-                        f"libpython{major_minor.replace('.', '')}.*"):
-            matches = sorted(Path(libdir or sys.base_prefix).glob(pattern))
+        # Framework installs keep the dylib under .../Versions/X.Y/lib;
+        # also probe the interpreter's own prefix for completeness.
+        search_dirs = [d for d in (libdir, sys.base_prefix) if d]
 
-            if matches:
-                return str(matches[-1].parent), matches[-1].name
+        for directory in search_dirs:
+            for pattern in (f"libpython{major_minor}.*",
+                            f"libpython{major_minor.replace('.', '')}.*"):
+                matches = sorted(Path(directory).glob(pattern))
+
+                if matches:
+                    return str(matches[-1].parent), matches[-1].name
 
         raise SystemExit(
-            f"no libpython{major_minor} found under {libdir or sys.base_prefix} "
+            f"no libpython{major_minor} found under "
+            f"{', '.join(search_dirs)} "
             "— install the dev headers/libraries (python3-dev)")
 
     return libdir, name

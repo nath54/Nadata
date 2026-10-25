@@ -7,6 +7,13 @@
  */
 
 /* Import Modules */
+
+/* glibc hides dladdr/Dl_info in strict ISO mode (cc -std=c11); the
+ * extension feature macro must be defined before any system header. */
+#if defined(__linux__) || defined(__gnu_linux__)
+#  define _GNU_SOURCE 1
+#endif
+
 #include "shim_internal.h"
 
 #include <stdarg.h>

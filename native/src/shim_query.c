@@ -45,24 +45,6 @@ static void rebind(NdQuery* qs, PyObject* new_query_set)
     Py_SETREF(qs->query_set, new_query_set);
 }
 
-/* The live database behind a query handle (new ref) or NULL + error. */
-static PyObject* query_database(PyObject* query_set)
-{
-    PyObject* database = nd_attr(query_set, "database");
-
-    if (database == NULL) {
-        return NULL;
-    }
-
-    if (database == Py_None) {
-        Py_DECREF(database);
-        nd_set_error("query set has no bound database");
-        return NULL;
-    }
-
-    return database;
-}
-
 /* The instances list of a query set (new ref) or NULL + error. */
 static PyObject* query_instances(PyObject* query_set)
 {
