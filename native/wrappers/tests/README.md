@@ -8,7 +8,8 @@ and performance are directly comparable across languages.
 
 The canonical registry is `tests/test_abi_conformance.py` — every test
 there carries a stable id (`@abi_case("nd_x/scenario")`) named after
-the `nadata.h` function it exercises. A wrapper suite must:
+the `nadata.h` function it exercises (the ABI 2 by-entity-id cases
+live in `TestChoiceB`). A wrapper suite must:
 
 1. Use the **same ids** (grep-able, diffable against the Python suite).
 2. Use the **same fixtures/expectations** (see the table below).

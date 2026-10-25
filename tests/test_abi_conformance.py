@@ -36,7 +36,7 @@ from abi.fixtures import (
     session_project,
     where_str,
 )
-from nadata.api import Nadata
+from nadata.api import Nadata, _unwrap_value, _wrap_argument
 from nadata.core.types.home_types.datetime import DateTime
 
 
@@ -795,6 +795,168 @@ class TestExecution:
 
         assert app.get_attribute(symbol="captured", name="age") == 42
         assert app.get_attribute(symbol="captured", name="name") == "Zoe"
+
+
+# ------------------------------------------------------------------ #
+# The by-entity-id surface (ABI 2 / Choice B)                         #
+# ------------------------------------------------------------------ #
+
+
+class TestChoiceB:
+    """
+    Engine behaviors behind the ABI 2 by-id functions. Each case pins
+    the exact fact its shim implementation relies on; the C++ suite
+    replays the same ids through nadata.hpp.
+    """
+
+    def _entity_id(self, app: Nadata, symbol: str) -> int:
+        """Raw 64-bit entity id of a symbol binding."""
+
+        instance: Any = app.get(symbol=symbol)
+
+        return instance.entity_id.value
+
+    @abi_case("nd_get_attr_by_id/ok")
+    def test_get_attr_by_id(self) -> None:
+        """Instance attribute read resolved through the entity id."""
+
+        app: Nadata = loaded_ex0()
+        instance: Any = app.database.get_by_id(
+            self._entity_id(app, "tom"))
+
+        assert _unwrap_value(instance.get_attribute("birthplace")) == "Paris"
+
+    @abi_case("nd_get_attr_by_id/unknown_id")
+    def test_get_attr_by_id_unknown_id(self) -> None:
+        """Unknown entity ids resolve to None — the shim's KeyError
+        (ND_ERR_NOTFOUND) trigger."""
+
+        app: Nadata = loaded_ex0()
+
+        assert app.database.get_by_id(12345) is None
+
+    @abi_case("nd_get_attr_by_id/unknown_attribute")
+    def test_get_attr_by_id_unknown_attribute(self) -> None:
+        """Unknown attribute -> ND_ERR_NOTFOUND (engine AttributeError)."""
+
+        app: Nadata = loaded_ex0()
+        instance: Any = app.database.get_by_id(
+            self._entity_id(app, "tom"))
+
+        with pytest.raises(AttributeError) as info:
+            instance.get_attribute("no_such")
+
+        assert status_for(info.value) is NdStatus.ND_ERR_NOTFOUND
+
+    @abi_case("nd_set_attr_by_id/roundtrip")
+    def test_set_attr_by_id_roundtrip(self) -> None:
+        """A by-id set value reads back identically."""
+
+        app: Nadata = loaded_ex0()
+        instance: Any = app.database.get_by_id(
+            self._entity_id(app, "tom"))
+
+        instance.set_attribute("birthplace", _wrap_argument("Nice"))
+
+        assert app.get_attribute(symbol="tom", name="birthplace") == "Nice"
+
+    @abi_case("nd_call_method_by_id/ok")
+    def test_call_method_by_id(self) -> None:
+        """Method call through instance ids (engine globals needed for
+        parameter defaults)."""
+
+        app: Nadata = loaded_ex0()
+        app._ensure_globals()
+
+        jean: Any = app.get(symbol="jean")
+        tom: Any = app.get(symbol="tom")
+
+        result: Any = jean.call_method(
+            "older", args=[tom], kwargs={}, globals_dict=app._globals)
+
+        assert _unwrap_value(result) is True
+
+    @abi_case("nd_call_method_by_id/unknown_method")
+    def test_call_method_by_id_unknown(self) -> None:
+        """Unknown method -> ND_ERR_NOTFOUND (engine AttributeError)."""
+
+        app: Nadata = loaded_ex0()
+        app._ensure_globals()
+
+        instance: Any = app.get(symbol="tom")
+
+        with pytest.raises(AttributeError) as info:
+            instance.call_method(
+                "no_such_method", args=[], kwargs={},
+                globals_dict=app._globals)
+
+        assert status_for(info.value) is NdStatus.ND_ERR_NOTFOUND
+
+    @abi_case("nd_list_attr/ok")
+    def test_list_attr(self) -> None:
+        """Schema-declared attribute names of the instance's struct."""
+
+        app: Nadata = loaded_ex0()
+        instance: Any = app.database.get_by_id(
+            self._entity_id(app, "tom"))
+
+        assert "birthplace" in instance.struct.get_all_attributes()
+
+    @abi_case("nd_list_methods/ok")
+    def test_list_methods(self) -> None:
+        """Schema-declared method names of the instance's struct."""
+
+        app: Nadata = loaded_ex0()
+        instance: Any = app.database.get_by_id(
+            self._entity_id(app, "tom"))
+
+        assert "older" in instance.struct.get_all_methods()
+
+    @abi_case("nd_instance_id_valid/true")
+    def test_instance_id_valid_true(self) -> None:
+        """A live entity id resolves to a stored instance."""
+
+        app: Nadata = loaded_ex0()
+
+        assert app.database.get_by_id(self._entity_id(app, "tom")) \
+            is not None
+
+    @abi_case("nd_instance_id_valid/false")
+    def test_instance_id_valid_false(self) -> None:
+        """An unknown entity id resolves to nothing."""
+
+        app: Nadata = loaded_ex0()
+
+        assert app.database.get_by_id(12345) is None
+
+    @abi_case("nd_get_by_nid/ok")
+    def test_get_by_nid(self, tmp_path: Any) -> None:
+        """A struct's nid resolves to its instance."""
+
+        app: Nadata
+        app, _folder = session_project(tmp_path)
+
+        assert app.database.get_by_nid("Child", "tom") is not None
+
+    @abi_case("nd_get_by_nid/readback")
+    def test_get_by_nid_readback(self, tmp_path: Any) -> None:
+        """The nid-resolved instance carries the seeded payload."""
+
+        app: Nadata
+        app, _folder = session_project(tmp_path)
+
+        instance: Any = app.database.get_by_nid("Child", "tom")
+
+        assert _unwrap_value(instance.get_attribute("name")) == "Tom"
+
+    @abi_case("nd_get_by_nid/unknown_nid")
+    def test_get_by_nid_unknown(self, tmp_path: Any) -> None:
+        """Unknown nids resolve to None — the shim's NOTFOUND."""
+
+        app: Nadata
+        app, _folder = session_project(tmp_path)
+
+        assert app.database.get_by_nid("Child", "nobody") is None
 
 
 # ------------------------------------------------------------------ #
