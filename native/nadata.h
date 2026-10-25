@@ -94,7 +94,8 @@ typedef enum NdStatusCode {
 
     /* Error classes — each maps 1:1 to a Python exception family.     */
     ND_ERR_NOTFOUND   = -1,  /* KeyError        — unknown struct name          */
-    ND_ERR_NAME       = -2,  /* NameError       — unknown symbol/identifier    */
+    ND_ERR_NAME       = -2,  /* NameError       — unresolvable identifier
+                                                     in executed source       */
     ND_ERR_VALUE      = -3,  /* ValueError      — bad .ndb, missing file, ...  */
     ND_ERR_TYPE       = -4,  /* TypeError       — argument/attribute mismatch  */
     ND_ERR_SYNTAX     = -5,  /* SyntaxError     — schema resolve-time errors   */

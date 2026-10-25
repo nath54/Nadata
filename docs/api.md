@@ -386,7 +386,7 @@ which returns the echoed value for expression lines and `None` otherwise.
 | Situation | Raised |
 |---|---|
 | Unknown struct in `create_instance` | `KeyError` |
-| Unknown symbol in `get` / `get_attribute` | `NameError` |
+| Unknown symbol in `get` / `get_attribute` | `KeyError` |
 | Unresolvable identifier in executed code | `NameError` |
 | Loading a non-Nadata `.ndb` file | `ValueError` |
 | `save_changes` on a missing file | `ValueError` (use `dump` first) |
