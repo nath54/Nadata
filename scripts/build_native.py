@@ -550,6 +550,12 @@ def compile_shim(target: str, install: Path, output: Path,
             # dyld resolves libpython relative to the library itself.
             command += ["-Wl,-rpath,@loader_path/runtime/lib"]
 
+            # Without an explicit install name the dylib's LC_ID
+            # defaults to its absolute build path, so hosts would load
+            # the shim from .native-cache/out/ instead of the staged
+            # layout (breaking its self-location).
+            command += ["-Wl,-install_name,@rpath/libnadata.dylib"]
+
         if "linux" in target:
             # Same idea with the ELF token: the staged layout keeps
             # libpython under runtime/lib next to the shim.

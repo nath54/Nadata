@@ -231,6 +231,8 @@ def compiler_command(target: str, sources: list[Path], include: str,
         "-std=c11", f"-I{include}", f"-I{NATIVE_DIR}", "-DNDEBUG",
         *[str(source) for source in sources],
         f"-L{lib_dir}", f"-l{lib_name_lib(lib_name)}",
+        *(["-Wl,-install_name,@rpath/libnadata.dylib"]
+          if sys.platform == "darwin" else []),
         "-o", target,
     ]
 
