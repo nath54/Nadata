@@ -14,7 +14,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#  include <windows.h>
+#elif defined(__APPLE__) || defined(__unix__)
+#  include <dlfcn.h>
+#endif
+
 #define BUILTIN_MODULE "builtins"
+#define ND_MAX_PATH 1024
+
+/* Native path separator. */
+#if defined(_WIN32)
+#  define ND_PATH_SEP '\\'
+#else
+#  define ND_PATH_SEP '/'
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Interpreter state                                                   */
@@ -26,6 +40,183 @@ static PyObject* g_entity_id_cls = NULL;/* strong: EntityId           */
 static PyObject* g_scope_cls = NULL;    /* strong: ExecutionScope     */
 static PyObject* g_parser_cls = NULL;   /* strong: ExpressionParser   */
 static PyObject* g_queryset_cls = NULL; /* strong: QuerySet           */
+
+/* Set at boot when the bundled (Phase 1b) runtime layout is detected:
+ * the directory containing the staged `nadata/` package + `runtime/`. */
+static char g_embedded_libdir[ND_MAX_PATH] = { 0 };
+
+/* ------------------------------------------------------------------ */
+/* Embedded runtime layout (Phase 1b)                                  */
+/* ------------------------------------------------------------------ */
+
+/* 1 when `path` names an existing regular file. */
+static int file_exists(const char* path)
+{
+    FILE* handle = fopen(path, "rb");
+
+    if (handle == NULL) {
+        return 0;
+    }
+
+    fclose(handle);
+
+    return 1;
+}
+
+/* 1 when `path` names an existing directory. */
+static int directory_exists(const char* path)
+{
+#if defined(_WIN32)
+    DWORD attributes = GetFileAttributesA(path);
+
+    return attributes != INVALID_FILE_ATTRIBUTES
+        && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+#else
+    /* fopen on a directory succeeds on POSIX (reading fails) — the
+     * existence probe only. */
+    FILE* handle = fopen(path, "rb");
+
+    if (handle != NULL) {
+        fclose(handle);
+        return 1;
+    }
+
+    return 0;
+#endif
+}
+
+/*
+ * Fills `out` with the directory containing THIS library (the shim),
+ * so the bundled runtime is found relative to the installation rather
+ * than the cwd or env vars. Returns 1 on success.
+ */
+static int library_directory(char* out, size_t cap)
+{
+#if defined(_WIN32)
+    HMODULE handle = NULL;
+
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCWSTR) &nd_ensure_interpreter, &handle)) {
+        return 0;
+    }
+
+    WCHAR wide[ND_MAX_PATH];
+
+    if (GetModuleFileNameW(handle, wide, ND_MAX_PATH) == 0) {
+        return 0;
+    }
+
+    if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int) cap,
+                            NULL, NULL) <= 0) {
+        return 0;
+    }
+
+    char* cut = strrchr(out, '\\');
+    char* slash = strrchr(out, '/');
+
+    if (slash > cut) {
+        cut = slash;
+    }
+
+    if (cut == NULL) {
+        return 0;
+    }
+
+    *cut = '\0';
+
+    return 1;
+#elif defined(__APPLE__) || defined(__unix__)
+    Dl_info info;
+
+    if (dladdr((void*) &nd_ensure_interpreter, &info) == 0
+        || info.dli_fname == NULL) {
+        return 0;
+    }
+
+    if (strlen(info.dli_fname) >= cap) {
+        return 0;
+    }
+
+    strcpy(out, info.dli_fname);
+
+    char* cut = strrchr(out, '/');
+
+    if (cut == NULL) {
+        return 0;
+    }
+
+    *cut = '\0';
+
+    return 1;
+#else
+    (void) out;
+    (void) cap;
+
+    return 0;
+#endif
+}
+
+/*
+ * Boots the interpreter exactly once per process, choosing the right
+ * startup for the environment:
+ *
+ *   1. Host-provided runtime (Py_IsInitialized): nothing to do — the
+ *      ctypes / extension-module case.
+ *   2. Bundled layout (Phase 1b): `runtime/` stdlib + `nadata/`
+ *      package next to the library -> PyConfig.home points there;
+ *      no env vars, no registry, no distro Python.
+ *   3. Plain Py_Initialize: dev builds / bare hosts, where sys.path
+ *      injection (NADATA_HOME or the embedded libdir) happens later.
+ */
+static int boot_interpreter(void)
+{
+    if (Py_IsInitialized()) {
+        return 0;
+    }
+
+    const char* dev_home = getenv("NADATA_HOME");
+
+    if (dev_home == NULL || dev_home[0] == '\0') {
+        char libdir[ND_MAX_PATH];
+        char runtime[ND_MAX_PATH];
+        char marker[ND_MAX_PATH];
+
+        if (library_directory(libdir, sizeof(libdir))
+            && snprintf(marker, sizeof(marker), "%s%cnadata%c__init__.py",
+                        libdir, ND_PATH_SEP, ND_PATH_SEP)
+               < (int) sizeof(marker)
+            && file_exists(marker)
+            && snprintf(runtime, sizeof(runtime), "%s%cruntime",
+                        libdir, ND_PATH_SEP) < (int) sizeof(runtime)
+            && directory_exists(runtime)) {
+            /* Bundled runtime found: home it, remember the libdir. */
+            PyConfig config;
+
+            PyConfig_InitPythonConfig(&config);
+            config.home = Py_DecodeLocale(runtime, NULL);
+
+            PyStatus status = Py_InitializeFromConfig(&config);
+
+            /* PyConfig_Clear frees every string field, including the
+             * one we decoded — no manual PyMem_RawFree here. */
+            PyConfig_Clear(&config);
+
+            if (PyStatus_Exception(status)) {
+                return -1;
+            }
+
+            strncpy(g_embedded_libdir, libdir, sizeof(g_embedded_libdir) - 1);
+
+            return 0;
+        }
+    }
+
+    /* Dev build or bare host: plain initialization. */
+    Py_Initialize();
+
+    return 0;
+}
 
 /* One cached engine class lookup. Returns new ref or NULL + error. */
 static PyObject* cache_class(PyObject** slot, const char* module_name,
@@ -57,10 +248,12 @@ PyGILState_STATE nd_attach(void)
 {
     /*
      * Py_Initialize needs no GIL (it creates it); PyGILState_Ensure
-     * requires an initialized runtime, hence the guard first.
+     * requires an initialized runtime, hence the boot first. The boot
+     * is idempotent and picks the embedded layout when bundled.
      */
-    if (!Py_IsInitialized()) {
-        Py_Initialize();
+    if (!Py_IsInitialized() && boot_interpreter() != 0) {
+        fputs("nadata: failed to boot the embedded CPython runtime\n",
+              stderr);
     }
 
     return PyGILState_Ensure();
@@ -72,22 +265,27 @@ int nd_ensure_interpreter(void)
         return 0;
     }
 
-    Py_Initialize();
-
-    if (!Py_IsInitialized()) {
+    if (boot_interpreter() != 0) {
         nd_set_error("failed to initialize the embedded CPython runtime");
         return -1;
     }
 
     /*
-     * Optional dev-mode path injection (Phase 1a): NADATA_HOME points
-     * at a checkout / venv site-packages containing the nadata package.
-     * The embedded PBS builds (Phase 1b) bake this into the runtime
-     * layout instead — hosts never need to set it there.
+     * sys.path injection, in priority order:
+     *   1. NADATA_HOME (dev mode) — a checkout or venv site-packages.
+     *   2. The embedded libdir — where the staged nadata/ package
+     *      lives next to the library (Phase 1b builds).
      */
     const char* home = getenv("NADATA_HOME");
+    const char* inject = NULL;
 
     if (home != NULL && home[0] != '\0') {
+        inject = home;
+    } else if (g_embedded_libdir[0] != '\0') {
+        inject = g_embedded_libdir;
+    }
+
+    if (inject != NULL) {
         PyObject* path = PySys_GetObject("path");  /* borrowed */
 
         if (path == NULL || !PyList_Check(path)) {
@@ -95,16 +293,16 @@ int nd_ensure_interpreter(void)
             return -1;
         }
 
-        PyObject* entry = PyUnicode_FromString(home);
+        PyObject* entry = PyUnicode_FromString(inject);
 
         if (entry == NULL) {
-            nd_set_error("NADATA_HOME is not valid UTF-8/Unicode");
+            nd_set_error("path injection source is not valid UTF-8/Unicode");
             return -1;
         }
 
         if (PyList_Insert(path, 0, entry) != 0) {
             Py_DECREF(entry);
-            nd_set_error("failed to prepend NADATA_HOME to sys.path");
+            nd_set_error("failed to prepend the nadata package to sys.path");
             return -1;
         }
 
@@ -143,7 +341,8 @@ int nd_ensure_interpreter(void)
         nd_set_error("%s",
                      "cannot import the 'nadata' package into the embedded "
                      "interpreter (set NADATA_HOME to a checkout or venv "
-                     "site-packages for dev builds)");
+                     "site-packages, or ship the staged nadata/ package "
+                     "next to the library)");
         return -1;
     }
 
@@ -388,10 +587,16 @@ ND_API char* nd_runtime_info(void)
 
     char buffer[256];
 
+#ifdef NADATA_EMBEDDED
+    const char* build_kind = "embedded-pbs";
+#else
+    const char* build_kind = "shim-dev";
+#endif
+
     snprintf(buffer, sizeof(buffer),
              "{\"abi\":%d,\"cpython\":\"%s\",\"free_threaded\":%s,"
-             "\"build\":\"shim-dev\"}",
-             ND_ABI_VERSION, version_short, gil_state);
+             "\"build\":\"%s\"}",
+             ND_ABI_VERSION, version_short, gil_state, build_kind);
 
     char* json = nd_strdup(buffer);
 
