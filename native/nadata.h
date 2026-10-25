@@ -364,7 +364,8 @@ ND_API NdStatusCode nd_compact(NdDb* db, const char* output_path, /* nullable */
 
 /*
  * Raises the per-loop fuel cap (Nadata.set_loop_limit); persisted in
- * the database settings. n <= 0 -> ND_ERR_INVALID_ARG.
+ * the database settings. n < 1 -> ND_ERR_VALUE (validated by the
+ * engine, not the shim).
  */
 ND_API NdStatusCode nd_set_loop_limit(NdDb* db, int64_t limit);
 
