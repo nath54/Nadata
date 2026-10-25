@@ -554,9 +554,43 @@ NdStatusCode nd_value_from_py(PyObject* obj, NdValue* out)
         return ND_ERR_TYPE;
     }
 
+    /* EntityId objects themselves (e.g. from to_list_ids) carry
+     * .value directly instead of .entity_id. */
+    PyObject* entity_id_cls = nd_engine_class(
+        "nadata.core.database.entity_id", "EntityId"
+    );
+
+    if (entity_id_cls != NULL) {
+        int is_entity_id = PyObject_IsInstance(obj, entity_id_cls);
+
+        Py_DECREF(entity_id_cls);
+
+        if (is_entity_id < 0) {
+            PyErr_Clear();
+        } else if (is_entity_id == 1) {
+            PyObject* value = nd_attr(obj, "value");
+
+            if (value == NULL) {
+                return nd_take_pyerror();
+            }
+
+            long long id = PyLong_AsLongLong(value);
+
+            Py_DECREF(value);
+
+            if (id == -1 && PyErr_Occurred()) {
+                return nd_take_pyerror();
+            }
+
+            out->tag = ND_INSTANCE;
+            out->as.instance_id = (int64_t) id;
+
+            return ND_OK;
+        }
+    }
+
     /* Engine instances carry a 64-bit entity id — pass by identity. */
-    if (PyObject_HasAttrString(obj, "entity_id")) {
-        PyObject* id_value = nd_entity_id_value(obj);
+    if (PyObject_HasAttrString(obj, "entity_id")) {        PyObject* id_value = nd_entity_id_value(obj);
 
         if (id_value == NULL) {
             return nd_take_pyerror();

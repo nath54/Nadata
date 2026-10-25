@@ -681,6 +681,39 @@ ND_API NdStatusCode nd_query_to_list_ids(NdQuery* qs, NdValue* out)
 
     Py_DECREF(instances);
 
+    /* Wrap the raw ints into EntityId objects so nd_value_from_py
+     * emits ND_INSTANCE items (the documented payload type). */
+    PyObject* entity_id_cls = nd_engine_class(
+        "nadata.core.database.entity_id", "EntityId"
+    );
+
+    if (entity_id_cls == NULL) {
+        Py_DECREF(ids);
+        ND_SHIM_RETURN(nd_take_pyerror());
+    }
+
+    Py_ssize_t id_count = PyList_Size(ids);
+
+    for (Py_ssize_t i = 0; i < id_count; i++) {
+        PyObject* raw_id = PyList_GetItem(ids, i);          /* borrowed */
+        PyObject* call_args = Py_BuildValue("(O)", raw_id);
+        PyObject* entity_id = call_args != NULL
+            ? nd_call(entity_id_cls, call_args, NULL) : NULL;
+
+        Py_XDECREF(call_args);
+
+        if (entity_id == NULL || PyList_SetItem(ids, i, entity_id) != 0) {
+            /* SetItem only fails on a non-list; entity_id is consumed
+             * by SetItem on success, else leaked here. */
+            Py_XDECREF(entity_id);
+            Py_DECREF(entity_id_cls);
+            Py_DECREF(ids);
+            ND_SHIM_RETURN(nd_take_pyerror());
+        }
+    }
+
+    Py_DECREF(entity_id_cls);
+
     NdStatusCode status = nd_value_from_py(ids, out);
 
     Py_DECREF(ids);
