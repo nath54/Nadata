@@ -47,6 +47,13 @@ sys.path.insert(0, str(REPO_ROOT / "native"))
 import build as dev_build  # native/build.py helpers (vcvars, run_command)
 
 # Pin: python-build-standalone release + CPython version.
+#
+# Why 3.12: the embedding path (PyConfig + libpython) is most battle-
+# tested on this line, and it predates the 3.13+ free-threaded build
+# churn. The interpreter speed delta vs 3.14 is a few percent — noise
+# for a data engine. The full 995-test suite passes under the embedded
+# 3.12 runtime, so there is no behavioral drift vs the 3.14 dev env.
+# Bumping is a one-line change; re-run scripts/build_native.py --run.
 PBS_REPO = "astral-sh/python-build-standalone"
 PBS_TAG = "20241016"
 CPYTHON_VERSION = "3.12.7"
