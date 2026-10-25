@@ -462,6 +462,18 @@ def pbs_lib(install: Path, target: str, free_threaded: bool) -> tuple[Path, str]
     if dynamic.exists():
         return dynamic.parent, f"python{major}.{minor}{suffix}"
 
+    # Linux shared builds ship the versioned SONAME (and sometimes an
+    # unversioned dev symlink) — link with the exact file via -l:NAME.
+    plain = install / "lib" / f"libpython{major}.{minor}{suffix}.so"
+
+    if plain.exists():
+        return plain.parent, f"python{major}.{minor}{suffix}"
+
+    versioned = install / "lib" / f"libpython{major}.{minor}{suffix}.so.1.0"
+
+    if versioned.exists():
+        return versioned.parent, f":{versioned.name}"
+
     raise SystemExit(f"no libpython under {install}")
 
 
@@ -519,6 +531,11 @@ def compile_shim(target: str, install: Path, output: Path,
         if "darwin" in target:
             # dyld resolves libpython relative to the library itself.
             command += ["-Wl,-rpath,@loader_path/runtime/lib"]
+
+        if "linux" in target:
+            # Same idea with the ELF token: the staged layout keeps
+            # libpython under runtime/lib next to the shim.
+            command += ["-Wl,-rpath,$ORIGIN/runtime/lib"]
 
         if "linux" in target and lib_ref.startswith(":"):
             # Static embed pulls in libpython's own dependencies.
@@ -614,13 +631,15 @@ def validate(staged: Path, target: str) -> None:
     else:
         # rpath points at the staged dir: on Linux the interpreter is
         # statically inside libnadata.so, on macOS the dylib resolves
-        # via the runtime/ rpath compiled into the shim.
+        # via the runtime/ rpath compiled into the shim. The extra exe
+        # rpath also covers libpython's own dependencies on macOS.
         command = [
             os.environ.get("CC", "cc"), "-O2", "-Wall", "-std=c11",
             str(REPO_ROOT / "native" / "tests" / "smoke.c"),
             f"-I{REPO_ROOT / 'native'}",
             f"-L{staged}", "-lnadata",
             f"-Wl,-rpath,{staged}",
+            f"-Wl,-rpath,{staged / 'runtime' / 'lib'}",
             "-o", str(exe),
         ]
 
@@ -644,7 +663,10 @@ def validate(staged: Path, target: str) -> None:
     tail = "\n".join(run.stdout.splitlines()[-3:])
 
     if run.returncode != 0:
-        log(tail)
+        log("--- smoke stdout (tail) ---")
+        log(tail or "(empty)")
+        log("--- smoke stderr (tail) ---")
+        log("\n".join(run.stderr.splitlines()[-10:]) or "(empty)")
         raise SystemExit(f"staged smoke test FAILED: {run.returncode}")
 
     log(tail)

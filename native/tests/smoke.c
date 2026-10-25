@@ -248,8 +248,10 @@ int main(int argc, char** argv)
 
     nd_query_free(qs);
 
-    /* nd_dump + nd_open roundtrip. */
-    const char* store = "native/build/smoke_store.ndb";
+    /* nd_dump + nd_open roundtrip. Relative to the process cwd —
+     * deliberately NOT under native/build/: the staged-dist validation
+     * runs from a checkout that never built the dev shim. */
+    const char* store = "smoke_store.ndb";
 
     remove(store);
     check_status("nd_dump/roundtrip", nd_dump(db, store), ND_OK);
