@@ -609,11 +609,23 @@ def stage(target: str, install: Path, library: Path) -> Path:
         # Windows stdlib: <runtime>/Lib/<dir>; POSIX: <runtime>/lib/
         # python3.X/<dir>.
         for pattern in (f"*/{prune_dir}",
-                        f"*/lib/python*/{prune_dir}",
-                        f"*/Lib/{prune_dir}"):
+                        f"lib/python*/{prune_dir}",
+                        f"*/lib/python*/{prune_dir}"):
             for found in runtime.glob(pattern):
                 log(f"pruning {found.relative_to(staged)}")
                 shutil.rmtree(found, ignore_errors=True)
+
+    # PBS Linux builds ship libpython WITH debug symbols (~200 MB per
+    # file); strip them — hosts link via the SONAME either way. macOS
+    # dylibs are small AND signed, so leave them untouched.
+    if "linux" in target:
+        for lib in sorted(runtime.glob("lib/libpython*")):
+            if lib.is_symlink() or not lib.is_file():
+                continue
+
+            if subprocess.run(["strip", "--strip-unneeded",
+                               str(lib)]).returncode == 0:
+                log(f"stripped {lib.name}")
 
     # 4. Windows hosts resolve python3xx.dll via PATH — ship a copy
     #    next to the shim so a single PATH entry suffices.
