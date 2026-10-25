@@ -3,7 +3,7 @@ Phase 1b — distro-invariant native distribution builder.
 
 Produces a self-contained native release for one target platform:
 
-    dist/native/<target>/
+    dist/native/<target[-variant]>/
         nadata.dll | libnadata.so | nadata.dylib   <- the shim
         nadata.h                                   <- the ABI header
         nadata/                                    <- the engine package
@@ -11,17 +11,24 @@ Produces a self-contained native release for one target platform:
         python312.dll (Windows copy, next to the shim)
 
 The interpreter comes from python-build-standalone (PBS) — the same
-runtimes `uv` uses — pinned to one release tag and verified against
-the release SHA256SUMS. On Linux the STATIC libpython is linked into
-libnadata.so itself (true distro invariance); on Windows/macOS the
-shared runtime ships alongside and `PyConfig.home` is set relative to
-the library location by the shim (shim_runtime.c boot_interpreter).
+runtimes `uv` uses — verified against the release SHA256SUMS. On Linux
+the STATIC libpython is linked into libnadata.so itself (true distro
+invariance); on Windows/macOS the shared runtime ships alongside and
+`PyConfig.home` is set relative to the library location by the shim
+(shim_runtime.c boot_interpreter).
+
+The default build is deterministic: PBS 20241016 / CPython 3.12.7.
+It can be retargeted per invocation:
+
+    --python 3.14        resolve the newest 3.14.x across PBS releases
+    --pbs-tag 20250108   pin a specific PBS release
+    --free-threaded      the nogil build (3.13+; -ft suffix)
+    --jit                a JIT-enabled build if PBS ships one (rare)
 
 Usage:
-    python scripts/build_native.py                  # host target
-    python scripts/build_native.py --target x86_64-unknown-linux-gnu
-    python scripts/build_native.py --run            # + smoke-validate
-    python scripts/build_native.py --list-assets    # inspect PBS release
+    python scripts/build_native.py                  # deterministic pin
+    python scripts/build_native.py --python 3.14 --run
+    python scripts/build_native.py --list-assets    # inspect resolution
 
 The result is validated by running the C smoke test against the STAGED
 library with NADATA_HOME unset (proving the embedded layout boots).
@@ -33,10 +40,13 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -46,17 +56,11 @@ sys.path.insert(0, str(REPO_ROOT / "native"))
 # pylint: disable=wrong-import-position
 import build as dev_build  # native/build.py helpers (vcvars, run_command)
 
-# Pin: python-build-standalone release + CPython version.
-#
-# Why 3.12: the embedding path (PyConfig + libpython) is most battle-
-# tested on this line, and it predates the 3.13+ free-threaded build
-# churn. The interpreter speed delta vs 3.14 is a few percent — noise
-# for a data engine. The full 995-test suite passes under the embedded
-# 3.12 runtime, so there is no behavioral drift vs the 3.14 dev env.
-# Bumping is a one-line change; re-run scripts/build_native.py --run.
+# Deterministic default pin (see the 3.12 rationale in git history).
 PBS_REPO = "astral-sh/python-build-standalone"
-PBS_TAG = "20241016"
-CPYTHON_VERSION = "3.12.7"
+DEFAULT_PBS_TAG = "20241016"
+DEFAULT_PYTHON = "3.12.7"
+MAX_RELEASE_SCAN = 10  # releases walked when resolving a --python spec
 
 CACHE_DIR = REPO_ROOT / ".native-cache"
 DIST_DIR = REPO_ROOT / "dist" / "native"
@@ -88,52 +92,181 @@ def host_target() -> str:
 
 
 # ------------------------------------------------------------------ #
-# PBS download + verification                                         #
+# PBS release + asset resolution                                      #
 # ------------------------------------------------------------------ #
 
 
-def fetch_release_assets() -> list[dict]:
-    """Lists the assets of the pinned PBS release via the GitHub API."""
-
-    url = (f"https://api.github.com/repos/{PBS_REPO}/"
-           f"releases/tags/{PBS_TAG}")
-
-    with urllib.request.urlopen(url, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-
-    return payload.get("assets", [])
+API_CACHE = CACHE_DIR / "api"
+API_CACHE_TTL = 24 * 3600  # seconds
 
 
-def pick_asset(assets: list[dict], target: str) -> tuple[str, str]:
-    """
-    Selects the install-only archive + SHA256SUMS for a target triple.
+def fetch_json(url: str):
+    """GETs a JSON document (GitHub API), cached for a day.
 
-    Returns:
-        tuple[str, str]: (asset name, browser download URL).
+    The unauthenticated GitHub API allows 60 requests/hour; resolution
+    walks several releases, so responses are cached on disk.
     """
 
-    sums = next((a for a in assets if a["name"] == "SHA256SUMS"), None)
+    API_CACHE.mkdir(parents=True, exist_ok=True)
 
-    if sums is None:
-        raise SystemExit(f"SHA256SUMS asset missing from {PBS_TAG}")
+    key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    cache = API_CACHE / f"{key}.json"
 
-    prefix = f"cpython-{CPYTHON_VERSION}+{PBS_TAG}-{target}"
-    archive = next(
-        (a for a in assets
-         if a["name"].startswith(prefix)
-         and "install_only" in a["name"]
-         and "stripped" not in a["name"]
-         and a["name"].endswith(".tar.gz")),
-        None,
+    if cache.exists() and time.time() - cache.stat().st_mtime < API_CACHE_TTL:
+        return json.loads(cache.read_text(encoding="utf-8"))
+
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code == 403:
+            raise SystemExit(
+                "GitHub API rate limit exceeded (60/h unauthenticated). "
+                "Retry later, or pass --pbs-tag with an archive already "
+                "in .native-cache/downloads for a fully offline build."
+            ) from error
+
+        raise
+
+    cache.write_text(json.dumps(payload), encoding="utf-8")
+
+    return payload
+
+
+def fetch_assets(tag: str) -> list[dict]:
+    """Lists the assets of one PBS release via the GitHub API."""
+
+    return fetch_json(
+        f"https://api.github.com/repos/{PBS_REPO}/releases/tags/{tag}"
+    ).get("assets", [])
+
+
+def list_release_tags() -> list[str]:
+    """Release tags newest-first (PBS tags are date-based)."""
+
+    releases = fetch_json(
+        f"https://api.github.com/repos/{PBS_REPO}/releases"
+        f"?per_page={MAX_RELEASE_SCAN}"
     )
 
-    if archive is None:
-        matching = [a["name"] for a in assets if target in a["name"]]
-        raise SystemExit(
-            f"no install_only asset for {target}\n"
-            f"available: {matching[:8]}")
+    return [release["tag_name"] for release in releases]
 
-    return archive["name"], archive["browser_download_url"]
+
+def parse_cpython_version(name: str) -> str | None:
+    """Extracts 'cpython-<version>+' from an asset name (None otherwise)."""
+
+    if not name.startswith("cpython-"):
+        return None
+
+    version = name.split("+")[0].removeprefix("cpython-")
+
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        return None  # skips pre-releases like 3.14.0a1
+
+    return version
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    """Numeric sort/compare key for an exact CPython version."""
+
+    return tuple(int(part) for part in version.split("."))
+
+
+def asset_matches(name: str, triple: str, free_threaded: bool,
+                  jit: bool) -> bool:
+    """True when an asset name fits the target + build variant."""
+
+    return (name.startswith("cpython-")
+            and triple in name
+            and "install_only" in name
+            and "stripped" not in name
+            and free_threaded == ("freethreaded" in name)
+            and jit == ("jit" in name))
+
+
+def candidate_assets(assets: list[dict], triple: str, free_threaded: bool,
+                     jit: bool) -> list[dict]:
+    """
+    Filters install-only archives for a triple and build variant.
+
+    Asset names look like:
+      cpython-3.12.7+20241016-x86_64-pc-windows-msvc-install_only.tar.gz
+      cpython-3.13.1+20250108-x86_64-...-freethreaded+shared-install_only
+    """
+
+    matches = []
+
+    for asset in assets:
+        name = asset["name"]
+
+        if asset_matches(name, triple, free_threaded, jit):
+            matches.append(asset)
+
+    # Plainest name first (avoids +debug/+pgo variants when present).
+    matches.sort(key=lambda asset: (len(asset["name"]), asset["name"]))
+
+    return matches
+
+
+def resolve_build(python_spec: str, triple: str, free_threaded: bool,
+                  jit: bool, tag_hint: str | None) -> tuple[str, str]:
+    """
+    Resolves a --python spec to a (PBS tag, exact CPython version).
+
+    Walks the newest releases first; a tag_hint pins the search to one
+    release. The spec may be "3.12" (newest patch) or "3.12.7" (exact).
+    """
+
+    wanted = tuple(int(part) for part in python_spec.split("."))
+    tags = [tag_hint] if tag_hint else list_release_tags()
+
+    # Offline fast path: a previously downloaded archive for this
+    # pin is authoritative (it gets checksum-verified at extraction).
+    if tag_hint:
+        for path in sorted(
+                (CACHE_DIR / "downloads").glob(
+                    f"cpython-*+{tag_hint}-{triple}*install_only.tar.gz")):
+            if not asset_matches(path.name, triple, free_threaded, jit):
+                continue
+
+            version = parse_cpython_version(path.name)
+
+            if version is not None \
+                    and version_key(version)[:len(wanted)] == wanted:
+                return tag_hint, version
+
+    for tag in tags:
+        assets = fetch_assets(tag)
+
+        for asset in candidate_assets(assets, triple, free_threaded, jit):
+            version = parse_cpython_version(asset["name"])
+
+            if version is None:
+                continue
+
+            if version_key(version)[:len(wanted)] == wanted:
+                return tag, version
+
+    scanned = ", ".join(tags[:3]) + ("..." if len(tags) > 3 else "")
+
+    if jit:
+        raise SystemExit(
+            f"no JIT-enabled PBS build for CPython {python_spec} "
+            f"({scanned}). PBS ships JIT builds rarely; a JIT runtime "
+            "needs building CPython from source (--from-source, planned)")
+
+    if free_threaded:
+        raise SystemExit(
+            f"no free-threaded PBS build for CPython {python_spec} "
+            f"({scanned}) — free-threading requires 3.13+")
+
+    raise SystemExit(
+        f"no PBS build for CPython {python_spec} in {scanned}")
+
+
+# ------------------------------------------------------------------ #
+# Download + verification                                             #
+# ------------------------------------------------------------------ #
 
 
 def sha256_of(path: Path) -> str:
@@ -148,33 +281,18 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def ensure_runtime(target: str) -> Path:
-    """
-    Downloads, verifies and extracts the pinned PBS runtime.
+def verify_checksum(downloads: Path, name: str, sums_url: str | None,
+                    tag: str) -> None:
+    """Checks a downloaded archive against the release SHA256SUMS."""
 
-    Returns:
-        Path: The extracted install directory (contains include/, lib/).
-    """
-
-    assets = fetch_release_assets()
-    name, url = pick_asset(assets, target)
-    downloads = CACHE_DIR / "downloads"
-    downloads.mkdir(parents=True, exist_ok=True)
-
-    archive_path = downloads / name
-
-    if not archive_path.exists():
-        log(f"downloading {name}")
-        urllib.request.urlretrieve(url, archive_path)
-
-    # Checksum verification against the release SHA256SUMS.
-    sums_path = downloads / f"SHA256SUMS-{PBS_TAG}"
+    sums_path = downloads / f"SHA256SUMS-{tag}"
 
     if not sums_path.exists():
-        sums_asset = next(
-            a for a in assets if a["name"] == "SHA256SUMS")
-        urllib.request.urlretrieve(sums_asset["browser_download_url"],
-                                   sums_path)
+        if sums_url is None:
+            raise SystemExit(
+                f"SHA256SUMS for {tag} not cached and no API access")
+
+        urllib.request.urlretrieve(sums_url, sums_path)
 
     expected = None
 
@@ -189,17 +307,31 @@ def ensure_runtime(target: str) -> Path:
     if expected is None:
         raise SystemExit(f"{name} not listed in SHA256SUMS")
 
-    actual = sha256_of(archive_path)
+    actual = sha256_of(downloads / name)
 
     if actual != expected:
         raise SystemExit(f"checksum mismatch for {name}: {actual}")
 
     log(f"checksum ok: {name}")
 
-    # Extract (idempotent: reuse a previous extraction).
-    extract_dir = CACHE_DIR / "pbs" / target
 
-    if not (extract_dir / "install").exists():
+def find_downloaded_archive(version: str, tag: str, triple: str,
+                            free_threaded: bool, jit: bool) -> Path | None:
+    """Locates a previously downloaded archive for this pin (or None)."""
+
+    for path in sorted(
+            (CACHE_DIR / "downloads").glob(
+                f"cpython-{version}+{tag}-{triple}*install_only.tar.gz")):
+        if asset_matches(path.name, triple, free_threaded, jit):
+            return path
+
+    return None
+
+
+def extract_runtime(extract_dir: Path, archive_path: Path) -> Path:
+    """Extracts an install_only archive (idempotent) -> install dir."""
+
+    if not (extract_dir / "python").exists():
         if extract_dir.exists():
             shutil.rmtree(extract_dir)
 
@@ -218,6 +350,70 @@ def ensure_runtime(target: str) -> Path:
     return install
 
 
+def ensure_runtime(tag: str, version: str, triple: str,
+                   free_threaded: bool, jit: bool) -> Path:
+    """
+    Downloads, verifies and extracts the pinned PBS runtime.
+
+    Returns:
+        Path: The extracted install directory (contains include/, lib/).
+    """
+
+    downloads = CACHE_DIR / "downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+
+    # Offline fast path: archive + sums already on disk -> no API call.
+    local = find_downloaded_archive(version, tag, triple, free_threaded,
+                                    jit)
+    sums_local = downloads / f"SHA256SUMS-{tag}"
+
+    extract_dir = CACHE_DIR / "pbs" / f"{version}-{triple}"
+
+    if free_threaded:
+        extract_dir = CACHE_DIR / "pbs" / f"{version}t-{triple}"
+
+    if jit:
+        extract_dir = extract_dir.with_name(extract_dir.name + "-jit")
+
+    if local is not None and sums_local.exists():
+        verify_checksum(downloads, local.name, None, tag)
+
+        return extract_runtime(extract_dir, local)
+
+    assets = fetch_assets(tag)
+    archive = next(
+        (a for a in candidate_assets(assets, triple, free_threaded, jit)
+         if a["name"].startswith(f"cpython-{version}+")),
+        None,
+    )
+
+    if archive is None:
+        if local is not None:
+            # API unavailable, but we hold the archive: use it.
+            return extract_runtime(extract_dir, local)
+
+        raise SystemExit(
+            f"asset for {version} disappeared from release {tag}")
+
+    sums = next(
+        (a for a in assets if a["name"] == "SHA256SUMS"), None)
+
+    if sums is None:
+        raise SystemExit(f"SHA256SUMS asset missing from {tag}")
+
+    name = archive["name"]
+    archive_path = downloads / name
+
+    if not archive_path.exists():
+        log(f"downloading {name}")
+        urllib.request.urlretrieve(archive["browser_download_url"],
+                                   archive_path)
+
+    verify_checksum(downloads, name, sums["browser_download_url"], tag)
+
+    return extract_runtime(extract_dir, archive_path)
+
+
 # ------------------------------------------------------------------ #
 # Layout discovery inside the PBS install                             #
 # ------------------------------------------------------------------ #
@@ -226,9 +422,8 @@ def ensure_runtime(target: str) -> Path:
 def pbs_include(install: Path) -> Path:
     """Locates the directory containing Python.h."""
 
-    for candidate in (install / "include",):
-        if (candidate / "Python.h").exists():
-            return candidate
+    if (install / "include" / "Python.h").exists():
+        return install / "include"
 
     for candidate in sorted(install.glob("include/*/Python.h")):
         return candidate.parent
@@ -236,7 +431,7 @@ def pbs_include(install: Path) -> Path:
     raise SystemExit(f"Python.h not found under {install}")
 
 
-def pbs_lib(install: Path, target: str) -> tuple[Path, str]:
+def pbs_lib(install: Path, target: str, free_threaded: bool) -> tuple[Path, str]:
     """
     Locates the CPython library to link against.
 
@@ -244,28 +439,42 @@ def pbs_lib(install: Path, target: str) -> tuple[Path, str]:
         tuple[Path, str]: (library dir, linker reference).
     """
 
-    major, minor = CPYTHON_VERSION.split(".")[0], CPYTHON_VERSION.split(".")[1]
+    version = pbs_version(install)
+    major, minor = version.split(".")[:2]
+    suffix = "t" if free_threaded else ""
 
     if "windows" in target:
-        lib = install / "libs" / f"python{major}{minor}.lib"
+        lib = install / "libs" / f"python{major}{minor}{suffix}.lib"
 
         if not lib.exists():
             raise SystemExit(f"import library missing: {lib}")
 
         return lib.parent, lib.name
 
-    static = install / "lib" / f"libpython{major}.{minor}.a"
+    static = install / "lib" / f"libpython{major}.{minor}{suffix}.a"
 
     if static.exists():
         # Static embed: the interpreter lives INSIDE our .so.
         return static.parent, f":{static.name}"
 
-    dynamic = install / "lib" / f"libpython{major}.{minor}.dylib"
+    dynamic = install / "lib" / f"libpython{major}.{minor}{suffix}.dylib"
 
     if dynamic.exists():
-        return dynamic.parent, f"python{major}.{minor}"
+        return dynamic.parent, f"python{major}.{minor}{suffix}"
 
     raise SystemExit(f"no libpython under {install}")
+
+
+def pbs_version(install: Path) -> str:
+    """Reads the CPython version from the runtime's include dir."""
+
+    for header in sorted(install.glob("include/*/patchlevel.h")) + [
+            install / "include" / "patchlevel.h"]:
+        for line in header.read_text(encoding="utf-8").splitlines():
+            if line.startswith("#define PY_VERSION"):
+                return line.split('"')[1]
+
+    raise SystemExit(f"cannot determine CPython version under {install}")
 
 
 # ------------------------------------------------------------------ #
@@ -273,12 +482,17 @@ def pbs_lib(install: Path, target: str) -> tuple[Path, str]:
 # ------------------------------------------------------------------ #
 
 
-def compile_shim(target: str, install: Path, output: Path) -> None:
+def compile_shim(target: str, install: Path, output: Path,
+                 free_threaded: bool) -> None:
     """Compiles the shim sources against the PBS runtime."""
 
     sources = sorted((REPO_ROOT / "native" / "src").glob("*.c"))
     include = pbs_include(install)
-    lib_dir, lib_ref = pbs_lib(install, target)
+    lib_dir, lib_ref = pbs_lib(install, target, free_threaded)
+
+    # Free-threaded builds must be compiled with Py_GIL_DISABLED; it
+    # also flips nd_runtime_info's free_threaded field.
+    gil_flag = ["-DPy_GIL_DISABLED=1"] if free_threaded else []
 
     if "windows" in target:
         command = [
@@ -286,6 +500,7 @@ def compile_shim(target: str, install: Path, output: Path) -> None:
             f"/I{include}", f"/I{REPO_ROOT / 'native'}",
             "/DNDEBUG", "/DND_BUILDING_ABI", "/DNADATA_EMBEDDED",
             "/D_CRT_SECURE_NO_WARNINGS",
+            *[flag.replace("-D", "/D") for flag in gil_flag],
             *[str(source) for source in sources],
             "/link", f"/OUT:{output}",
             f"/IMPLIB:{str(output).removesuffix('.dll')}.lib",
@@ -296,6 +511,7 @@ def compile_shim(target: str, install: Path, output: Path) -> None:
             os.environ.get("CC", "cc"), "-shared", "-fPIC", "-O2", "-Wall",
             "-std=c11", f"-I{include}", f"-I{REPO_ROOT / 'native'}",
             "-DNDEBUG", "-DND_BUILDING_ABI", "-DNADATA_EMBEDDED",
+            *gil_flag,
             *[str(source) for source in sources],
             f"-L{lib_dir}", f"-l{lib_ref}",
         ]
@@ -429,6 +645,20 @@ def validate(staged: Path, target: str) -> None:
 # ------------------------------------------------------------------ #
 
 
+def variant_suffix(free_threaded: bool, jit: bool) -> str:
+    """Distinguishes staged variants of the same target triple."""
+
+    suffix = ""
+
+    if free_threaded:
+        suffix += "-freethreaded"
+
+    if jit:
+        suffix += "-jit"
+
+    return suffix
+
+
 def main() -> None:
     """Builds the distro-invariant native distribution."""
 
@@ -436,27 +666,55 @@ def main() -> None:
         description="Build the embedded-runtime native distribution")
     parser.add_argument("--target", default=None,
                         help="target triple (default: host)")
+    parser.add_argument("--python", default=DEFAULT_PYTHON,
+                        help="CPython version: '3.12' (newest patch) or "
+                             f"'3.12.7' (exact); default {DEFAULT_PYTHON}")
+    parser.add_argument("--pbs-tag", default=None,
+                        help="pin one PBS release (default: newest "
+                             "release carrying the requested version)")
+    parser.add_argument("--free-threaded", action="store_true",
+                        help="use the nogil build (CPython 3.13+)")
+    parser.add_argument("--jit", action="store_true",
+                        help="use a JIT-enabled build (rarely shipped "
+                             "by PBS; needs --from-source otherwise)")
     parser.add_argument("--run", action="store_true",
                         help="validate with the C smoke test "
                              "(host target only)")
     parser.add_argument("--list-assets", action="store_true",
-                        help="list matching PBS assets and exit")
+                        help="resolve the build and list matching "
+                             "assets, then exit")
     arguments = parser.parse_args()
 
-    target = arguments.target or host_target()
-    log(f"target: {target} (PBS {PBS_TAG}, CPython {CPYTHON_VERSION})")
+    base_target = arguments.target or host_target()
+    target = base_target + variant_suffix(
+        arguments.free_threaded, arguments.jit)
 
-    install = ensure_runtime(target)
+    # The deterministic default stays pinned to its release; explicit
+    # --python specs resolve against the newest releases instead.
+    tag_hint = arguments.pbs_tag
+
+    if tag_hint is None and arguments.python == DEFAULT_PYTHON:
+        tag_hint = DEFAULT_PBS_TAG
+
+    pbs_tag, version = resolve_build(
+        arguments.python, base_target,
+        arguments.free_threaded, arguments.jit, tag_hint)
+
+    log(f"target: {target} (PBS {pbs_tag}, CPython {version}, "
+        f"free-threaded={arguments.free_threaded}, jit={arguments.jit})")
+
+    install = ensure_runtime(pbs_tag, version, base_target,
+                             arguments.free_threaded, arguments.jit)
 
     if arguments.list_assets:
         return
 
-    library_name = ("nadata.dll" if "windows" in target
-                    else "nadata.dylib" if "darwin" in target
+    library_name = ("nadata.dll" if "windows" in base_target
+                    else "nadata.dylib" if "darwin" in base_target
                     else "libnadata.so")
     output = CACHE_DIR / "out" / target / library_name
 
-    compile_shim(target, install, output)
+    compile_shim(base_target, install, output, arguments.free_threaded)
     staged = stage(target, install, output)
 
     total = sum(f.stat().st_size for f in staged.rglob("*") if f.is_file())
@@ -464,7 +722,7 @@ def main() -> None:
     log(f"staged {staged} ({total / (1 << 20):.1f} MB)")
 
     if arguments.run:
-        validate(staged, target)
+        validate(staged, base_target)
         log("validation passed")
 
 
