@@ -714,9 +714,9 @@ def validate(staged: Path, target: str) -> None:
 
     if run.returncode != 0:
         log("--- smoke stdout (tail) ---")
-        log(tail or "(empty)")
+        log("\n".join(run.stdout.splitlines()[-6:]) or "(empty)")
         log("--- smoke stderr (tail) ---")
-        log("\n".join(run.stderr.splitlines()[-10:]) or "(empty)")
+        log("\n".join(run.stderr.splitlines()[-25:]) or "(empty)")
         raise SystemExit(f"staged smoke test FAILED: {run.returncode}")
 
     log(tail)

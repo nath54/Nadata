@@ -188,6 +188,15 @@ static int boot_debug(void)
 #endif
 }
 
+static void boot_trace(const char* text)
+{
+    if (boot_debug()) {
+        /* stdout: the validate harness tails stdout even when the
+         * process aborts, so the trace always survives. */
+        fprintf(stdout, "[nadata] %s\n", text);
+    }
+}
+
 static int boot_interpreter(void)
 {
     if (Py_IsInitialized()) {
@@ -201,14 +210,35 @@ static int boot_interpreter(void)
         char runtime[ND_MAX_PATH];
         char marker[ND_MAX_PATH];
 
-        if (library_directory(libdir, sizeof(libdir))
-            && snprintf(marker, sizeof(marker), "%s%cnadata%c__init__.py",
-                        libdir, ND_PATH_SEP, ND_PATH_SEP)
-               < (int) sizeof(marker)
-            && file_exists(marker)
-            && snprintf(runtime, sizeof(runtime), "%s%cruntime",
-                        libdir, ND_PATH_SEP) < (int) sizeof(runtime)
-            && directory_exists(runtime)) {
+        int have_libdir = library_directory(libdir, sizeof(libdir));
+        int have_marker = 0;
+        int have_runtime = 0;
+
+        if (have_libdir) {
+            if (snprintf(marker, sizeof(marker), "%s%cnadata%c__init__.py",
+                         libdir, ND_PATH_SEP, ND_PATH_SEP)
+                < (int) sizeof(marker)) {
+                have_marker = file_exists(marker);
+
+                if (have_marker
+                    && snprintf(runtime, sizeof(runtime), "%s%cruntime",
+                                libdir, ND_PATH_SEP)
+                       < (int) sizeof(runtime)) {
+                    have_runtime = directory_exists(runtime);
+                }
+            }
+        }
+
+        if (boot_debug()) {
+            char trace[4 * ND_MAX_PATH];
+
+            snprintf(trace, sizeof(trace),
+                     "detect: libdir=%d marker=%d runtime=%d (%s)",
+                     have_libdir, have_marker, have_runtime, libdir);
+            boot_trace(trace);
+        }
+
+        if (have_libdir && have_marker && have_runtime) {
             /* Bundled runtime found: home it, remember the libdir. */
             PyConfig config;
 
@@ -216,10 +246,12 @@ static int boot_interpreter(void)
             config.home = Py_DecodeLocale(runtime, NULL);
 
             if (boot_debug()) {
-                fprintf(stderr,
-                        "[nadata] bundled boot: libdir=%s runtime=%s "
-                        "home_decoded=%d\n",
-                        libdir, runtime, config.home != NULL);
+                char trace[2 * ND_MAX_PATH];
+
+                snprintf(trace, sizeof(trace),
+                         "bundled boot: runtime=%s home_decoded=%d",
+                         runtime, config.home != NULL);
+                boot_trace(trace);
             }
 
             PyStatus status = Py_InitializeFromConfig(&config);
@@ -230,9 +262,8 @@ static int boot_interpreter(void)
 
             if (PyStatus_Exception(status)) {
                 if (boot_debug()) {
-                    fprintf(stderr, "[nadata] bundled boot FAILED: %s\n",
-                            status.err_msg != NULL ? status.err_msg
-                                                   : "(no message)");
+                    boot_trace(status.err_msg != NULL
+                        ? status.err_msg : "bundled boot FAILED");
                 }
 
                 return -1;
@@ -245,8 +276,7 @@ static int boot_interpreter(void)
                     PyObject* repr = PyObject_Repr(path);
 
                     if (repr != NULL) {
-                        fprintf(stderr, "[nadata] boot sys.path=%s\n",
-                                PyUnicode_AsUTF8(repr));
+                        boot_trace(PyUnicode_AsUTF8(repr));
                         Py_DECREF(repr);
                     }
                 }
@@ -268,11 +298,7 @@ static int boot_interpreter(void)
     }
 
     /* Dev build or bare host: plain initialization. */
-
-    if (boot_debug()) {
-        fprintf(stderr, "[nadata] plain boot (bundled layout not detected)\n");
-    }
-
+    boot_trace("plain boot (bundled layout not detected)");
     Py_Initialize();
 
     return 0;
