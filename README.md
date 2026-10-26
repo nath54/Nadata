@@ -103,6 +103,29 @@ pip install -e .
 pip install -e .[dev]   # optional: pytest + mypy for development
 ```
 
+### Native bindings (C/C++, Java, Kotlin)
+
+For embedding from other languages there are two paths — both fully
+self-contained (they carry the engine + embedded CPython):
+
+```sh
+# C/C++ (and any language): install the staged bundle next to your project
+curl -fsSL https://raw.githubusercontent.com/nath54/Nadata/main/scripts/install.sh | sh
+# Windows:
+irm https://raw.githubusercontent.com/nath54/Nadata/main/scripts/install.ps1 | iex
+```
+
+```kotlin
+// JVM (Java/Kotlin): one fat jar, self-extracting on first run
+NadataBundled.install()
+```
+
+See [docs/distribution.md](docs/distribution.md) (setup) and
+[docs/llm/INDEX.md](docs/llm/INDEX.md) (self-contained API knowledge
+pack for JVM app development). The C++ header-only wrapper ships in
+the bundle as `nadata.hpp`; the ABI is documented in
+[docs/native.md](docs/native.md).
+
 ## Quick start
 
 ```bash
@@ -175,6 +198,7 @@ describes Earth, Mars, or a fictional world.
 | [docs/api.md](docs/api.md) | Python API and CLI reference |
 | [docs/native.md](docs/native.md) | Native ABI: embedding the engine from C/C++/any host language |
 | [docs/distribution.md](docs/distribution.md) | One-line setup: install scripts, fat jar, CMake package |
+| [docs/llm/INDEX.md](docs/llm/INDEX.md) | Self-contained knowledge pack for building apps on the JVM bindings |
 | [docs/persistence.md](docs/persistence.md) | The `.ndb` format, dumps and incremental saves |
 | [docs/benchmarks.md](docs/benchmarks.md) | Engine stage profiling, synthetic benchmarks, SQLite comparison |
 | [docs/development.md](docs/development.md) | Code style, testing, contributing |

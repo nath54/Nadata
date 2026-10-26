@@ -82,6 +82,22 @@ qs.pluck("name")                     # raw payloads, in instance order
 qs.sum_of("age")                     # min_of / max_of / average_of too
 ```
 
+The full `QuerySet` surface (all chainable unless noted):
+
+| Method | Returns | Notes |
+|---|---|---|
+| `where(predicate)` | `QuerySet` | Python callable filter — `lambda p: ...` over `StructInstance`. |
+| `where_expr(candidate_var, expr, scope)` | `QuerySet` | AST `Expression` filter with automatic loop-invariant hoisting (this is what the language-side `Human.where(...)` and the ABI's `where_cb` use). |
+| `count()` | `int` | Matching instances. |
+| `exists()` | `bool` | Fast empty check. |
+| `first()` / `last()` | `Optional[StructInstance]` | First/last match; `None` on an empty set. |
+| `limit(n)` | `QuerySet` | Sorted/filtered window. |
+| `order_by(attribute, descending=False)` | `QuerySet` | Schema-validated, stable sort on raw payloads. |
+| `pluck(attribute)` | `list` | Raw payloads in instance order. |
+| `sum_of` / `min_of` / `max_of` | value | Aggregations over a numeric declared attribute; `min_of`/`max_of` return the natural type (int or float). |
+| `average_of(attribute)` | `float` | Always float. |
+| `to_list()` | `list[StructInstance]` | All matching instances — the Python equivalent of the ABI's `to_list_ids`. |
+
 `order_by` validates the attribute against the schema and sorts stably by
 the raw payload; aggregation helpers require numeric attributes. Attribute
 names may be passed as plain strings (Python) or string values (language

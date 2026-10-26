@@ -27,26 +27,47 @@ locally with `python scripts/smoke.py`.
 ## Project layout
 
 ```text
-src/
-    api.py                       # Nadata facade (public Python API)
-    cli.py                       # argparse CLI
+nadata/                           # the Python package
+    api.py                        # Nadata facade (public Python API)
+    cli.py                        # argparse CLI (`nadata` console script)
+    console.py                    # interactive console
+    session.py                    # session helpers
+    __main__.py                   # python -m nadata
     core/
-        database/                # NaDataDatabase, instances, querysets
-        database/persistence/    # .ndb format: codec, record store, dump/load
-        database/slotted_page.py # page storage
-        expressions/             # ExecutionScope, AST nodes, statements
-        struct/                  # Struct, StructAttribute, StructMethod
-        types/                   # type system + home types (DateTime, Color)
-        values/                  # typed Value wrappers
+        database/                 # NaDataDatabase, instances, querysets
+        database/persistence/     # .ndb format: codec, record store, dump/load
+        database/slotted_page.py  # page storage
+        expressions/              # ExecutionScope, AST nodes, statements
+        struct/                   # Struct, StructAttribute, StructMethod
+        types/                    # type system + home types (DateTime, Color)
+        values/                   # typed Value wrappers
     parser/
-        expressions/             # tokenizer, splitters, expression/statement/type parsers
-        nastruct_parser/         # .nastruct IR + resolution phase
-        nadata_loader/           # .nadata loader (three-pass instantiation)
-nadata.py                        # console-script shim
-scripts/inspect_parse.py         # parse-IR debug tool
-tests/                           # pytest suite
-examples/                        # six runnable example projects
-docs/                            # documentation (this folder)
+        expressions/              # tokenizer, splitters, expression/statement/type parsers
+        nastruct_parser/          # .nastruct IR + resolution phase
+        nadata_loader/            # .nadata loader (three-pass instantiation)
+examples/                         # 14 runnable example projects (ex0..ex13)
+tests/                            # pytest suite (1000+ cases)
+docs/                             # documentation (this folder)
+native/                           # C ABI shim + language wrappers
+    nadata.h                      # the ABI header (generated contract)
+    build.py                      # dev shim build + smoke test
+    cmake/nadataConfig.cmake      # consumer CMake package
+    src/                          # shim implementation (per-domain files)
+    wrappers/
+        cpp/nadata.hpp            # header-only C++17 wrapper
+        java/                     # JNA binding + self-extracting loader
+        kotlin/                   # idiomatic Kotlin layer
+        tests/                    # conformance + benchmarks per language
+scripts/
+    build_native.py               # staged dist per OS (release artifact)
+    build_jvm_bundle.py           # fat jar packaging
+    install.sh / install.ps1      # one-line consumer setup
+    release.py, smoke.py, profile.py
+benchmarks/                       # engine vs C++ vs JVM vs SQLite
+release/                          # release notes kit
+.github/workflows/
+    ci.yml                        # pytest + mypy + smoke (py3.10-3.13)
+    native.yml                    # 4-OS shim build + conformance + [dist] artifacts
 ```
 
 ## Code style
@@ -119,6 +140,15 @@ treated as acceptance material:
 | `test_persistence.py` | Dump, load, incremental appends |
 | `test_api.py` | The `Nadata` facade |
 | `test_cli.py` | The command line interface |
+| `test_abi_conformance.py` | The canonical ABI case registry (bindings replay it) |
+| `test_abi_header_sync.py` | nadata.h stays in sync with the shim |
+| `test_queryset.py` | QuerySet chaining, filters, aggregations |
+| `test_nid.py` | Stable `nid` identity across loads |
+| `test_session.py` | Session semantics |
+| `test_persistence.py` / `test_binary_persistence.py` | Dumps, incremental appends, codec |
+| `test_memory.py` | Cache eviction, pin/unpin |
+| `test_autograd.py` + tensor suites | Tensors, gradients, training builtins |
+| `test_spatial_index.py` + geo suites | Geospatial layer |
 
 When adding a language feature, add a case to the relevant example project
 *and* a test — the examples double as living documentation.
@@ -131,6 +161,27 @@ Inspect the intermediate representation before resolution:
 python -m scripts.inspect_parse examples/ex0_simple
 python -m scripts.inspect_parse examples/ex0_simple --json
 ```
+
+## Native ABI & wrappers
+
+The C ABI shim and the language wrappers are built and tested
+separately from the Python suite:
+
+```bash
+python native/build.py --run                      # dev shim + 47-check smoke
+python native/wrappers/tests/cpp/run.py           # C++ conformance (78 cases)
+python native/wrappers/tests/cpp/run.py --bench   # C++ benchmark
+python native/wrappers/tests/java/run.py          # Java conformance (72 cases)
+python native/wrappers/tests/kotlin/run.py        # Kotlin conformance (76 cases)
+python scripts/build_native.py --run              # staged dist + validation
+python benchmarks/run_all.py                      # cross-impl benchmarks
+```
+
+`tests/abi/contract.py` defines the status-code contract and
+`tests/abi/fixtures.py` the shared fixtures; `tests/abi_conformance.py`
+(the `@abi_case` registry) is the canonical case list every wrapper
+replays. Commit prefix `[dist]` triggers the release-artifact CI job
+(`.github/workflows/native.yml`).
 
 ## Never run long processes unguarded
 

@@ -262,3 +262,12 @@ compaction that rewrites them.
   batches) in the same replay log.
 - Struct definitions always precede their instance batches in the
   document order written by the dumper.
+
+## Identity across stores: `nid`
+
+Instance ids are assigned per store, so a re-created project gets new
+ids. Declare `nid = "stable-key"` in the data script for rows that
+must survive re-creation: on load, `nid` declarations **upsert in
+place** (same logical row keeps its id), and `get_by_nid(Base, key)`
+/ the ABI's `nd_get_by_nid` resolve them from any host. See
+[api.md](api.md) for the Python surface.

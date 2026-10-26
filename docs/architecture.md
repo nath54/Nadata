@@ -44,7 +44,7 @@ Two properties the rest of the engine relies on:
 
 **Files:** `parser/expressions/` (splitter, `expression_parser.py`,
 `statement_parser.py`, `type_parser.py`, `dependencies.py`) and
-`parser/nastruct_parser/`
+`nadata/parser/nastruct_parser/`
 
 Parsing happens in two layers:
 
@@ -59,7 +59,7 @@ Parsing happens in two layers:
    still token spans. Nothing is registered in the database yet.
 
 `.nadata` files are *classified* rather than fully pre-parsed:
-`parser/nadata_loader/loader.py` recognizes instance declarations
+`nadata/parser/nadata_loader/loader.py` recognizes instance declarations
 (`symbol = Struct(...)`), assignments, and script statements. A declaration
 whose right-hand side names a registered struct becomes an instantiation;
 anything else is a plain script statement.
@@ -72,7 +72,7 @@ python -m scripts.inspect_parse examples/ex0_simple --json
 
 ## 3. Resolution
 
-**Files:** `parser/nastruct_parser/resolver.py`, `parser_state.py`
+**Files:** `nadata/parser/nastruct_parser/resolver.py`, `parser_state.py`
 
 `SchemaResolver` converts the intermediate representation into the core
 object model registered in a `NaDataDatabase`:
@@ -99,7 +99,7 @@ also target a live database (used by `Nadata.execute_schema`).
 
 ## 4. Loading data
 
-**File:** `parser/nadata_loader/loader.py`
+**File:** `nadata/parser/nadata_loader/loader.py`
 
 `NaDataLoader` executes `.nadata` content against a resolved database using
 **three passes** — this is what makes forward and circular instance
@@ -118,7 +118,7 @@ it acts as the constructor (`Book(...)`) and as the polymorphic query root
 
 ## 5. Runtime
 
-**Files:** `core/expressions/` (`scope.py`, `expression.py`, `statement.py`),
+**Files:** `nadata/core/expressions/` (`scope.py`, `expression.py`, `statement.py`),
 `core/database/instance.py`, `core/database/queryset.py`
 
 - **`ExecutionScope`** chains locals → parameters → globals → parent scopes
