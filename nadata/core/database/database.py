@@ -150,9 +150,20 @@ class StructTable:
         """
         Returns all instances stored in this table.
 
+        Lazy tables may evict decoded rows under the working-set bound
+        (DEFAULT_MAX_DECODED), so values() alone can miss rows evicted
+        mid-enumeration. Enumerating local ids and reading each one
+        re-decodes on demand, which is complete by construction.
+
         Returns:
             list[StructInstance]: List of instances.
         """
+
+        if hasattr(self.instances, "all_local_ids"):
+            return [
+                self.instances[local_id]
+                for local_id in self.instances.all_local_ids()
+            ]
 
         return list(self.instances.values())
 

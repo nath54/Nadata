@@ -279,6 +279,28 @@ class TestDiskBackedRows:
             assert row.doc_span[2] > 0
             assert len(row.payload) == row.doc_span[2]
 
+    def test_all_survives_eviction_bound(self) -> None:
+        """
+        table.all() returns every row even when the decode-cache bound
+        evicts rows mid-enumeration (full-table queries beyond the
+        working-set bound used to silently drop evicted rows).
+        """
+
+        database: NaDataDatabase = _loaded()
+        table = database.tables_by_struct_name["Point"]
+        decoder: RowDecoder = _decoder(of=table)
+
+        decoder.max_decoded = 1   # force eviction during enumeration
+
+        assert len(table.all()) == 3
+
+        texts = sorted(
+            round(instance.attributes["x"].get(), 3)
+            for instance in table.all()
+        )
+
+        assert texts == sorted(round(value, 3) for value in (0.0, 1.0, 2.0))
+
     def test_decode_from_span_matches_original(self) -> None:
         """
         Decoding a disk-backed row reproduces the original values.
