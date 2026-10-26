@@ -35,6 +35,28 @@ only; a fresh fixture per run):
 
 Plus `mem:` peak-RSS lines (Windows + Linux; 0 on unsupported hosts).
 
+## Why the Python facade can beat C++ on cheap ops (results.md)
+
+The three columns do NOT do the same amount of work per call — run
+`python benchmarks/decomposition.py` for the measured proof:
+
+```
+engine only (instance.get_attribute + unwrap):   0.20 us/op
+python facade (+ symbol lookup, + wrapper):      0.83 us/op
+C shim (facade call + UTF-8 + malloc + NdValue): 2.73 us/op
+```
+
+- The ENGINE work is identical for every language (0.2 us).
+- The Python facade never leaves the Python heap: the result is
+  already a `str`, so it pays only method dispatch (~0.6 us).
+- The C/C++ path crosses the Python/C boundary EVERY call: PyObject_Call
+  with a tuple, UTF-8 conversion, malloc, NdValue packaging (~2.5 us).
+
+So "Python 2x faster than C++" means the boundary tax is ~1 us per
+call — an excellent FFI price that buys hosts a Python-free process
+and a stable ABI at ~500k reads/sec. It only matters in very hot
+loops; for those, batch (pluck/aggregates) or stay in-engine.
+
 ## Fairness caveats (read before quoting numbers)
 
 - **SQLite is a floor, not a competitor**: it does raw row I/O with no
