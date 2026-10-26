@@ -271,10 +271,16 @@ The header is deliberately bindgen/JNA-friendly (plain C, default
 calling convention, no `__stdcall`, no struct return values):
 
 - **C++**: `native/wrappers/cpp/nadata.hpp` (reference binding).
+- **Java**: `native/wrappers/java/` — JNA 5.14 binding (JDK 11+),
+  72/72 conformance cases green. `NdValue` params are passed as raw
+  32-byte `Memory` blocks (tag @ 0, payload @ 8) — simpler and faster
+  than `Structure`/`Union`. `nd_query_where_cb` is intentionally not
+  mapped (JNA callbacks cannot honour the GIL contract); use
+  `whereStr`. Run: `python native/wrappers/tests/java/run.py`.
 - **Python hosts** (ctypes): load the dll, set `argtypes`/`restype`,
   build `NdValue` via `struct.pack` — see `native/tests/repro_call_*.py`.
-- **Kotlin/Java**: JNA `Structure`/`Union` mapping of `NdValue`, or
-  Panama `java.lang.foreign`.
+- **Kotlin**: reuses the Java JNA binding directly (same jar, more
+  idiomatic extensions possible), or Panama `java.lang.foreign`.
 - **Rust**: `bindgen` over `nadata.h`, then a safe wrapper.
 - **JavaScript**: Pyodide-style embedding; only `where_str` filters.
 

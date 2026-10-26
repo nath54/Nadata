@@ -33,12 +33,16 @@ symbol → NOTFOUND, bad `.ndb` → VALUE, `n ====` → SYNTAX).
 ```
 native/wrappers/
   cpp/nadata.hpp              header-only C++17 wrapper
+  java/nadata/                JNA binding (library + high-level API)
   tests/
     README.md                 this contract
     cpp/
       test_conformance.cpp    case-id replay (same ids as Python)
       benchmark.cpp           speed + memory protocol below
       run.py                  builds & runs against the dev shim
+    java/
+      Conformance.java        case-id replay (same ids as Python/C++)
+      run.py                  compiles + runs against the dev shim
 ```
 
 Each future language adds `tests/<lang>/` with the same two binaries
@@ -75,6 +79,26 @@ the signal.
 python native/wrappers/tests/cpp/run.py            # build + conformance
 python native/wrappers/tests/cpp/run.py --bench    # build + benchmark
 ```
+
+## Running the Java suite (JDK 11+, JNA 5.14)
+
+```bash
+python native/wrappers/tests/java/run.py            # download JNA, compile, run
+python native/wrappers/tests/java/run.py --skip-dl  # offline (jar cached)
+```
+
+Requires `javac`/`java` on PATH (or `JAVA_HOME`), the dev shim
+(`python native/build.py`) and the repo root as cwd. The JNA jar is
+cached in `.native-cache/jna/`.
+
+### Java coverage notes (72/72 ok)
+
+All case ids from the C++ suite except:
+- `nd_query_where_cb/*` — **intentionally absent**: JNA callbacks run
+  on attached threads and cannot honour the shim's GIL contract;
+  `whereStr` covers the same engine path.
+- Some C++ cases were merged when they share one Java expression
+  (e.g. dump/open roundtrip + file-must-not-exit guard).
 
 Requires the dev shim (`python native/build.py`) and the repo root as
 cwd (fixtures are read from `./examples`).
