@@ -7,6 +7,7 @@ queries, parallel chunk execution, pagination, counting, and iteration.
 
 # Import Modules
 from __future__ import annotations
+import random
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -129,6 +130,41 @@ class QuerySet:
             return bool(result.get())
 
         return self.where(predicate=eval_predicate)
+
+    def sample(self, count: int | Value, rng: Optional[Any] = None) -> list[StructInstance]:
+        """
+        Draws up to count random instances from this (already filtered)
+        candidate set.
+
+        For sampling directly from storage without decoding the whole
+        table, use the struct binding's sample() / sample_by() /
+        sample_where() instead.
+
+        Args:
+            count (int | Value): Desired instance count.
+            rng (Optional[Any]): Random source; defaults to the
+                module-level generator (seedable via random.seed).
+
+        Returns:
+            list[StructInstance]: Up to count distinct instances in
+            random order.
+        """
+
+        raw_count: int = (
+            count.get()
+            if isinstance(count, Value) and not isinstance(count.get(), bool)
+            else count
+        )
+
+        if not isinstance(raw_count, int) or raw_count <= 0:
+            return []
+
+        source: Any = rng if rng is not None else random
+
+        if len(self.instances) <= raw_count:
+            return list(self.instances)
+
+        return source.sample(population=self.instances, k=raw_count)
 
     def count(self) -> int:
         """

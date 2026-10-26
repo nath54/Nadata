@@ -1029,6 +1029,40 @@ Array[DatabaseServer] primaries = DatabaseServer.where(
 - The query engine pre-evaluates loop-invariant sub-expressions once
   (e.g. `now` in `h.age(now)` is computed a single time, not per candidate).
 
+### 7.6.1 Filtered sampling
+
+`where(...)` evaluates the predicate on every row. For large tables where
+only a handful of matches are needed, the sampling family draws random
+rows **without decoding the whole table**:
+
+```text
+Item.sample(400);                                        // random rows
+Item.sample_by("kind", "qcm", 400);                      // hash-index fast path
+Item.sample_where((it: Item) -> it.difficulty < 3, 400); // probed filter
+Item.sample_where((it: Item) -> it.retired == false);    // no count: all matches
+```
+
+- `sample(count)` — distinct random instances (subclasses included); only
+  the chosen rows decode.
+- `sample_by(attribute, value, count)` — reads the `index(Struct, "attr")`
+  hash bucket directly when one exists (O(bucket), decoding only the drawn
+  rows); probes randomly otherwise.
+- `sample_where(predicate, count?)` — probes random rows until `count`
+  match; if the filter is too sparse the remaining rows are scanned, so
+  the result is always correct. Omitting the count returns every match.
+- Results are distinct instances in random order; `random.seed(...)` makes
+  draws reproducible.
+- Sampling draws are plain arrays: iterate them with for-in or index them;
+  they are not `queryable` collections (chain `.sample()` after `.where()`
+  on the Python `QuerySet` instead).
+
+```text
+// Quiz drawing: 20 written questions tagged 'cap-fr', mixing difficulty
+Array[Question] picked = Question.sample_where(
+    (q: Question) -> q.kind == "written" && "cap-fr" in q.tags, 20
+);
+```
+
 ### 7.7 Named identity — `nid=`
 
 Instances may carry an optional **named id** for stable, human-meaningful

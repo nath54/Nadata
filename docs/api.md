@@ -80,7 +80,36 @@ qs.order_by("age", descending=True).limit(5)   # sorted window
 qs.where(lambda p: p.attributes["city"].get() == "Paris").exists()
 qs.pluck("name")                     # raw payloads, in instance order
 qs.sum_of("age")                     # min_of / max_of / average_of too
+qs.where(lambda p: p.attributes["city"].get() == "Paris").sample(10)
 ```
+
+### Filtered sampling
+
+For large tables, `sample` draws random rows **without decoding the whole
+table**: rows are probed (decoded + tested) until enough match; a sparse
+filter falls back to scanning the remaining rows, so results stay correct.
+
+```python
+app.sample("Item", 400)                        # random rows, subclasses included
+app.sample("Item", 400,
+           predicate=lambda q: q.attributes["kind"].get() == "qcm")
+```
+
+The same operations are available on struct bindings (language side and
+through `app._globals["Item"]`):
+
+```text
+Item.sample(400);                                // random rows
+Item.sample_by("kind", "qcm", 400);              // hash-index fast path
+Item.sample_where((it: Item) -> it.difficulty < 3, 400);
+Item.sample_where((it: Item) -> it.retired == false);   // all matches
+```
+
+`sample_by` uses the `index(Struct, "attr")` hash index when present
+(O(bucket), decoding only the chosen rows) and probes randomly otherwise.
+Results are distinct instances in random order; seed `random.seed(...)` for
+reproducible draws, or pass `rng=random.Random(42)` on the Python side for
+explicit control.
 
 The full `QuerySet` surface (all chainable unless noted):
 
@@ -97,6 +126,7 @@ The full `QuerySet` surface (all chainable unless noted):
 | `sum_of` / `min_of` / `max_of` | value | Aggregations over a numeric declared attribute; `min_of`/`max_of` return the natural type (int or float). |
 | `average_of(attribute)` | `float` | Always float. |
 | `to_list()` | `list[StructInstance]` | All matching instances — the Python equivalent of the ABI's `to_list_ids`. |
+| `sample(count, rng=None)` | `list[StructInstance]` | Up to `count` distinct random instances from the already-filtered candidates. For storage-level sampling that avoids a full decode, use the facade `sample()` / `StructTable.sample()` family instead. |
 
 `order_by` validates the attribute against the schema and sorts stably by
 the raw payload; aggregation helpers require numeric attributes. Attribute

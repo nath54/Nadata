@@ -14,7 +14,7 @@ in the schema and call those. See cookbook recipe 10.
 ## 2. Entity id 0 is a valid id
 
 Ids returned by `createInstance`/`getSymbolId`/relation reads are
-opaque 64-bit values. `0` can absolutely be a valid id � never use it
+opaque 64-bit values. `0` can absolutely be a valid id � never use it
 as a null sentinel. The only truth is `instanceIdValid(id)`.
 
 ## 3. "Unknown X" is NOTFOUND (-1), not NAME (-2)
@@ -95,6 +95,16 @@ Script I/O is sandboxed — traversal outside the project root raises
   or push logic into schema `@methods`.
 - `load` is ~17 ms — per-thread handles are cheap.
 - Peak RSS ~131 MB on the JVM (baseline ~56 MB is the JVM itself).
+- Never filter large tables with full scans per request (~1 s per 100k
+  rows, worse with set membership). Use `index(Struct, "attr")` +
+  `get_by` for O(1) equality, and the **sampling family** —
+  `Struct.sample(count)` / `sample_by(attr, value, count)` /
+  `sample_where(predicate, count?)` — to draw random matches without
+  decoding the whole table (see docs/api.md "Filtered sampling").
+- Bulk phases that touch every row while the table sits near the
+  100k decoded-row bound thrash the eviction cache (53 s vs 0.8 s for
+  a cold index build over 100k rows). Import in chunks, or keep hot
+  tables under the bound.
 
 ## 12. Platform notes
 

@@ -9,6 +9,7 @@ using plain Python values.
 # Import Modules
 from __future__ import annotations
 import os
+import random
 import re
 from pathlib import Path
 from typing import Any, Optional, cast
@@ -608,6 +609,91 @@ class Nadata:
             database=self.database,
             query_executor=self.database.query_executor
         )
+
+    def sample(
+        self,
+        struct_name: str,
+        count: int,
+        predicate: Optional[Any] = None,
+    ) -> list[StructInstance]:
+        """
+        Draws up to count random instances of a struct (subclasses
+        included) without a full-table decode.
+
+        With a predicate, random rows are probed (decoded + tested)
+        until enough match; sparse filters fall back to scanning the
+        remaining rows, so the result is always correct. Without a
+        predicate, only the chosen rows decode.
+
+        For indexed equality filters, prefer the language binding's
+        sample_by (or StructTable.sample_by) which reads the hash
+        bucket directly.
+
+        Args:
+            struct_name (str): Struct to sample from.
+            count (int): Desired instance count.
+            predicate (Optional[Any]): Optional callable row filter.
+                Defaults to None (unfiltered).
+
+        Returns:
+            list[StructInstance]: Up to count distinct matching instances
+            in random order.
+
+        Raises:
+            KeyError: If the struct name is unknown.
+        """
+
+        self._ensure_globals()
+
+        struct: Struct = self._struct_or_raise(struct_name=struct_name)
+
+        if count <= 0:
+            return []
+
+        # (table, local_id) pairs over the whole hierarchy — no decode
+        entries: list[tuple[Any, int]] = []
+
+        for table in self.database.tables_by_struct_name.values():
+
+            if table.struct is not struct and not table.struct.is_subclass_of(
+                other=struct
+            ):
+                continue
+
+            if hasattr(table.instances, "all_local_ids"):
+                local_ids: list[int] = table.instances.all_local_ids()
+            else:
+                local_ids: list[int] = list(table.instances.keys())
+
+            entries.extend((table, local_id) for local_id in local_ids)
+
+        if not entries:
+            return []
+
+        if predicate is None:
+            chosen = random.sample(population=entries, k=min(count, len(entries)))
+
+            return [table.instances[local_id] for table, local_id in chosen]
+
+        # Probe phase over a shuffled view of all rows
+        random.shuffle(entries)
+
+        collected: list[StructInstance] = []
+
+        for table, local_id in entries:
+
+            if local_id not in table.instances:
+                continue
+
+            instance: StructInstance = table.instances[local_id]
+
+            if predicate(instance):
+                collected.append(instance)
+
+                if len(collected) >= count:
+                    return collected
+
+        return collected
 
     def count(self, struct_name: str) -> int:
         """
