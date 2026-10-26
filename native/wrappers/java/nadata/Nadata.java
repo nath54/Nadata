@@ -47,8 +47,11 @@ import java.util.OptionalLong;
  *       {@link Map} with String keys, and {@link #instance(long)} for
  *       entity ids</li>
  *   <li>outputs: {@link String}, {@link Long}, {@link Double},
- *       {@link Boolean}, {@link List}, {@link Map}, and
- *       {@link Instance} for entity ids read back</li>
+ *       {@link Boolean}, {@link List}, {@link Map}; entity references
+ *       come back as raw {@link Long} entity ids (use
+ *       {@link #instance(long)} to pass them back in). Ids are opaque
+ *       64-bit values — 0 can be a valid id, check
+ *       {@link Database#instanceIdValid} instead of comparing to 0.</li>
  * </ul>
  *
  * {@link DateTime}/{@link Color} engine values are not representable
