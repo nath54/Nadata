@@ -4,7 +4,13 @@ NaDataDatabase engine for Nadata.
 Provides the high-performance database manager supporting typed tables,
 globally unique 64-bit EntityIds, lazy paging, symbol registries,
 and parallel/optimized queries.
+
+The storage algorithm behind sample()/sample_by() lives in sampling.py.
 """
+
+# The engine core is intentionally consolidated; its concerns are
+# ordered by pass (schema -> tables -> indexes -> persistence hooks).
+# pylint: disable=too-many-lines
 
 # Import Modules
 from __future__ import annotations
@@ -20,6 +26,10 @@ from nadata.core.struct.struct_method import StructMethod
 from nadata.core.database.page_manager import PageManager
 from nadata.core.database.query_engine import QueryExecutor
 from nadata.core.types.types import TypeBool, TypeFloat, TypeInt, TypeStr
+from nadata.core.database.sampling import (
+    sample_indexed_rows,
+    sample_table_rows,
+)
 
 
 
@@ -553,86 +563,14 @@ class StructTable:
         """
         Draws up to count random instances without a full-table decode.
 
-        Without a predicate, distinct local ids are sampled directly and
-        only the chosen rows decode. With a predicate, random rows are
-        probed (decode + test) until enough match; if the probe budget
-        is exhausted first, the remaining rows are scanned so the result
-        stays correct for sparse filters.
-
-        Args:
-            count (int): Desired number of instances.
-            predicate (Optional[Callable]): Optional row filter. Defaults
-                to None (unfiltered sample).
-            rng (Optional[random.Random]): Random source; defaults to the
-                module-level generator (seedable via random.seed).
-            probe_factor (int): Probe budget = probe_factor * count rows
-                before falling back to a scan.
-
-        Returns:
-            list[StructInstance]: Up to count distinct matching instances
-            in random order.
+        Random rows are probed (decoded + tested) until enough match;
+        sparse filters fall back to scanning the remaining rows.
         """
 
-        source: random.Random = rng if rng is not None else random
-
-        if hasattr(self.instances, "all_local_ids"):
-            all_ids: list[int] = self.instances.all_local_ids()
-        else:
-            all_ids: list[int] = list(self.instances.keys())
-
-        if count <= 0 or not all_ids:
-            return []
-
-        if predicate is None:
-            chosen: list[int] = (
-                source.sample(population=all_ids, k=min(count, len(all_ids)))
-            )
-
-            return [self.instances[local_id] for local_id in chosen]
-
-        # Probe phase: random distinct rows, decoded one by one, until
-        # enough match or the budget runs out. The first count matches
-        # of a random ordering are a uniform random subset.
-        probe_budget: int = min(len(all_ids), max(probe_factor * count, count))
-        probe_ids: list[int] = (
-            source.sample(population=all_ids, k=probe_budget)
-            if probe_budget < len(all_ids)
-            else source.sample(population=all_ids, k=len(all_ids))
+        return sample_table_rows(
+            table=self, count=count, predicate=predicate,
+            rng=rng, probe_factor=probe_factor,
         )
-
-        collected: list[StructInstance] = []
-
-        for local_id in probe_ids:
-
-            if local_id not in self.instances:
-                continue
-
-            instance: StructInstance = self.instances[local_id]
-
-            if predicate(instance):
-                collected.append(instance)
-
-                if len(collected) >= count:
-                    return collected
-
-        # Fallback: scan every row not yet probed so sparse filters
-        # still fill the quota (correctness over speed).
-        probed: set[int] = set(probe_ids)
-
-        for local_id in all_ids:
-
-            if local_id in probed or local_id not in self.instances:
-                continue
-
-            instance = self.instances[local_id]
-
-            if predicate(instance):
-                collected.append(instance)
-
-        if len(collected) <= count:
-            return collected
-
-        return source.sample(population=collected, k=count)
 
     def sample_by(
         self,
@@ -645,40 +583,15 @@ class StructTable:
         Draws up to count random instances matching an indexed equality,
         decoding only the chosen rows.
 
-        Args:
-            attribute (str): Indexed scalar attribute name.
-            raw (Any): Raw value to match.
-            count (int): Desired number of instances.
-            rng (Optional[random.Random]): Random source; defaults to the
-                module-level generator.
-
         Returns:
-            Optional[list[StructInstance]]: Up to count matching instances
-            in random order, or None when the attribute has no index
-            (callers fall back to sample() with a predicate).
+            Optional[list[StructInstance]]: Up to count matching
+            instances in random order, or None when the attribute has
+            no index (callers fall back to sample()).
         """
 
-        index: Optional[dict[Any, set[int]]] = self.indexes.get(attribute)
-
-        if index is None:
-            return None
-
-        local_ids: Optional[set[int]] = index.get(raw)
-
-        if not local_ids:
-            return []
-
-        source: random.Random = rng if rng is not None else random
-        ids: list[int] = [
-            local_id for local_id in local_ids if local_id in self.instances
-        ]
-
-        if len(ids) <= count:
-            return [self.instances[local_id] for local_id in ids]
-
-        chosen: list[int] = source.sample(population=ids, k=count)
-
-        return [self.instances[local_id] for local_id in chosen]
+        return sample_indexed_rows(
+            table=self, attribute=attribute, raw=raw, count=count, rng=rng
+        )
 
 
 class NaDataDatabase:

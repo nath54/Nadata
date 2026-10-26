@@ -167,6 +167,9 @@ def _unwrap_value(val: Any) -> Any:
     return val.get() if isinstance(val, Value) else val
 
 
+# The facade mirrors the engine surface (queries, sampling, persistence,
+# I/O, session), so its public method count is intentionally high.
+# pylint: disable=too-many-public-methods
 class Nadata:
     """
     High level facade over a Nadata database.
@@ -650,8 +653,10 @@ class Nadata:
         if count <= 0:
             return []
 
-        # (table, local_id) pairs over the whole hierarchy — no decode
-        entries: list[tuple[Any, int]] = []
+        # Per-table sampling over the whole hierarchy, then reduce;
+        # the probe/scan algorithm itself lives on the tables
+        # (nadata.core.database.sampling).
+        collected: list[StructInstance] = []
 
         for table in self.database.tables_by_struct_name.values():
 
@@ -660,40 +665,16 @@ class Nadata:
             ):
                 continue
 
-            if hasattr(table.instances, "all_local_ids"):
-                local_ids: list[int] = table.instances.all_local_ids()
-            else:
-                local_ids: list[int] = list(table.instances.keys())
+            drawn: list[StructInstance] = table.sample(
+                count=count, predicate=predicate
+            )
 
-            entries.extend((table, local_id) for local_id in local_ids)
+            collected.extend(drawn)
 
-        if not entries:
-            return []
+        if len(collected) <= count:
+            return collected
 
-        if predicate is None:
-            chosen = random.sample(population=entries, k=min(count, len(entries)))
-
-            return [table.instances[local_id] for table, local_id in chosen]
-
-        # Probe phase over a shuffled view of all rows
-        random.shuffle(entries)
-
-        collected: list[StructInstance] = []
-
-        for table, local_id in entries:
-
-            if local_id not in table.instances:
-                continue
-
-            instance: StructInstance = table.instances[local_id]
-
-            if predicate(instance):
-                collected.append(instance)
-
-                if len(collected) >= count:
-                    return collected
-
-        return collected
+        return random.sample(population=collected, k=count)
 
     def count(self, struct_name: str) -> int:
         """

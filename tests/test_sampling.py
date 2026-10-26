@@ -57,7 +57,6 @@ def _populated_app(item_count: int = 5_000) -> Any:
 
     random.seed(1234)
 
-    app: Any = _app()
     tmp: Path = Path(tempfile.mkdtemp())
     project: Path = tmp / "p"
     (project / "structs").mkdir(parents=True)
@@ -99,9 +98,11 @@ def _binding(app: Any, struct_name: str) -> Any:
         Any: The StructRuntimeBinding.
     """
 
-    app._ensure_globals()
+    # Reaching into the facade's lazy globals is the documented way to
+    # grab language bindings from Python tests.
+    app._ensure_globals()  # pylint: disable=protected-access
 
-    return app._globals[struct_name]
+    return app._globals[struct_name]  # pylint: disable=protected-access
 
 
 class TestStructTableSample:

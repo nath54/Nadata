@@ -150,13 +150,16 @@ class QuerySet:
             random order.
         """
 
-        raw_count: int = (
+        raw_count: Any = (
             count.get()
             if isinstance(count, Value) and not isinstance(count.get(), bool)
             else count
         )
 
-        if not isinstance(raw_count, int) or raw_count <= 0:
+        if not isinstance(raw_count, int) or isinstance(raw_count, bool):
+            return []
+
+        if raw_count <= 0:
             return []
 
         source: Any = rng if rng is not None else random
@@ -164,7 +167,11 @@ class QuerySet:
         if len(self.instances) <= raw_count:
             return list(self.instances)
 
-        return source.sample(population=self.instances, k=raw_count)
+        drawn: list[StructInstance] = source.sample(
+            population=self.instances, k=raw_count
+        )
+
+        return drawn
 
     def count(self) -> int:
         """
