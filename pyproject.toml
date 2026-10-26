@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nadata"
-version = "0.1.0"
+version = "0.1.1"
 description = "A declarative data schema and object-graph modeling framework"
 readme = "README.md"
 license = "MIT"

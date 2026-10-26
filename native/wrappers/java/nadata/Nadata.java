@@ -50,7 +50,7 @@ import java.util.OptionalLong;
  *       {@link Boolean}, {@link List}, {@link Map}; entity references
  *       come back as raw {@link Long} entity ids (use
  *       {@link #instance(long)} to pass them back in). Ids are opaque
- *       64-bit values — 0 can be a valid id, check
+ *       64-bit values â€” 0 can be a valid id, check
  *       {@link Database#instanceIdValid} instead of comparing to 0.</li>
  * </ul>
  *

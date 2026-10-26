@@ -17,7 +17,7 @@ Usage:
     python scripts/build_jvm_bundle.py \
         --staged .native-cache/dist/x86_64-pc-windows-msvc \
         [--staged .native-cache/dist/aarch64-apple-darwin ...] \
-        [--out dist/nadata-jvm-0.1.0.jar] [--version 0.1.0]
+        [--out dist/nadata-jvm-0.1.1.jar] [--version 0.1.1]
 
 The Java binding + loader are compiled with the host JDK (JAVA_HOME or
 PATH); no Gradle/Maven needed.
@@ -64,7 +64,7 @@ def main() -> int:
     parser.add_argument("--staged", action="append", required=True,
                         help="staged dist dir (repeatable)")
     parser.add_argument("--out", default=None, help="output jar path")
-    parser.add_argument("--version", default="0.1.0")
+    parser.add_argument("--version", default="0.1.1")
     args = parser.parse_args()
 
     out = Path(args.out) if args.out else Path(

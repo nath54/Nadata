@@ -12,4 +12,4 @@ from nadata.cli import main
 
 __all__ = ["Nadata", "main", "__version__"]
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
