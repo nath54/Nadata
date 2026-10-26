@@ -6,8 +6,7 @@ library that carries its own CPython runtime. This document is the
 contract for host authors: calling conventions, ownership rules,
 error handling, and the runtime layout.
 
-For the design rationale see `docs/abi_thinking.md`; for the Python
-facade being mapped, see `docs/api.md`.
+For the Python facade being mapped, see `docs/api.md`.
 
 ---
 
