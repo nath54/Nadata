@@ -397,25 +397,30 @@ int nd_ensure_interpreter(void)
 
     /* Import the facade class first: it validates the installation. */
     /*
-     * faulthandler first: any later native crash prints the Python
-     * stack instead of dying silently (invaluable for shim debugging).
+     * faulthandler: any later native crash prints the Python stack
+     * instead of dying silently (invaluable for shim debugging).
+     * Opt-in via NADATA_FAULTHANDLER=1: under host runtimes that use
+     * benign AVs for control flow (the JVM's implicit null checks) it
+     * would spam traces on every null-check exception.
      */
-    PyObject* fault_mod = PyImport_ImportModule("faulthandler");
+    if (getenv("NADATA_FAULTHANDLER") != NULL) {
+        PyObject* fault_mod = PyImport_ImportModule("faulthandler");
 
-    if (fault_mod != NULL) {
-        PyObject* enable = nd_attr(fault_mod, "enable");
+        if (fault_mod != NULL) {
+            PyObject* enable = nd_attr(fault_mod, "enable");
 
-        if (enable != NULL) {
-            PyObject* none = nd_call(enable, NULL, NULL);
+            if (enable != NULL) {
+                PyObject* none = nd_call(enable, NULL, NULL);
 
-            if (none == NULL) {
-                PyErr_Clear();
+                if (none == NULL) {
+                    PyErr_Clear();
+                }
+
+                Py_DECREF(enable);
             }
 
-            Py_DECREF(enable);
+            Py_DECREF(fault_mod);
         }
-
-        Py_DECREF(fault_mod);
     }
 
     PyErr_Clear();

@@ -276,7 +276,8 @@ calling convention, no `__stdcall`, no struct return values):
   32-byte `Memory` blocks (tag @ 0, payload @ 8) — simpler and faster
   than `Structure`/`Union`. `nd_query_where_cb` is intentionally not
   mapped (JNA callbacks cannot honour the GIL contract); use
-  `whereStr`. Run: `python native/wrappers/tests/java/run.py`.
+  `whereStr`. Run: `python native/wrappers/tests/java/run.py` —
+  add `--bench` for the benchmark port.
 - **Python hosts** (ctypes): load the dll, set `argtypes`/`restype`,
   build `NdValue` via `struct.pack` — see `native/tests/repro_call_*.py`.
 - **Kotlin**: reuses the Java JNA binding directly (same jar, more

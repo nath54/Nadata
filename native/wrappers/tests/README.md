@@ -80,12 +80,40 @@ python native/wrappers/tests/cpp/run.py            # build + conformance
 python native/wrappers/tests/cpp/run.py --bench    # build + benchmark
 ```
 
+C++ reference (Win11, same session as the Java numbers):
+
+| Workload | ops/sec |
+|---|---|
+| load | 61 |
+| get_attribute | 563,739 |
+| set_attribute | 219,935 |
+| query_where_count | 21,382 |
+| create_instance | 108,906 |
+| call_function | 18,252 |
+
 ## Running the Java suite (JDK 11+, JNA 5.14)
 
 ```bash
 python native/wrappers/tests/java/run.py            # download JNA, compile, run
-python native/wrappers/tests/java/run.py --skip-dl  # offline (jar cached)
+python native/wrappers/tests/java/run.py --bench   # benchmark (same protocol)
 ```
+
+Reference numbers (same session as the C++ table, Win11, ops/sec):
+
+| Workload | C++ | Java/JNA | ratio |
+|---|---|---|---|
+| load | 61 | 58 | 1.05x |
+| get_attribute | 563,739 | 80,227 | 7.0x |
+| set_attribute | 219,935 | 93,025 | 2.4x |
+| query_where_count | 21,382 | 15,947 | 1.3x |
+| create_instance | 108,906 | 34,254 | 3.2x |
+| call_function | 18,252 | 15,214 | 1.2x |
+
+The pattern is instructive: **coarse operations (load, query,
+call_function) land within 5-30% of C++**, while the fine-grained
+get/set pay the JNA proxy dispatch (~1-2µs/call) plus the per-call
+32-byte block allocation. Peak RSS 131 MB (JVM baseline ~56 MB).
+A JNA *direct-mapping* port could shave part of the fine-grained tax.
 
 Requires `javac`/`java` on PATH (or `JAVA_HOME`), the dev shim
 (`python native/build.py`) and the repo root as cwd. The JNA jar is

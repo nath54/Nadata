@@ -88,6 +88,9 @@ def main() -> int:
         str(TEST_DIR / "Conformance.java"),
     ]
 
+    if "--bench" in sys.argv:
+        sources.append(str(TEST_DIR / "Benchmark.java"))
+
     compile_cmd = [javac, "-encoding", "UTF-8", "-Xlint:all",
                    "-classpath", str(jna_jar), "-d", str(CLASSES)]
     compile_cmd += sources
@@ -120,12 +123,14 @@ def main() -> int:
         env["PATH"] = f"{build_dir}:" + env.get("PATH", "")
         env["JNA_LIBRARY_PATH"] = str(build_dir)
 
+    main_class = "Benchmark" if "--bench" in sys.argv else "Conformance"
+
     run_cmd = [
         java,
         f"-Djna.library.path={build_dir}",
         f"-Djna.nosys=true",
         "-classpath", f"{CLASSES}{os.pathsep}{jna_jar}",
-        "Conformance",
+        main_class,
     ]
 
     print("[java]", " ".join(run_cmd))
