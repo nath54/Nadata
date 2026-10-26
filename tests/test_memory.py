@@ -30,7 +30,11 @@ from nadata.core.database.persistence.lazy_instances import (
     PendingRow,
     RowDecoder,
 )
-from nadata.core.database.persistence.loader import load_database
+from nadata.core.database.persistence.loader import (
+    _is_binary_batch,
+    _is_json_document,
+    load_database,
+)
 from nadata.core.database.persistence.record_store import RecordStore
 from nadata.core.database.slotted_page import SlottedPage
 from nadata.core.expressions.builtins import (
@@ -242,6 +246,60 @@ class TestRecordStoreIndex:
         page.insert_record(record=b"payload")
 
         assert page.slot_count == 1
+
+
+class TestBatchDocumentClassification:
+    """
+    Binary batch payloads start with a varint of the header length,
+    which can be ANY byte value — including '{' (0x7B) when the header
+    is exactly 123 bytes. Classification must parse the header, not
+    sniff the first byte.
+    """
+
+    def test_batch_with_brace_header_length_is_not_json(self) -> None:
+        """
+        A 512-row TagRef batch with max_local_id=10000 has a 123-byte
+        header; its varint is '{' and it used to be classified as a
+        JSON document (crashing load_database with UnicodeDecodeError).
+        """
+
+        rows: list[tuple[int, bytes]] = [
+            (281474976710656 + local_id, b"\\x00")
+            for local_id in range(512)
+        ]
+
+        payload: bytes = encode_batch_document(
+            struct_name="TagRef",
+            columns=["tag", "word"],
+            max_local_id=10000,
+            rows=rows,
+        )
+
+        assert payload[0] == 0x7B   # the collision: '{' as a varint
+
+        assert _is_binary_batch(payload=payload)
+        # _is_json_document is brace-sniffing and also returns True here;
+        # load_database must therefore check batches FIRST (which it does).
+        assert _is_json_document(payload=payload)
+
+        name, columns, max_local_id, decoded = decode_batch_document(
+            payload=payload
+        )
+
+        assert name == "TagRef"
+        assert max_local_id == 10000
+        assert len(decoded) == 512
+
+    def test_json_document_still_classified(self) -> None:
+        """
+        Genuine JSON documents remain classified as JSON, and binary
+        batch classification rejects them.
+        """
+
+        payload = b'{"kind":"meta","format_version":2}'
+
+        assert _is_json_document(payload=payload)
+        assert not _is_binary_batch(payload=payload)
 
 
 class TestDiskBackedRows:

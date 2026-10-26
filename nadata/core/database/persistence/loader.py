@@ -54,7 +54,10 @@ def _is_binary_batch(payload: bytes) -> bool:
     Checks whether a stored document payload is a binary instance batch.
 
     Batch documents start with a varint header length followed by a JSON
-    header whose kind is 'instances'; JSON documents start with '{'.
+    header whose kind is 'instances'. That varint byte can be ANY value
+    including '{' (0x7B) when the header is exactly 123 bytes long, so
+    the first byte alone cannot discriminate — the header itself is
+    parsed instead (which also rejects truncated payloads).
 
     Args:
         payload (bytes): Document payload.
@@ -63,12 +66,12 @@ def _is_binary_batch(payload: bytes) -> bool:
         bool: True if the payload is a binary instance batch.
     """
 
-    if payload[:1] in (b"{", b"["):
-        return False
-
     try:
         header_len: int
         header_len, offset = decode_varint(payload=payload, offset=0)
+
+        if offset + header_len > len(payload) or header_len <= 0:
+            return False
 
         header: dict[str, Any] = json.loads(
             payload[offset:offset + header_len].decode("utf-8")
@@ -77,7 +80,11 @@ def _is_binary_batch(payload: bytes) -> bool:
     except (IndexError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return False
 
-    return header.get("kind") == "instances" and header.get("format") == "binary"
+    return (
+        isinstance(header, dict)
+        and header.get("kind") == "instances"
+        and header.get("format") == "binary"
+    )
 
 
 def _column_types(struct: Struct, columns: list[str]) -> dict[str, Type]:
@@ -135,6 +142,11 @@ def load_database(storage_path: str) -> NaDataDatabase:
     for doc_id in sorted(record_store.document_locations()):
 
         payload: bytes = record_store.read_document(doc_id=doc_id)
+
+        # Batch check first: a batch whose varint header length is
+        # exactly 123 starts with '{' and must not hit the JSON path.
+        if _is_binary_batch(payload=payload):
+            continue
 
         if _is_json_document(payload=payload):
             documents.append(json.loads(payload.decode("utf-8")))
