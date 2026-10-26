@@ -280,8 +280,13 @@ calling convention, no `__stdcall`, no struct return values):
   add `--bench` for the benchmark port.
 - **Python hosts** (ctypes): load the dll, set `argtypes`/`restype`,
   build `NdValue` via `struct.pack` — see `native/tests/repro_call_*.py`.
-- **Kotlin**: reuses the Java JNA binding directly (same jar, more
-  idiomatic extensions possible), or Panama `java.lang.foreign`.
+- **Kotlin**: `native/wrappers/kotlin/` — thin idiomatic layer over
+  the Java binding (operators, properties, `Long?` optionals,
+  `getOrNull`, AutoCloseable `using {}`); 76/76 conformance cases
+  green. No separate benchmark: extensions compile to the same Java
+  calls. Run: `python native/wrappers/tests/kotlin/run.py`.
+- **Kotlin/Java (raw)**: reuses the Java JNA binding directly, or
+  Panama `java.lang.foreign`.
 - **Rust**: `bindgen` over `nadata.h`, then a safe wrapper.
 - **JavaScript**: Pyodide-style embedding; only `where_str` filters.
 

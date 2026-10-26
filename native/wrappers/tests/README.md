@@ -34,6 +34,7 @@ symbol → NOTFOUND, bad `.ndb` → VALUE, `n ====` → SYNTAX).
 native/wrappers/
   cpp/nadata.hpp              header-only C++17 wrapper
   java/nadata/                JNA binding (library + high-level API)
+  kotlin/nadata/NadataExt.kt  idiomatic Kotlin layer over the JNA binding
   tests/
     README.md                 this contract
     cpp/
@@ -42,7 +43,11 @@ native/wrappers/
       run.py                  builds & runs against the dev shim
     java/
       Conformance.java        case-id replay (same ids as Python/C++)
+      Benchmark.java          speed + memory protocol (same workloads)
       run.py                  compiles + runs against the dev shim
+    kotlin/
+      Conformance.kt          case-id replay (same ids as Python/C++/Java)
+      run.py                  downloads kotlinc, compiles + runs
 ```
 
 Each future language adds `tests/<lang>/` with the same two binaries
@@ -114,6 +119,27 @@ call_function) land within 5-30% of C++**, while the fine-grained
 get/set pay the JNA proxy dispatch (~1-2µs/call) plus the per-call
 32-byte block allocation. Peak RSS 131 MB (JVM baseline ~56 MB).
 A JNA *direct-mapping* port could shave part of the fine-grained tax.
+
+## Running the Kotlin suite (JDK 11+, kotlinc 2.0.21)
+
+```bash
+python native/wrappers/tests/kotlin/run.py            # download kotlinc, compile, run
+python native/wrappers/tests/kotlin/run.py --skip-dl  # offline (cached)
+```
+
+The Kotlin wrapper (`native/wrappers/kotlin/nadata/NadataExt.kt`) is a
+thin idiomatic layer **over the Java binding** — zero new native code:
+operator `get`/`set` (`db["tom", "birthplace"]`), properties, `Long?`
+instead of `OptionalLong` (`firstIdOrNull`, `getByNidOrNull`),
+`getOrNull` (NOTFOUND -> null) and an AutoCloseable `using {}`.
+Extensions compile to static methods calling the same Java methods,
+so JVM-benchmark numbers are identical by construction (no separate
+benchmark port needed). 76/76 cases green (the 72 Java ids plus
+null-mapping helpers).
+
+Note: `run.py` drives `kotlin-compiler.jar` directly through the host
+JVM — the `kotlinc.bat` launcher mishandles quoted paths containing
+spaces (e.g. `Cerisara Nathan`).
 
 Requires `javac`/`java` on PATH (or `JAVA_HOME`), the dev shim
 (`python native/build.py`) and the repo root as cwd. The JNA jar is
