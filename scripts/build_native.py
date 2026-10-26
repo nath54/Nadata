@@ -601,6 +601,10 @@ def stage(target: str, install: Path, library: Path) -> Path:
     shutil.copy2(REPO_ROOT / "native" / "wrappers" / "cpp" / "nadata.hpp",
                  staged / "nadata.hpp")
 
+    # The CMake consumer config (see the file header for usage).
+    shutil.copy2(REPO_ROOT / "native" / "cmake" / "nadataConfig.cmake",
+                 staged / "nadataConfig.cmake")
+
     # 2. The engine package (pure Python, zero dependencies).
     package_ignore = shutil.ignore_patterns(
         "__pycache__", "*.pyc", "tests")
